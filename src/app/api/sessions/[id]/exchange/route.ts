@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { chatCompletion, isPuterConfigured } from '@/lib/puter-ai'
 
 interface Character {
   id: string
@@ -11,63 +12,47 @@ interface Character {
   silenceDuration: number
 }
 
-const ARCHETYPE_RESPONSES: Record<string, string[]> = {
+const ARCHETYPE_DESCRIPTIONS: Record<string, string> = {
+  skeptic: 'You are a skeptical interviewer who challenges every claim. You demand specifics, metrics, and evidence. You push back on vague answers and ask pointed follow-ups.',
+  friendly_champion: 'You are a warm, enthusiastic interviewer who builds rapport. You encourage the candidate while still probing for depth. You show genuine interest.',
+  technical_griller: 'You are a technical interviewer who digs into implementation details, system design, architecture decisions, and edge cases. You want to understand how things actually work.',
+  distracted_senior: 'You are a senior executive who is somewhat distracted. You occasionally check your phone, ask about big-picture strategy, and sometimes change topics abruptly. You care about business impact.',
+  culture_fit: 'You are focused on team dynamics, values, and cultural alignment. You ask about collaboration, conflict resolution, and working styles.',
+  silent_observer: 'You are quiet and observant. You give minimal responses — short phrases, nods, or silence. You make the candidate uncomfortable with pauses. Respond in 1-10 words max.',
+}
+
+const ARCHETYPE_FALLBACK_RESPONSES: Record<string, string[]> = {
   skeptic: [
     "Can you be more specific about the actual impact you had?",
     "What was the measurable outcome of that initiative?",
     "I'm not sure I follow — what evidence do you have that this approach worked?",
-    "Interesting, but how does that scale beyond your specific context?",
     "Let's dig deeper. What were the concrete numbers?",
-    "That sounds a bit vague. Can you quantify your contribution?",
-    "How would you handle pushback from stakeholders who disagree with that approach?",
-    "What would you have done differently if you had to do it again?",
-    "I've seen that approach fail at scale. What makes you confident it would work here?",
     "Walk me through the decision-making process. What alternatives did you consider?",
   ],
   friendly_champion: [
     "That's really interesting, tell me more about how you approached that.",
     "I love that example! How did the team respond to your leadership there?",
-    "That's a great point. Can you share another example of that skill in action?",
     "Wonderful — that really resonates with what we're building here.",
-    "I can see how that experience would be valuable. What was the most rewarding part?",
     "That's exactly the kind of initiative we value. How did you get buy-in for that?",
-    "Great answer! Let me ask you about a related topic...",
-    "I appreciate you sharing that. It sounds like it was a meaningful experience.",
-    "That aligns well with our team culture. How do you typically collaborate with cross-functional teams?",
     "Fantastic. What drew you to take on that challenge?",
   ],
   technical_griller: [
     "Walk me through exactly how you implemented that. What was the architecture?",
-    "What's the time complexity of that approach? Could you optimize it further?",
     "How did you handle edge cases? What about failure scenarios?",
-    "Can you whiteboard the system design for me? What are the key components?",
     "What tradeoffs did you consider? Why did you choose that tech stack?",
     "How would you debug this if it broke in production at 3 AM?",
-    "Tell me about the most technically challenging problem you solved there.",
     "What testing strategy did you use? How did you ensure reliability?",
-    "How does that solution handle concurrent requests? What about race conditions?",
-    "If you had to rewrite that system from scratch today, what would you change?",
   ],
   distracted_senior: [
     "Sorry, can you repeat that? I was just looking at something.",
     "Right, right... So how does this tie back to business impact?",
-    "Mm-hmm. And in terms of the bottom line, what did that mean for revenue?",
-    "Interesting. *checks phone* Sorry — go on, you were saying?",
     "That's fine. What I really want to understand is the strategic vision.",
-    "Let me jump in here — how would you handle a situation where priorities shift mid-quarter?",
-    "OK, but zooming out — where do you see yourself contributing at the executive level?",
-    "Hold that thought... Actually, that's a good point. Continue.",
     "I've seen a lot of candidates with similar backgrounds. What truly sets you apart?",
     "Let's fast-forward. Where do you see this role in three years?",
   ],
   culture_fit: [
     "How would your closest colleagues describe your working style?",
-    "Tell me about a time when you had a conflict with a teammate. How did you resolve it?",
     "What kind of work environment brings out your best performance?",
-    "How do you handle feedback that you disagree with?",
-    "What does diversity and inclusion mean to you in a workplace context?",
-    "Describe a time when you had to adapt to a significant change at work.",
-    "How do you maintain work-life balance while staying committed to your team?",
     "What values are most important to you in a company culture?",
     "Tell me about a time you went above and beyond for a colleague.",
     "How do you build trust with new team members?",
@@ -77,51 +62,7 @@ const ARCHETYPE_RESPONSES: Record<string, string[]> = {
     "*nods slowly*",
     "Hmm.",
     "I see. Please continue.",
-    "*makes a note*",
     "Interesting.",
-    "*maintains eye contact*",
-    "Go on.",
-    "And then?",
-    "*leans back thoughtfully*",
-  ],
-}
-
-const ARCHETYPE_FOLLOW_UPS: Record<string, string[]> = {
-  skeptic: [
-    "Following up on that — ",
-    "I want to push back a bit — ",
-    "Let's stress-test that answer. ",
-    "Playing devil's advocate here — ",
-  ],
-  friendly_champion: [
-    "Building on that — ",
-    "That reminds me, I'd love to hear — ",
-    "On a related note — ",
-    "That's great context. Now, ",
-  ],
-  technical_griller: [
-    "Drilling deeper — ",
-    "On the technical side — ",
-    "Let's get into the specifics. ",
-    "From an engineering perspective — ",
-  ],
-  distracted_senior: [
-    "Switching gears — ",
-    "Actually, let me ask — ",
-    "Before I forget — ",
-    "One more thing — ",
-  ],
-  culture_fit: [
-    "That speaks to character. ",
-    "From a team dynamics perspective — ",
-    "I appreciate that perspective. ",
-    "That's helpful for understanding fit. ",
-  ],
-  silent_observer: [
-    "",
-    "One question. ",
-    "I'd like to understand — ",
-    "",
   ],
 }
 
@@ -129,22 +70,42 @@ function randomFrom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)]
 }
 
-function generateResponse(
+async function generateResponseWithAI(
   archetype: string,
+  characterName: string,
+  characterTitle: string,
   messageText: string,
   exchangeCount: number
-): string {
-  const responses = ARCHETYPE_RESPONSES[archetype] || ARCHETYPE_RESPONSES.friendly_champion
-  const followUps = ARCHETYPE_FOLLOW_UPS[archetype] || ARCHETYPE_FOLLOW_UPS.friendly_champion
+): Promise<string> {
+  const archetypeDesc = ARCHETYPE_DESCRIPTIONS[archetype] || ARCHETYPE_DESCRIPTIONS.friendly_champion
 
+  const systemPrompt = `You are ${characterName}, ${characterTitle}, conducting a job interview. ${archetypeDesc}
+
+Rules:
+- Stay in character at all times
+- Respond with 1-3 sentences only
+- React to what the candidate actually said
+- This is exchange #${exchangeCount} in the interview
+- If the candidate's answer is short or vague, push for more detail
+- Never break character or mention you are an AI`
+
+  const userPrompt = `The candidate just said: "${messageText}"
+
+Respond in character as the interviewer.`
+
+  return chatCompletion(systemPrompt, userPrompt, {
+    temperature: 0.9,
+    maxTokens: 200,
+  })
+}
+
+function generateResponseFallback(
+  archetype: string,
+  messageText: string,
+): string {
+  const responses = ARCHETYPE_FALLBACK_RESPONSES[archetype] || ARCHETYPE_FALLBACK_RESPONSES.friendly_champion
   let response = randomFrom(responses)
 
-  // Add follow-up prefix for later exchanges to create conversational flow
-  if (exchangeCount > 2 && Math.random() > 0.5) {
-    response = randomFrom(followUps) + response.charAt(0).toLowerCase() + response.slice(1)
-  }
-
-  // For short candidate answers, skeptic and technical_griller push for more detail
   if (messageText.length < 80) {
     if (archetype === 'skeptic') {
       response = "That's quite brief. " + response
@@ -238,11 +199,23 @@ export async function POST(
     })
 
     // Generate AI response based on archetype
-    const responseText = generateResponse(
-      respondingCharacter.archetype,
-      messageText,
-      exchangeCount
-    )
+    let responseText: string
+    if (isPuterConfigured()) {
+      try {
+        responseText = await generateResponseWithAI(
+          respondingCharacter.archetype,
+          respondingCharacter.name,
+          respondingCharacter.title,
+          messageText,
+          exchangeCount
+        )
+      } catch (aiError) {
+        console.error('AI response generation failed, using fallback:', aiError)
+        responseText = generateResponseFallback(respondingCharacter.archetype, messageText)
+      }
+    } else {
+      responseText = generateResponseFallback(respondingCharacter.archetype, messageText)
+    }
 
     // Create interviewer exchange
     const interviewerExchange = await prisma.sessionExchange.create({
