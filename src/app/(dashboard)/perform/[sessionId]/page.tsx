@@ -13,12 +13,14 @@ import {
   PhoneOff,
   Clock,
   Video,
+  VideoOff,
   Send,
   User,
   MessageSquare,
   Volume2,
   VolumeX,
 } from 'lucide-react'
+import Script from 'next/script'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -371,101 +373,128 @@ function CharacterFace({
 }
 
 // ---------------------------------------------------------------------------
-// Speech synthesis hook
+// Voice config per archetype — OpenAI TTS voices via Puter.js
+// ---------------------------------------------------------------------------
+// OpenAI voices: alloy (neutral), ash (warm male), ballad (expressive),
+// coral (warm female), echo (calm male), fable (storyteller), onyx (deep male),
+// nova (bright female), sage (thoughtful), shimmer (upbeat female), verse (versatile)
+
+const VOICE_CONFIG: Record<string, { voice: string; instructions: string }> = {
+  skeptic: {
+    voice: 'onyx',
+    instructions: 'Speak in a direct, no-nonsense tone. Sound slightly skeptical and probing, like a tough interviewer. Moderate pace.',
+  },
+  friendly_champion: {
+    voice: 'nova',
+    instructions: 'Speak warmly and enthusiastically. Sound genuinely interested and encouraging, like a supportive colleague. Natural, relaxed pace.',
+  },
+  technical_griller: {
+    voice: 'ash',
+    instructions: 'Speak clearly and precisely. Sound analytical and focused, like a senior engineer. Steady, measured pace.',
+  },
+  distracted_senior: {
+    voice: 'echo',
+    instructions: 'Speak in a slightly hurried, casual tone. Sound like a busy executive who is somewhat distracted but still engaged.',
+  },
+  culture_fit: {
+    voice: 'shimmer',
+    instructions: 'Speak in a friendly, conversational tone. Sound warm, approachable, and genuinely curious about the person.',
+  },
+  silent_observer: {
+    voice: 'sage',
+    instructions: 'Speak very briefly and quietly. Sound reserved and thoughtful, with deliberate pauses.',
+  },
+}
+
+// Fallback Web Speech API config for when Puter.js is unavailable
+const FALLBACK_VOICE_CONFIG: Record<string, { pitch: number; rate: number }> = {
+  skeptic: { pitch: 0.85, rate: 0.88 },
+  friendly_champion: { pitch: 1.08, rate: 1.0 },
+  technical_griller: { pitch: 0.92, rate: 0.92 },
+  distracted_senior: { pitch: 1.0, rate: 1.05 },
+  culture_fit: { pitch: 1.05, rate: 0.95 },
+  silent_observer: { pitch: 0.85, rate: 0.82 },
+}
+
+// ---------------------------------------------------------------------------
+// Speech synthesis hook — uses Puter.js OpenAI TTS, falls back to Web Speech
 // ---------------------------------------------------------------------------
 
 function useSpeech() {
-  const synthRef = useRef<SpeechSynthesis | null>(null)
-  const voicesRef = useRef<SpeechSynthesisVoice[]>([])
   const [speaking, setSpeaking] = useState(false)
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null)
+  const synthRef = useRef<SpeechSynthesis | null>(null)
 
   useEffect(() => {
     synthRef.current = window.speechSynthesis
-
-    // Voices load asynchronously in most browsers
-    const loadVoices = () => {
-      voicesRef.current = synthRef.current?.getVoices() || []
-    }
-    loadVoices()
-    if (synthRef.current) {
-      synthRef.current.onvoiceschanged = loadVoices
-    }
-
     return () => {
+      currentAudioRef.current?.pause()
       synthRef.current?.cancel()
-      if (synthRef.current) synthRef.current.onvoiceschanged = null
     }
   }, [])
 
-  const speak = useCallback((text: string, voiceConfig?: { pitch: number; rate: number; preferFemale?: boolean }) => {
-    return new Promise<void>((resolve) => {
-      if (!synthRef.current) { resolve(); return }
-      synthRef.current.cancel()
+  const speak = useCallback((text: string, voiceConfig?: { voice: string; instructions: string }) => {
+    return new Promise<void>(async (resolve) => {
+      // Stop any currently playing audio
+      if (currentAudioRef.current) {
+        currentAudioRef.current.pause()
+        currentAudioRef.current = null
+      }
+      synthRef.current?.cancel()
 
-      const utterance = new SpeechSynthesisUtterance(text)
-      utterance.pitch = voiceConfig?.pitch ?? 1
-      utterance.rate = voiceConfig?.rate ?? 0.95
-      utterance.volume = 1
+      setSpeaking(true)
 
-      // Pick the best available English voice, with gender preference
-      const voices = voicesRef.current.length > 0 ? voicesRef.current : (synthRef.current.getVoices() || [])
-      const enVoices = voices.filter(v => v.lang.startsWith('en'))
-
-      // Prefer natural/high-quality voices
-      const naturalKeywords = ['Natural', 'Neural', 'Premium', 'Enhanced']
-      const goodKeywords = ['Google', 'Microsoft', 'Samantha', 'Daniel', 'Karen', 'Moira', 'Rishi', 'Tessa']
-
-      // Female voice names (common across browsers)
-      const femaleNames = ['Samantha', 'Karen', 'Moira', 'Tessa', 'Victoria', 'Fiona', 'Zira', 'Jenny', 'Aria']
-      // Male voice names
-      const maleNames = ['Daniel', 'Alex', 'Rishi', 'David', 'Guy', 'Mark', 'James', 'Ryan']
-
-      let preferred: SpeechSynthesisVoice | undefined
-
-      if (voiceConfig?.preferFemale !== undefined) {
-        const genderNames = voiceConfig.preferFemale ? femaleNames : maleNames
-        // Try natural + gender match first
-        preferred = enVoices.find(v => naturalKeywords.some(k => v.name.includes(k)) && genderNames.some(n => v.name.includes(n)))
-        // Then good + gender match
-        if (!preferred) preferred = enVoices.find(v => goodKeywords.some(k => v.name.includes(k)) && genderNames.some(n => v.name.includes(n)))
-        // Then any gender match
-        if (!preferred) preferred = enVoices.find(v => genderNames.some(n => v.name.includes(n)))
+      // Try Puter.js OpenAI TTS first
+      const puter = (window as any).puter
+      if (puter?.ai?.txt2speech && voiceConfig) {
+        try {
+          const audio: HTMLAudioElement = await puter.ai.txt2speech(text, {
+            provider: 'openai',
+            model: 'gpt-4o-mini-tts',
+            voice: voiceConfig.voice || 'alloy',
+            instructions: voiceConfig.instructions || '',
+            response_format: 'mp3',
+          })
+          currentAudioRef.current = audio
+          audio.onended = () => { setSpeaking(false); currentAudioRef.current = null; resolve() }
+          audio.onerror = () => { setSpeaking(false); currentAudioRef.current = null; resolve() }
+          audio.play()
+          return
+        } catch (e) {
+          console.warn('Puter TTS failed, falling back to Web Speech:', e)
+        }
       }
 
-      // Fallback: best quality English voice
-      if (!preferred) preferred = enVoices.find(v => naturalKeywords.some(k => v.name.includes(k)))
-      if (!preferred) preferred = enVoices.find(v => goodKeywords.some(k => v.name.includes(k)))
-      if (!preferred) preferred = enVoices[0]
+      // Fallback: Web Speech API
+      if (!synthRef.current) { setSpeaking(false); resolve(); return }
 
+      const utterance = new SpeechSynthesisUtterance(text)
+      const archetype = Object.entries(VOICE_CONFIG).find(([, v]) => v.voice === voiceConfig?.voice)?.[0]
+      const fallback = FALLBACK_VOICE_CONFIG[archetype || 'friendly_champion'] || { pitch: 1, rate: 0.95 }
+      utterance.pitch = fallback.pitch
+      utterance.rate = fallback.rate
+      utterance.volume = 1
+
+      const voices = synthRef.current.getVoices().filter(v => v.lang.startsWith('en'))
+      const preferred = voices.find(v => v.name.includes('Natural') || v.name.includes('Google')) || voices[0]
       if (preferred) utterance.voice = preferred
 
-      utterance.onstart = () => setSpeaking(true)
       utterance.onend = () => { setSpeaking(false); resolve() }
       utterance.onerror = () => { setSpeaking(false); resolve() }
-
       synthRef.current.speak(utterance)
     })
   }, [])
 
   const stop = useCallback(() => {
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause()
+      currentAudioRef.current = null
+    }
     synthRef.current?.cancel()
     setSpeaking(false)
   }, [])
 
   return { speak, stop, speaking }
-}
-
-// ---------------------------------------------------------------------------
-// Voice config per archetype
-// ---------------------------------------------------------------------------
-
-const VOICE_CONFIG: Record<string, { pitch: number; rate: number; preferFemale?: boolean }> = {
-  skeptic: { pitch: 0.85, rate: 0.85, preferFemale: false },
-  friendly_champion: { pitch: 1.1, rate: 1.0, preferFemale: true },
-  technical_griller: { pitch: 0.9, rate: 0.9, preferFemale: false },
-  distracted_senior: { pitch: 1.0, rate: 1.05, preferFemale: false },
-  culture_fit: { pitch: 1.05, rate: 0.95, preferFemale: true },
-  silent_observer: { pitch: 0.8, rate: 0.8, preferFemale: false },
 }
 
 // ---------------------------------------------------------------------------
@@ -509,8 +538,10 @@ export default function InterviewRoomPage() {
 
   // Camera
   const videoRef = useRef<HTMLVideoElement>(null)
+  const selfViewRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const [cameraActive, setCameraActive] = useState(false)
+  const [isCameraOn, setIsCameraOn] = useState(true)
 
   // Chat scroll
   const chatEndRef = useRef<HTMLDivElement>(null)
@@ -579,10 +610,10 @@ export default function InterviewRoomPage() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
       streamRef.current = stream
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
-      }
+      if (videoRef.current) videoRef.current.srcObject = stream
+      if (selfViewRef.current) selfViewRef.current.srcObject = stream
       setCameraActive(true)
+      setIsCameraOn(true)
     } catch {
       console.warn('Camera not available')
       setCameraActive(false)
@@ -593,7 +624,22 @@ export default function InterviewRoomPage() {
     streamRef.current?.getTracks().forEach(t => t.stop())
     streamRef.current = null
     setCameraActive(false)
+    setIsCameraOn(false)
   }
+
+  const toggleCamera = () => {
+    if (!streamRef.current) return
+    const videoTracks = streamRef.current.getVideoTracks()
+    videoTracks.forEach(t => { t.enabled = !t.enabled })
+    setIsCameraOn(prev => !prev)
+  }
+
+  // Sync selfViewRef when stream changes
+  useEffect(() => {
+    if (selfViewRef.current && streamRef.current) {
+      selfViewRef.current.srcObject = streamRef.current
+    }
+  })
 
   useEffect(() => {
     return () => { stopCamera(); stopSpeech() }
@@ -1207,48 +1253,68 @@ export default function InterviewRoomPage() {
   // RENDER: Interview Room (Main Phase)
   // -------------------------------------------
 
-  const renderCharacterGrid = () => {
-    // Height class based on number of characters
-    const heightClass = characters.length <= 2 ? 'h-[45vh]' : 'h-[50vh]'
-
-    if (characters.length === 1) {
-      return (
-        <div className={`${heightClass} flex justify-center items-center p-3`}>
-          <div className="w-full max-w-2xl h-full">
-            <CharacterFace
-              character={characters[0]}
-              isSpeaking={speakingCharacterId === characters[0].id}
-              expression={(characterExpressions[characters[0].id] || 'neutral') as 'neutral' | 'interested' | 'skeptical' | 'nodding' | 'writing'}
-              isLookingAway={characterLookingAway[characters[0].id] || false}
-            />
+  // Webcam tile component for the video grid
+  const renderSelfView = () => (
+    <div className="relative w-full h-full rounded-xl overflow-hidden bg-[#0d0d20]">
+      {cameraActive && isCameraOn ? (
+        <video
+          ref={selfViewRef}
+          autoPlay
+          muted
+          playsInline
+          className="w-full h-full object-cover"
+          style={{ transform: 'scaleX(-1)' }}
+        />
+      ) : (
+        <div className="w-full h-full flex flex-col items-center justify-center gap-2" style={{ background: 'linear-gradient(135deg, #0d1b2a 0%, #1b263b 100%)' }}>
+          <div className="w-16 h-16 rounded-full bg-blue-600/30 flex items-center justify-center">
+            <User className="w-8 h-8 text-blue-300" />
+          </div>
+          {!cameraActive && <p className="text-gray-500 text-xs">Camera off</p>}
+        </div>
+      )}
+      {/* Name label */}
+      <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/60 to-transparent">
+        <p className="text-white text-sm font-medium">You</p>
+      </div>
+      {/* Mic active indicator */}
+      {isMicOn && isListening && (
+        <div className="absolute top-2 right-2 flex items-center gap-1 bg-green-500/20 rounded-full px-2 py-0.5">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+          </span>
+        </div>
+      )}
+      {/* Camera off overlay */}
+      {cameraActive && !isCameraOn && (
+        <div className="absolute inset-0 bg-[#0d0d20] flex flex-col items-center justify-center gap-2">
+          <div className="w-16 h-16 rounded-full bg-blue-600/30 flex items-center justify-center">
+            <User className="w-8 h-8 text-blue-300" />
           </div>
         </div>
-      )
-    }
+      )}
+    </div>
+  )
 
-    if (characters.length === 2) {
-      return (
-        <div className={`${heightClass} grid grid-cols-2 gap-2 p-3 max-w-5xl mx-auto`}>
-          {characters.map(char => (
-            <div key={char.id} className="h-full">
-              <CharacterFace
-                character={char}
-                isSpeaking={speakingCharacterId === char.id}
-                expression={(characterExpressions[char.id] || 'neutral') as 'neutral' | 'interested' | 'skeptical' | 'nodding' | 'writing'}
-                isLookingAway={characterLookingAway[char.id] || false}
-              />
-            </div>
-          ))}
-        </div>
-      )
-    }
+  const renderCharacterGrid = () => {
+    const totalTiles = characters.length + 1 // +1 for self-view
+    // Determine grid layout for video-call style
+    const cols = totalTiles <= 2 ? 2 : totalTiles <= 4 ? 2 : 3
 
-    // 3 characters: 2 on top, 1 centered below
     return (
-      <div className={`${heightClass} flex flex-col gap-2 p-3 max-w-5xl mx-auto`}>
-        <div className="flex-1 grid grid-cols-2 gap-2 min-h-0">
-          {characters.slice(0, 2).map(char => (
-            <div key={char.id} className="h-full">
+      <div className="flex-1 min-h-0 p-2">
+        <div
+          className="w-full h-full gap-2 max-w-6xl mx-auto"
+          style={{
+            display: 'grid',
+            gridTemplateColumns: `repeat(${cols}, 1fr)`,
+            gridAutoRows: '1fr',
+          }}
+        >
+          {/* Interviewer character tiles */}
+          {characters.map(char => (
+            <div key={char.id} className="min-h-0">
               <CharacterFace
                 character={char}
                 isSpeaking={speakingCharacterId === char.id}
@@ -1257,15 +1323,9 @@ export default function InterviewRoomPage() {
               />
             </div>
           ))}
-        </div>
-        <div className="flex-1 flex justify-center min-h-0">
-          <div className="w-1/2 h-full">
-            <CharacterFace
-              character={characters[2]}
-              isSpeaking={speakingCharacterId === characters[2].id}
-              expression={(characterExpressions[characters[2].id] || 'neutral') as 'neutral' | 'interested' | 'skeptical' | 'nodding' | 'writing'}
-              isLookingAway={characterLookingAway[characters[2].id] || false}
-            />
+          {/* Self-view webcam tile */}
+          <div className="min-h-0">
+            {renderSelfView()}
           </div>
         </div>
       </div>
@@ -1286,14 +1346,20 @@ export default function InterviewRoomPage() {
         </div>
       </div>
 
-      {/* Main content: character feeds + chat */}
-      <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-        {/* Character video feeds — fixed height */}
-        {renderCharacterGrid()}
+      {/* Main content: video grid + chat side by side */}
+      <div className="flex-1 flex min-h-0 overflow-hidden">
+        {/* Left: Video call grid — takes most of the space */}
+        <div className="flex-1 flex flex-col min-h-0">
+          {renderCharacterGrid()}
+        </div>
 
-        {/* Chat / Transcript area — fills remaining space */}
-        <div className="flex-1 flex flex-col min-h-0 px-4 pb-2">
-          <div className="flex-1 overflow-y-auto space-y-2 mb-3 pr-2 min-h-0">
+        {/* Right: Chat / Transcript sidebar */}
+        <div className="w-80 lg:w-96 flex flex-col min-h-0 border-l border-[#1a1a35] bg-[#060610]">
+          <div className="px-3 py-2 border-b border-[#1a1a35] flex items-center gap-2">
+            <MessageSquare className="w-4 h-4 text-gray-400" />
+            <span className="text-gray-300 text-xs font-medium">Transcript</span>
+          </div>
+          <div className="flex-1 overflow-y-auto space-y-2 p-3 min-h-0">
             {exchanges.map(exchange => {
               const isCandidate = exchange.speaker === 'candidate'
               const char = getCharacter(exchange.characterId)
@@ -1303,23 +1369,23 @@ export default function InterviewRoomPage() {
                 <div key={exchange.id} className={`flex ${isCandidate ? 'justify-end' : 'justify-start'}`}>
                   {!isCandidate && char && (
                     <div
-                      className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] font-bold shrink-0 mr-2 mt-1"
+                      className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[9px] font-bold shrink-0 mr-1.5 mt-1"
                       style={{ backgroundColor: color }}
                     >
                       {getInitials(char.name)}
                     </div>
                   )}
-                  <div className={`max-w-[70%] rounded-2xl px-4 py-2.5 ${
+                  <div className={`max-w-[85%] rounded-xl px-3 py-2 ${
                     isCandidate
-                      ? 'bg-blue-600 text-white rounded-br-md'
-                      : 'bg-[#111127] text-gray-200 rounded-bl-md'
+                      ? 'bg-blue-600 text-white rounded-br-sm'
+                      : 'bg-[#111127] text-gray-200 rounded-bl-sm'
                   }`}>
                     {!isCandidate && char && (
-                      <p className="text-xs font-medium mb-1" style={{ color }}>
+                      <p className="text-[10px] font-medium mb-0.5" style={{ color }}>
                         {char.name}
                       </p>
                     )}
-                    <p className="text-sm leading-relaxed">{exchange.messageText}</p>
+                    <p className="text-xs leading-relaxed">{exchange.messageText}</p>
                   </div>
                 </div>
               )
@@ -1328,9 +1394,9 @@ export default function InterviewRoomPage() {
             {/* Thinking indicator */}
             {isSending && speakingCharacterId && (
               <div className="flex justify-start">
-                <div className="bg-[#111127] rounded-2xl rounded-bl-md px-4 py-3">
+                <div className="bg-[#111127] rounded-xl rounded-bl-sm px-3 py-2">
                   <div className="flex items-center gap-1.5">
-                    <span className="text-xs text-gray-400 mr-1">thinking</span>
+                    <span className="text-[10px] text-gray-400 mr-1">thinking</span>
                     <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
                     <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
                     <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
@@ -1344,7 +1410,7 @@ export default function InterviewRoomPage() {
 
           {/* Listening indicator */}
           {isListening && (
-            <div className="mb-2 flex items-center justify-center gap-2 py-2">
+            <div className="mx-3 mb-2 flex items-center justify-center gap-2 py-1.5">
               <div className="flex items-center gap-1">
                 {[0, 1, 2, 3, 4].map(i => (
                   <div
@@ -1364,41 +1430,41 @@ export default function InterviewRoomPage() {
 
           {/* Error banner */}
           {error && (
-            <div className="mb-2 px-3 py-2 bg-red-900/40 border border-red-700/50 rounded-lg flex items-center gap-2">
-              <p className="text-red-300 text-sm flex-1">{error}</p>
-              <button onClick={() => setError(null)} className="text-red-400 hover:text-red-300 text-sm">Dismiss</button>
+            <div className="mx-3 mb-2 px-3 py-2 bg-red-900/40 border border-red-700/50 rounded-lg flex items-center gap-2">
+              <p className="text-red-300 text-xs flex-1">{error}</p>
+              <button onClick={() => setError(null)} className="text-red-400 hover:text-red-300 text-xs">Dismiss</button>
             </div>
           )}
 
-          {/* Text input (always visible as fallback, primary in text mode) */}
-          <div className="flex items-center gap-2">
+          {/* Text input */}
+          <div className="flex items-center gap-2 px-3 pb-3">
             <input
               type="text"
               value={inputText}
               onChange={e => setInputText(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={textMode ? 'Type your response...' : 'Type or speak your response...'}
+              placeholder={textMode ? 'Type your response...' : 'Type or speak...'}
               disabled={isSending}
-              className="flex-1 bg-[#111127] text-white placeholder-gray-500 border border-[#1e1e3a] rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
+              className="flex-1 bg-[#111127] text-white placeholder-gray-500 border border-[#1e1e3a] rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
             />
             <button
               onClick={handleSend}
               disabled={isSending || !inputText.trim()}
-              className="w-11 h-11 rounded-xl bg-blue-600 text-white flex items-center justify-center hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+              className="w-9 h-9 rounded-lg bg-blue-600 text-white flex items-center justify-center hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
             >
-              <Send className="w-5 h-5" />
+              <Send className="w-4 h-4" />
             </button>
           </div>
         </div>
       </div>
 
       {/* Bottom controls bar */}
-      <div className="flex items-center justify-center gap-4 px-4 py-3 bg-[#060610] border-t border-[#1a1a35]">
+      <div className="flex items-center justify-center gap-3 px-4 py-3 bg-[#060610] border-t border-[#1a1a35]">
         <button
           onClick={toggleMic}
           className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${
             isMicOn
-              ? 'bg-[#111127] text-white hover:bg-[#1e1e3a]'
+              ? 'bg-[#1e1e3a] text-white hover:bg-[#2a2a4a]'
               : 'bg-red-600 text-white hover:bg-red-700'
           }`}
           title={isMicOn ? 'Mute microphone' : 'Unmute microphone'}
@@ -1407,10 +1473,22 @@ export default function InterviewRoomPage() {
         </button>
 
         <button
+          onClick={toggleCamera}
+          className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${
+            isCameraOn
+              ? 'bg-[#1e1e3a] text-white hover:bg-[#2a2a4a]'
+              : 'bg-red-600 text-white hover:bg-red-700'
+          }`}
+          title={isCameraOn ? 'Turn off camera' : 'Turn on camera'}
+        >
+          {isCameraOn ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
+        </button>
+
+        <button
           onClick={toggleSpeaker}
           className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${
             isSpeakerOn
-              ? 'bg-[#111127] text-white hover:bg-[#1e1e3a]'
+              ? 'bg-[#1e1e3a] text-white hover:bg-[#2a2a4a]'
               : 'bg-orange-600 text-white hover:bg-orange-700'
           }`}
           title={isSpeakerOn ? 'Mute interviewer voice' : 'Unmute interviewer voice'}
@@ -1427,24 +1505,20 @@ export default function InterviewRoomPage() {
         </button>
       </div>
 
-      {/* Candidate self-view webcam */}
+      {/* Puter.js for OpenAI TTS */}
+      <Script src="https://js.puter.com/v2/" strategy="afterInteractive" />
+
+      {/* Hidden video element for camera stream (used by selfViewRef in grid) */}
       {cameraActive && (
-        <div className="absolute bottom-20 right-4 w-36 h-28 rounded-xl overflow-hidden bg-[#111127] border border-[#1e1e3a] shadow-lg">
-          <video
-            ref={videoRef}
-            autoPlay
-            muted
-            playsInline
-            className="w-full h-full object-cover"
-          />
-          <div className="absolute bottom-1 left-1">
-            <span className="text-[10px] bg-black/60 text-white px-1.5 py-0.5 rounded flex items-center gap-1">
-              <User className="w-2.5 h-2.5" />
-              You
-            </span>
-          </div>
-        </div>
+        <video
+          ref={videoRef}
+          autoPlay
+          muted
+          playsInline
+          className="hidden"
+        />
       )}
+
     </div>
   )
 }
