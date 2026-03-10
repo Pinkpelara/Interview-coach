@@ -305,10 +305,10 @@ function useSpeech() {
 
       setSpeaking(true)
 
-      // Try Puter.js OpenAI TTS first
-      const puter = (window as any).puter
-      if (puter?.ai?.txt2speech && voiceConfig) {
-        try {
+      // Try Puter.js OpenAI TTS first (human-quality voices)
+      try {
+        const puter = (window as any).puter
+        if (puter?.ai?.txt2speech && voiceConfig) {
           const audio: HTMLAudioElement = await puter.ai.txt2speech(text, {
             provider: 'openai',
             model: 'gpt-4o-mini-tts',
@@ -319,14 +319,31 @@ function useSpeech() {
           currentAudioRef.current = audio
           audio.onended = () => { setSpeaking(false); currentAudioRef.current = null; resolve() }
           audio.onerror = () => { setSpeaking(false); currentAudioRef.current = null; resolve() }
-          audio.play()
+          await audio.play()
           return
-        } catch (e) {
-          console.warn('Puter TTS failed, falling back to Web Speech:', e)
         }
+      } catch (e) {
+        console.warn('Puter TTS failed, falling back to Web Speech:', e)
       }
 
-      // Fallback: Web Speech API
+      // Second attempt: try Puter.js with simpler config
+      try {
+        const puter = (window as any).puter
+        if (puter?.ai?.txt2speech && voiceConfig) {
+          const audio: HTMLAudioElement = await puter.ai.txt2speech(text, {
+            voice: voiceConfig.voice || 'alloy',
+          })
+          currentAudioRef.current = audio
+          audio.onended = () => { setSpeaking(false); currentAudioRef.current = null; resolve() }
+          audio.onerror = () => { setSpeaking(false); currentAudioRef.current = null; resolve() }
+          await audio.play()
+          return
+        }
+      } catch {
+        // Fall through to Web Speech
+      }
+
+      // Fallback: Web Speech API — pick the most natural-sounding voice available
       if (!synthRef.current) { setSpeaking(false); resolve(); return }
 
       const utterance = new SpeechSynthesisUtterance(text)
@@ -336,8 +353,15 @@ function useSpeech() {
       utterance.rate = fallback.rate
       utterance.volume = 1
 
+      // Prioritize natural/neural voices that sound human, not robotic
       const voices = synthRef.current.getVoices().filter(v => v.lang.startsWith('en'))
-      const preferred = voices.find(v => v.name.includes('Natural') || v.name.includes('Google')) || voices[0]
+      const naturalVoice = voices.find(v =>
+        v.name.includes('Natural') || v.name.includes('Neural') ||
+        v.name.includes('Enhanced') || v.name.includes('Premium')
+      )
+      const googleVoice = voices.find(v => v.name.includes('Google'))
+      const microsoftVoice = voices.find(v => v.name.includes('Microsoft') && (v.name.includes('Online') || v.name.includes('Natural')))
+      const preferred = naturalVoice || microsoftVoice || googleVoice || voices[0]
       if (preferred) utterance.voice = preferred
 
       utterance.onend = () => { setSpeaking(false); resolve() }

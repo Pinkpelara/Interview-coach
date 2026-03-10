@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useCallback, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -19,293 +19,31 @@ export interface AnimatedAvatarProps {
 }
 
 // ---------------------------------------------------------------------------
-// Deterministic hash from seed — consistent avatar per character
-// ---------------------------------------------------------------------------
-
-function hashSeed(seed: string): number {
-  let h = 0
-  for (let i = 0; i < seed.length; i++) {
-    h = ((h << 5) - h + seed.charCodeAt(i)) | 0
-  }
-  return Math.abs(h)
-}
-
-// ---------------------------------------------------------------------------
-// Get a realistic AI-generated / stock portrait photo URL
-// Uses multiple free avatar services for variety and realism
-// ---------------------------------------------------------------------------
-
-function getPhotoUrl(seed: string): string {
-  const h = hashSeed(seed)
-  // Use randomuser.me-style portraits via pravatar (real human photos)
-  // IDs 1-70 are available, all are real professional-looking headshots
-  const id = (h % 70) + 1
-  return `https://i.pravatar.cc/512?img=${id}`
-}
-
-// Fallback: generate a second URL from a different service
-function getFallbackPhotoUrl(seed: string): string {
-  const h = hashSeed(seed)
-  // Use UI Faces style - different set of real photos
-  const gender = h % 2 === 0 ? 'men' : 'women'
-  const id = (h % 80) + 1
-  return `https://randomuser.me/api/portraits/${gender}/${id}.jpg`
-}
-
-// ---------------------------------------------------------------------------
-// Face landmark estimation (approximate for portrait photos)
-// Standard portrait: face centered, eyes ~40% from top, mouth ~70% from top
-// ---------------------------------------------------------------------------
-
-interface FaceLandmarks {
-  leftEye: { x: number; y: number }
-  rightEye: { x: number; y: number }
-  mouth: { x: number; y: number; width: number; height: number }
-  chin: { x: number; y: number }
-  faceCenter: { x: number; y: number }
-}
-
-function estimateLandmarks(w: number, h: number): FaceLandmarks {
-  return {
-    leftEye: { x: w * 0.38, y: h * 0.38 },
-    rightEye: { x: w * 0.62, y: h * 0.38 },
-    mouth: { x: w * 0.5, y: h * 0.62, width: w * 0.2, height: h * 0.06 },
-    chin: { x: w * 0.5, y: h * 0.75 },
-    faceCenter: { x: w * 0.5, y: h * 0.45 },
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Mouth shape definitions for lip sync overlay
+// Mouth shapes for lip sync (CSS-driven)
 // ---------------------------------------------------------------------------
 
 interface MouthShape {
-  openness: number    // 0-1
-  width: number       // 0.5-1.2
-  roundness: number   // 0-1
+  openness: number
+  width: number
+  roundness: number
+  teethShow: boolean
 }
 
-const MOUTH_SHAPES = {
-  rest:   { openness: 0,    width: 1.0,  roundness: 0 },
-  aa:     { openness: 0.85, width: 0.9,  roundness: 0.3 },
-  ee:     { openness: 0.3,  width: 1.2,  roundness: 0.1 },
-  oo:     { openness: 0.6,  width: 0.6,  roundness: 0.9 },
-  ch:     { openness: 0.2,  width: 0.8,  roundness: 0.2 },
-  ff:     { openness: 0.1,  width: 1.0,  roundness: 0 },
-  mm:     { openness: 0,    width: 0.9,  roundness: 0 },
-  th:     { openness: 0.15, width: 0.9,  roundness: 0 },
+const VISEMES: Record<string, MouthShape> = {
+  rest:  { openness: 0,    width: 1.0, roundness: 0,   teethShow: false },
+  aa:    { openness: 0.9,  width: 0.9, roundness: 0.2, teethShow: true },
+  ee:    { openness: 0.3,  width: 1.2, roundness: 0.1, teethShow: true },
+  oo:    { openness: 0.65, width: 0.5, roundness: 0.9, teethShow: false },
+  ch:    { openness: 0.2,  width: 0.8, roundness: 0.2, teethShow: true },
+  ff:    { openness: 0.1,  width: 1.0, roundness: 0,   teethShow: true },
+  mm:    { openness: 0,    width: 0.9, roundness: 0,   teethShow: false },
+  th:    { openness: 0.15, width: 0.9, roundness: 0,   teethShow: true },
 }
 
-type VisemeKey = keyof typeof MOUTH_SHAPES
-const SPEECH_VISEMES: VisemeKey[] = ['aa', 'ee', 'oo', 'ch', 'ff', 'mm', 'aa', 'ee', 'th', 'oo']
+const SPEECH_ORDER: (keyof typeof VISEMES)[] = ['aa', 'ee', 'oo', 'ch', 'ff', 'mm', 'aa', 'ee', 'th', 'oo']
 
 // ---------------------------------------------------------------------------
-// Canvas Renderer — draws real photo + animated overlays
-// ---------------------------------------------------------------------------
-
-function renderFrame(
-  ctx: CanvasRenderingContext2D,
-  photo: HTMLImageElement,
-  cw: number,
-  ch: number,
-  state: {
-    blinkAmount: number
-    mouthShape: MouthShape
-    headOffsetX: number
-    headOffsetY: number
-    headRotation: number
-    headScale: number
-    time: number
-    skinSample: string
-  }
-) {
-  const { blinkAmount, mouthShape, headOffsetX, headOffsetY, headRotation, headScale, time, skinSample } = state
-
-  ctx.clearRect(0, 0, cw, ch)
-
-  // Dark background like a real video call
-  ctx.fillStyle = '#0c0f14'
-  ctx.fillRect(0, 0, cw, ch)
-
-  // --- Draw the photo with head movement transforms ---
-  ctx.save()
-
-  // Apply subtle head movement
-  const cx = cw / 2
-  const cy = ch / 2
-  ctx.translate(cx + headOffsetX, cy + headOffsetY)
-  ctx.rotate((headRotation * Math.PI) / 180)
-  ctx.scale(headScale, headScale)
-  ctx.translate(-cx, -cy)
-
-  // Draw the photo scaled to fill the canvas (cover mode)
-  const imgAspect = photo.width / photo.height
-  const canvasAspect = cw / ch
-  let drawW: number, drawH: number, drawX: number, drawY: number
-
-  if (imgAspect > canvasAspect) {
-    drawH = ch
-    drawW = ch * imgAspect
-    drawX = (cw - drawW) / 2
-    drawY = 0
-  } else {
-    drawW = cw
-    drawH = cw / imgAspect
-    drawX = 0
-    drawY = (ch - drawH) / 2
-  }
-
-  ctx.drawImage(photo, drawX, drawY, drawW, drawH)
-
-  // --- Face landmarks (estimated for standard portrait photos) ---
-  const landmarks = estimateLandmarks(cw, ch)
-
-  // --- BLINK ANIMATION ---
-  // Draw skin-colored patches over eye areas during blink
-  if (blinkAmount > 0.05) {
-    const eyeW = cw * 0.065
-    const eyeH = ch * 0.02
-
-    ctx.fillStyle = skinSample
-    ctx.globalAlpha = blinkAmount
-
-    for (const eye of [landmarks.leftEye, landmarks.rightEye]) {
-      ctx.beginPath()
-      ctx.ellipse(eye.x, eye.y, eyeW, eyeH + blinkAmount * ch * 0.012, 0, 0, Math.PI * 2)
-      ctx.fill()
-    }
-
-    ctx.globalAlpha = 1
-  }
-
-  // --- LIP SYNC MOUTH ANIMATION ---
-  if (mouthShape.openness > 0.02) {
-    const mouth = landmarks.mouth
-    const mw = mouth.width * mouthShape.width
-    const openH = mouth.height * mouthShape.openness * 2.5
-
-    // Cover the photo's mouth area with skin tone
-    ctx.fillStyle = skinSample
-    ctx.beginPath()
-    ctx.ellipse(mouth.x, mouth.y, mw * 1.15, openH * 1.2 + ch * 0.008, 0, 0, Math.PI * 2)
-    ctx.fill()
-
-    // Dark mouth interior
-    ctx.fillStyle = '#2a1015'
-    ctx.beginPath()
-    if (mouthShape.roundness > 0.5) {
-      // Round mouth (oo shape)
-      ctx.ellipse(mouth.x, mouth.y + openH * 0.15, mw * 0.5, openH * 0.8, 0, 0, Math.PI * 2)
-    } else {
-      ctx.ellipse(mouth.x, mouth.y + openH * 0.15, mw * 0.85, openH * 0.7, 0, 0, Math.PI * 2)
-    }
-    ctx.fill()
-
-    // Upper teeth
-    if (mouthShape.openness > 0.15) {
-      ctx.fillStyle = '#f0ece6'
-      const teethW = mw * 0.65
-      const teethH = openH * 0.25
-      ctx.beginPath()
-      ctx.roundRect(mouth.x - teethW, mouth.y - openH * 0.25, teethW * 2, teethH, [0, 0, 2, 2])
-      ctx.fill()
-    }
-
-    // Tongue hint for open vowels
-    if (mouthShape.openness > 0.5) {
-      ctx.fillStyle = '#b04555'
-      ctx.beginPath()
-      ctx.ellipse(mouth.x, mouth.y + openH * 0.35, mw * 0.4, openH * 0.2, 0, 0, Math.PI)
-      ctx.fill()
-    }
-
-    // Upper lip
-    ctx.fillStyle = skinSample
-    ctx.globalAlpha = 0.85
-    const lipShade = adjustColor(skinSample, -20)
-    ctx.strokeStyle = lipShade
-    ctx.lineWidth = 2
-    ctx.beginPath()
-    ctx.moveTo(mouth.x - mw, mouth.y - openH * 0.1)
-    ctx.quadraticCurveTo(mouth.x - mw * 0.4, mouth.y - openH * 0.45, mouth.x, mouth.y - openH * 0.35)
-    ctx.quadraticCurveTo(mouth.x + mw * 0.4, mouth.y - openH * 0.45, mouth.x + mw, mouth.y - openH * 0.1)
-    ctx.stroke()
-    ctx.globalAlpha = 1
-
-    // Lower lip
-    ctx.strokeStyle = lipShade
-    ctx.lineWidth = 2.5
-    ctx.beginPath()
-    ctx.moveTo(mouth.x - mw * 0.9, mouth.y + openH * 0.25)
-    ctx.quadraticCurveTo(mouth.x, mouth.y + openH * 0.8, mouth.x + mw * 0.9, mouth.y + openH * 0.25)
-    ctx.stroke()
-  }
-
-  ctx.restore()
-
-  // --- VIDEO CALL POST-PROCESSING ---
-
-  // Subtle vignette
-  const vig = ctx.createRadialGradient(cw * 0.5, ch * 0.45, cw * 0.2, cw * 0.5, ch * 0.5, cw * 0.75)
-  vig.addColorStop(0, 'rgba(0,0,0,0)')
-  vig.addColorStop(1, 'rgba(0,0,0,0.3)')
-  ctx.fillStyle = vig
-  ctx.fillRect(0, 0, cw, ch)
-
-  // Very subtle scanlines (webcam feel)
-  ctx.fillStyle = 'rgba(0,0,0,0.015)'
-  for (let y = 0; y < ch; y += 2) {
-    ctx.fillRect(0, y, cw, 1)
-  }
-
-  // Minimal noise
-  const noisePhase = Math.floor(time * 4) % 7
-  ctx.fillStyle = 'rgba(255,255,255,0.006)'
-  for (let i = 0; i < 25; i++) {
-    const nx = ((i * 137 + noisePhase * 43) % cw)
-    const ny = ((i * 211 + noisePhase * 67) % ch)
-    ctx.fillRect(nx, ny, 1, 1)
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Color utility
-// ---------------------------------------------------------------------------
-
-function adjustColor(hex: string, amount: number): string {
-  // Parse any CSS color and darken/lighten
-  const match = hex.match(/^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i)
-  if (!match) return hex
-  const r = Math.max(0, Math.min(255, parseInt(match[1], 16) + amount))
-  const g = Math.max(0, Math.min(255, parseInt(match[2], 16) + amount))
-  const b = Math.max(0, Math.min(255, parseInt(match[3], 16) + amount))
-  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
-}
-
-// ---------------------------------------------------------------------------
-// Sample skin color from the loaded photo (forehead area)
-// ---------------------------------------------------------------------------
-
-function sampleSkinColor(img: HTMLImageElement): string {
-  try {
-    const c = document.createElement('canvas')
-    c.width = img.naturalWidth || img.width
-    c.height = img.naturalHeight || img.height
-    const ctx = c.getContext('2d')
-    if (!ctx) return '#d4a574'
-    ctx.drawImage(img, 0, 0)
-    // Sample from forehead region (center-top of face)
-    const sx = Math.floor(c.width * 0.5)
-    const sy = Math.floor(c.height * 0.3)
-    const pixel = ctx.getImageData(sx, sy, 1, 1).data
-    return `rgb(${pixel[0]}, ${pixel[1]}, ${pixel[2]})`
-  } catch {
-    return '#d4a574'
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Main Component
+// Component
 // ---------------------------------------------------------------------------
 
 export default function AnimatedAvatar({
@@ -314,250 +52,290 @@ export default function AnimatedAvatar({
   expression,
   isLookingAway,
   accentColor,
-  width = 480,
-  height = 480,
 }: AnimatedAvatarProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const photoRef = useRef<HTMLImageElement | null>(null)
-  const animRef = useRef<number>(0)
-  const [photoLoaded, setPhotoLoaded] = useState(false)
-  const [photoError, setPhotoError] = useState(false)
-  const skinColorRef = useRef('#d4a574')
+  const [imgLoaded, setImgLoaded] = useState(false)
+  const [imgError, setImgError] = useState(false)
 
-  const stateRef = useRef({
-    // Blink
-    blinkAmount: 0,
-    blinkTimer: 0,
-    nextBlink: 2500,
-    // Mouth
-    currentMouth: { ...MOUTH_SHAPES.rest },
-    targetMouth: { ...MOUTH_SHAPES.rest },
-    visemeIdx: 0,
-    visemeTimer: 0,
-    // Head
-    headOffsetX: 0,
-    headOffsetY: 0,
-    headTargetX: 0,
-    headTargetY: 0,
-    headRot: 0,
-    headRotTarget: 0,
-    headScale: 1.06,
-    headScaleTarget: 1.06,
-    // Nodding
-    nodding: false,
-    nodPhase: 0,
-    // Timing
-    time: 0,
-    lastTs: 0,
-    idleTimer: 0,
-  })
+  // Animation states
+  const [blinking, setBlinking] = useState(false)
+  const [mouthShape, setMouthShape] = useState<MouthShape>(VISEMES.rest)
+  const [headTransform, setHeadTransform] = useState('translate(0px, 0px) rotate(0deg) scale(1.08)')
 
-  // Load photo
+  const blinkTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const visemeRef = useRef(0)
+  const visemeTimerRef = useRef<ReturnType<typeof setInterval>>(undefined)
+  const idleRef = useRef<ReturnType<typeof requestAnimationFrame>>(undefined)
+  const timeRef = useRef(0)
+  const nodPhaseRef = useRef(0)
+  const noddingRef = useRef(false)
+
+  // Target values for smooth interpolation
+  const targetRef = useRef({ x: 0, y: 0, rot: 0, scale: 1.08 })
+  const currentRef = useRef({ x: 0, y: 0, rot: 0, scale: 1.08 })
+
+  const avatarUrl = `/api/avatar?seed=${encodeURIComponent(seed)}`
+
+  // --- NATURAL BLINKING ---
   useEffect(() => {
-    const img = new Image()
-    img.crossOrigin = 'anonymous'
-    img.onload = () => {
-      photoRef.current = img
-      // Sample skin color from the actual photo for matching overlays
-      skinColorRef.current = sampleSkinColor(img)
-      setPhotoLoaded(true)
+    const scheduleBlink = () => {
+      const delay = 2000 + Math.random() * 4000
+      blinkTimerRef.current = setTimeout(() => {
+        setBlinking(true)
+        // Double blink sometimes
+        const doubleBlink = Math.random() < 0.2
+        setTimeout(() => {
+          setBlinking(false)
+          if (doubleBlink) {
+            setTimeout(() => {
+              setBlinking(true)
+              setTimeout(() => setBlinking(false), 120)
+            }, 180)
+          }
+        }, 130)
+        scheduleBlink()
+      }, delay)
     }
-    img.onerror = () => {
-      // Try fallback URL
-      const fallback = new Image()
-      fallback.crossOrigin = 'anonymous'
-      fallback.onload = () => {
-        photoRef.current = fallback
-        skinColorRef.current = sampleSkinColor(fallback)
-        setPhotoLoaded(true)
-      }
-      fallback.onerror = () => setPhotoError(true)
-      fallback.src = getFallbackPhotoUrl(seed)
-    }
-    img.src = getPhotoUrl(seed)
-  }, [seed])
+    scheduleBlink()
+    return () => clearTimeout(blinkTimerRef.current)
+  }, [])
 
-  // Update expression targets
+  // --- LIP SYNC ---
   useEffect(() => {
-    const s = stateRef.current
+    if (isSpeaking) {
+      visemeTimerRef.current = setInterval(() => {
+        visemeRef.current = (visemeRef.current + 1 + Math.floor(Math.random() * 2)) % SPEECH_ORDER.length
+        setMouthShape(VISEMES[SPEECH_ORDER[visemeRef.current]])
+      }, 90 + Math.random() * 80)
+    } else {
+      clearInterval(visemeTimerRef.current)
+      setMouthShape(VISEMES.rest)
+    }
+    return () => clearInterval(visemeTimerRef.current)
+  }, [isSpeaking])
+
+  // --- EXPRESSION & HEAD MOVEMENT ---
+  useEffect(() => {
+    const t = targetRef.current
+    noddingRef.current = false
+
     switch (expression) {
       case 'neutral':
-        s.headRotTarget = 0
-        s.headTargetX = 0
-        s.headTargetY = 0
-        s.headScaleTarget = 1.06
-        s.nodding = false
+        t.x = 0; t.y = 0; t.rot = 0; t.scale = 1.08
         break
       case 'interested':
-        s.headRotTarget = 1.5
-        s.headTargetX = 2
-        s.headTargetY = -3
-        s.headScaleTarget = 1.08 // lean in slightly
-        s.nodding = false
+        t.x = 1; t.y = -2; t.rot = 1.5; t.scale = 1.11 // lean in
         break
       case 'skeptical':
-        s.headRotTarget = -2.5
-        s.headTargetX = -3
-        s.headTargetY = 0
-        s.headScaleTarget = 1.05
-        s.nodding = false
+        t.x = -2; t.y = 0; t.rot = -2.5; t.scale = 1.07
         break
       case 'nodding':
-        s.nodding = true
-        s.nodPhase = 0
-        s.headScaleTarget = 1.07
+        noddingRef.current = true
+        nodPhaseRef.current = 0
+        t.scale = 1.09
         break
       case 'writing':
-        s.headRotTarget = -1.5
-        s.headTargetX = 4
-        s.headTargetY = 6 // looking down at notes
-        s.headScaleTarget = 1.05
-        s.nodding = false
+        t.x = 3; t.y = 5; t.rot = -1.5; t.scale = 1.06 // looking down
         break
     }
   }, [expression])
 
-  // Update look-away
+  // --- LOOKING AWAY ---
   useEffect(() => {
-    const s = stateRef.current
+    const t = targetRef.current
     if (isLookingAway) {
-      s.headTargetX = 12 + Math.random() * 8
-      s.headTargetY = 4 + Math.random() * 4
-      s.headRotTarget = 3
+      t.x = 10 + Math.random() * 8
+      t.y = 3 + Math.random() * 3
+      t.rot = 3
     } else if (expression === 'neutral') {
-      s.headTargetX = 0
-      s.headTargetY = 0
-      s.headRotTarget = 0
+      t.x = 0; t.y = 0; t.rot = 0
     }
   }, [isLookingAway, expression])
 
-  // Animation loop
-  const animate = useCallback((ts: number) => {
-    const canvas = canvasRef.current
-    const photo = photoRef.current
-    if (!canvas || !photo) {
-      animRef.current = requestAnimationFrame(animate)
-      return
-    }
-
-    const ctx = canvas.getContext('2d')
-    if (!ctx) {
-      animRef.current = requestAnimationFrame(animate)
-      return
-    }
-
-    const s = stateRef.current
-    const dt = s.lastTs ? Math.min((ts - s.lastTs) / 1000, 0.05) : 0.016
-    s.lastTs = ts
-    s.time += dt
-
-    // === BLINK ===
-    s.blinkTimer += dt * 1000
-    if (s.blinkTimer > s.nextBlink) {
-      s.blinkAmount = 1
-      s.blinkTimer = 0
-      s.nextBlink = 2000 + Math.random() * 4500
-      // Sometimes double-blink
-      if (Math.random() < 0.2) {
-        s.nextBlink = 200
-      }
-    }
-    if (s.blinkAmount > 0) {
-      s.blinkAmount = Math.max(0, s.blinkAmount - dt * 7)
-    }
-
-    // === LIP SYNC ===
-    if (isSpeaking) {
-      s.visemeTimer += dt * 1000
-      if (s.visemeTimer > 80 + Math.random() * 100) {
-        s.visemeTimer = 0
-        s.visemeIdx = (s.visemeIdx + 1 + Math.floor(Math.random() * 2)) % SPEECH_VISEMES.length
-        s.targetMouth = { ...MOUTH_SHAPES[SPEECH_VISEMES[s.visemeIdx]] }
-      }
-    } else {
-      s.targetMouth = { ...MOUTH_SHAPES.rest }
-    }
-
-    // Smooth mouth interpolation
-    const mLerp = 1 - Math.pow(0.0005, dt)
-    s.currentMouth.openness += (s.targetMouth.openness - s.currentMouth.openness) * mLerp
-    s.currentMouth.width += (s.targetMouth.width - s.currentMouth.width) * mLerp
-    s.currentMouth.roundness += (s.targetMouth.roundness - s.currentMouth.roundness) * mLerp
-
-    // === HEAD MOVEMENT ===
-    const hLerp = 1 - Math.pow(0.02, dt)
-
-    // Nodding
-    if (s.nodding) {
-      s.nodPhase += dt * 4.5
-      s.headOffsetY = Math.sin(s.nodPhase) * 4
-      s.headRot = Math.sin(s.nodPhase * 0.5) * 1.5
-      if (s.nodPhase > Math.PI * 5) {
-        s.nodding = false
-        s.headRotTarget = 0
-        s.headTargetY = 0
-      }
-    } else {
-      s.headOffsetX += (s.headTargetX - s.headOffsetX) * hLerp
-      s.headOffsetY += (s.headTargetY - s.headOffsetY) * hLerp
-      s.headRot += (s.headRotTarget - s.headRot) * hLerp
-    }
-
-    s.headScale += (s.headScaleTarget - s.headScale) * hLerp
-
-    // Idle micro-sway (makes the person look alive even when still)
-    s.idleTimer += dt
-    const idleX = s.headOffsetX + Math.sin(s.idleTimer * 0.6) * 1.2 + Math.sin(s.idleTimer * 1.4) * 0.6
-    const idleY = s.headOffsetY + Math.sin(s.idleTimer * 0.8) * 0.8 + Math.sin(s.idleTimer * 0.3) * 1.0
-    const idleRot = s.headRot + Math.sin(s.idleTimer * 0.5) * 0.4
-    const idleScale = s.headScale + Math.sin(s.idleTimer * 1.2) * 0.003 // breathing
-
-    // === RENDER ===
-    renderFrame(ctx, photo, canvas.width, canvas.height, {
-      blinkAmount: s.blinkAmount,
-      mouthShape: s.currentMouth,
-      headOffsetX: idleX,
-      headOffsetY: idleY,
-      headRotation: idleRot,
-      headScale: idleScale,
-      time: s.time,
-      skinSample: skinColorRef.current,
-    })
-
-    animRef.current = requestAnimationFrame(animate)
-  }, [isSpeaking])
-
+  // --- SMOOTH ANIMATION LOOP (idle sway + interpolation) ---
   useEffect(() => {
-    if (!photoLoaded) return
-    animRef.current = requestAnimationFrame(animate)
-    return () => cancelAnimationFrame(animRef.current)
-  }, [photoLoaded, animate])
+    const tick = () => {
+      timeRef.current += 0.016
+      const t = timeRef.current
+      const target = targetRef.current
+      const cur = currentRef.current
 
-  // Fallback if photo completely fails
-  if (photoError) {
-    const initials = seed.split(' ').map(n => n[0]).join('').toUpperCase()
-    return (
-      <div
-        className="w-full h-full flex items-center justify-center"
-        style={{ backgroundColor: '#0c0f14' }}
-      >
-        <div
-          className="w-28 h-28 rounded-full flex items-center justify-center text-3xl font-bold text-white"
-          style={{ backgroundColor: accentColor + '40', border: `3px solid ${accentColor}60` }}
-        >
-          {initials}
-        </div>
-      </div>
-    )
-  }
+      // Nodding animation
+      if (noddingRef.current) {
+        nodPhaseRef.current += 0.072
+        target.y = Math.sin(nodPhaseRef.current) * 4
+        target.rot = Math.sin(nodPhaseRef.current * 0.5) * 1.2
+        if (nodPhaseRef.current > Math.PI * 5) {
+          noddingRef.current = false
+          target.y = 0; target.rot = 0
+        }
+      }
+
+      // Smooth lerp
+      const lerp = 0.06
+      cur.x += (target.x - cur.x) * lerp
+      cur.y += (target.y - cur.y) * lerp
+      cur.rot += (target.rot - cur.rot) * lerp
+      cur.scale += (target.scale - cur.scale) * lerp
+
+      // Add idle micro-sway (always on — makes them look alive)
+      const idleX = cur.x + Math.sin(t * 0.6) * 1.0 + Math.sin(t * 1.3) * 0.5
+      const idleY = cur.y + Math.sin(t * 0.8) * 0.7 + Math.sin(t * 0.3) * 0.8
+      const idleRot = cur.rot + Math.sin(t * 0.5) * 0.3
+      const breatheScale = cur.scale + Math.sin(t * 1.2) * 0.003
+
+      setHeadTransform(
+        `translate(${idleX.toFixed(2)}px, ${idleY.toFixed(2)}px) rotate(${idleRot.toFixed(2)}deg) scale(${breatheScale.toFixed(4)})`
+      )
+
+      idleRef.current = requestAnimationFrame(tick)
+    }
+    idleRef.current = requestAnimationFrame(tick)
+    return () => { if (idleRef.current) cancelAnimationFrame(idleRef.current) }
+  }, [])
+
+  // Initials fallback
+  const initials = seed.split(' ').map(n => n[0]).join('').toUpperCase()
+
+  // Mouth overlay dimensions
+  const mouthOpen = mouthShape.openness
+  const mouthW = 18 * mouthShape.width
+  const mouthH = mouthOpen * 14
+  const isRound = mouthShape.roundness > 0.5
 
   return (
-    <canvas
-      ref={canvasRef}
-      width={width}
-      height={height}
-      className="w-full h-full"
-      style={{ imageRendering: 'auto' }}
-    />
+    <div className="relative w-full h-full overflow-hidden bg-[#0c0f14]">
+      {/* Photo layer — the real human face */}
+      <div
+        className="absolute inset-0 transition-none"
+        style={{ transform: headTransform, transformOrigin: 'center 40%' }}
+      >
+        {!imgError ? (
+          <img
+            src={avatarUrl}
+            alt=""
+            className={`w-full h-full object-cover select-none ${imgLoaded ? 'opacity-100' : 'opacity-0'}`}
+            style={{ transition: 'opacity 0.5s' }}
+            onLoad={() => setImgLoaded(true)}
+            onError={() => setImgError(true)}
+            draggable={false}
+          />
+        ) : null}
+
+        {/* Fallback initials if photo fails */}
+        {(imgError || !imgLoaded) && (
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div
+              className="w-28 h-28 rounded-full flex items-center justify-center text-3xl font-bold text-white"
+              style={{ backgroundColor: accentColor + '40', border: `3px solid ${accentColor}60` }}
+            >
+              {initials}
+            </div>
+          </div>
+        )}
+
+        {/* === BLINK OVERLAY === */}
+        {/* Skin-colored patches over eye areas when blinking */}
+        {blinking && imgLoaded && (
+          <>
+            <div
+              className="absolute rounded-full"
+              style={{
+                left: '32%', top: '35%',
+                width: '12%', height: '4%',
+                backgroundColor: '#c4a882',
+                mixBlendMode: 'normal',
+                filter: 'blur(1px)',
+                opacity: 0.92,
+              }}
+            />
+            <div
+              className="absolute rounded-full"
+              style={{
+                left: '56%', top: '35%',
+                width: '12%', height: '4%',
+                backgroundColor: '#c4a882',
+                mixBlendMode: 'normal',
+                filter: 'blur(1px)',
+                opacity: 0.92,
+              }}
+            />
+          </>
+        )}
+
+        {/* === MOUTH ANIMATION OVERLAY === */}
+        {mouthOpen > 0.02 && imgLoaded && (
+          <div
+            className="absolute"
+            style={{
+              left: '50%',
+              top: '62%',
+              transform: 'translate(-50%, -50%)',
+              width: `${mouthW + 8}%`,
+              height: `${mouthH + 4}%`,
+            }}
+          >
+            {/* Mouth interior (dark) */}
+            <div
+              className="absolute inset-0 overflow-hidden"
+              style={{
+                backgroundColor: '#2a1218',
+                borderRadius: isRound ? '50%' : '40% 40% 50% 50%',
+                width: `${isRound ? 50 : 85}%`,
+                height: `${mouthH > 3 ? 80 : 60}%`,
+                left: '50%',
+                top: '50%',
+                transform: 'translate(-50%, -50%)',
+              }}
+            >
+              {/* Upper teeth */}
+              {mouthShape.teethShow && mouthOpen > 0.15 && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: '15%',
+                    right: '15%',
+                    height: '30%',
+                    backgroundColor: '#f0ece6',
+                    borderRadius: '0 0 3px 3px',
+                  }}
+                />
+              )}
+              {/* Tongue hint */}
+              {mouthOpen > 0.5 && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    bottom: '5%',
+                    left: '25%',
+                    right: '25%',
+                    height: '30%',
+                    backgroundColor: '#b04555',
+                    borderRadius: '50% 50% 0 0',
+                  }}
+                />
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Vignette overlay — webcam realism */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background: 'radial-gradient(ellipse at center 40%, transparent 45%, rgba(0,0,0,0.35) 100%)',
+        }}
+      />
+
+      {/* Subtle scanlines */}
+      <div
+        className="absolute inset-0 pointer-events-none opacity-[0.03]"
+        style={{
+          backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 1px, rgba(0,0,0,1) 1px, rgba(0,0,0,1) 2px)',
+          backgroundSize: '100% 2px',
+        }}
+      />
+    </div>
   )
 }
