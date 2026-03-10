@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Seatvio | AI Interview Simulation Platform</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header class="hero">
+      <h1>SEATVIO</h1>
+      <p class="tagline">So real, you'll get nervous.</p>
+      <p class="sub">
+        Prepare, Perform, Observe for every real application. This MVP implements the full workflow and data model
+        foundation for the Seatvio platform.
+      </p>
+    </header>
+
+    <main class="container">
+      <section class="panel" id="authPanel">
+        <h2>Account Access</h2>
+        <div class="grid2">
+          <form id="signupForm">
+            <h3>Create account</h3>
+            <label>Email <input required name="email" type="email" /></label>
+            <label>Password <input required name="password" type="password" minlength="8" /></label>
+            <button type="submit">Sign up</button>
+          </form>
+          <form id="loginForm">
+            <h3>Log in</h3>
+            <label>Email <input required name="email" type="email" /></label>
+            <label>Password <input required name="password" type="password" /></label>
+            <button type="submit">Log in</button>
+          </form>
+        </div>
+        <pre id="authMessage" class="message"></pre>
+      </section>
+
+      <section class="panel hidden" id="workspacePanel">
+        <div class="workspace-head">
+          <h2>Seatvio Workspace</h2>
+          <button id="logoutBtn" class="secondary">Log out</button>
+        </div>
+        <nav class="tabs">
+          <button data-tab="onboarding" class="active">Onboarding</button>
+          <button data-tab="applications">Applications</button>
+          <button data-tab="prepare">Prepare</button>
+          <button data-tab="perform">Perform</button>
+          <button data-tab="debrief">Debrief</button>
+          <button data-tab="observe">Observe</button>
+          <button data-tab="history">Session History</button>
+        </nav>
+
+        <section class="tab active" id="tab-onboarding">
+          <h3>Onboarding Profile</h3>
+          <form id="onboardingForm" class="grid2">
+            <label>Full name <input name="full_name" required /></label>
+            <label>Current role <input name="current_role" required /></label>
+            <label>Years of experience
+              <select name="years_experience">
+                <option>0-1</option><option>1-3</option><option>3-5</option><option>5-10</option><option>10+</option>
+              </select>
+            </label>
+            <label>Current industry <input name="current_industry" required /></label>
+            <label>Target industry <input name="target_industry" required /></label>
+            <label>Work arrangement
+              <select name="work_arrangement"><option>Remote</option><option>Hybrid</option><option>On-site</option></select>
+            </label>
+            <label>Anxiety level (1-10) <input type="number" name="anxiety_level" min="1" max="10" value="5" /></label>
+            <label>LinkedIn URL <input name="linkedin_url" type="url" /></label>
+            <label>Portfolio URL <input name="portfolio_url" type="url" /></label>
+            <label class="full">What makes interviews hard for you?
+              <textarea name="interview_difficulty_notes" rows="3"></textarea>
+            </label>
+            <button type="submit">Save onboarding</button>
+          </form>
+        </section>
+
+        <section class="tab" id="tab-applications">
+          <h3>Create Application</h3>
+          <form id="applicationForm">
+            <div class="grid2">
+              <label>Company name <input name="company_name" required /></label>
+              <label>Job title <input name="job_title" required /></label>
+              <label>Interview stage
+                <select name="interview_stage">
+                  <option>Applied</option>
+                  <option>Phone Screen Scheduled</option>
+                  <option>First Round Scheduled</option>
+                  <option>Panel/Final Round Scheduled</option>
+                </select>
+              </label>
+              <div></div>
+              <label class="full">Job description text <textarea name="jd_text" rows="7" required></textarea></label>
+              <label class="full">Resume text <textarea name="resume_text" rows="7" required></textarea></label>
+            </div>
+            <button type="submit">Create application</button>
+          </form>
+          <h4>Active Applications</h4>
+          <div id="applicationList"></div>
+        </section>
+
+        <section class="tab" id="tab-prepare">
+          <h3>Prepare Module</h3>
+          <div class="row">
+            <label>Application <select id="prepareApplicationSelect"></select></label>
+            <button id="generateQuestionsBtn">Generate Question Bank</button>
+            <button id="loadQuestionsBtn" class="secondary">Load Questions</button>
+          </div>
+          <div id="questionList"></div>
+        </section>
+
+        <section class="tab" id="tab-perform">
+          <h3>Perform Module (MVP text simulation)</h3>
+          <form id="startSessionForm" class="row">
+            <label>Application <select name="application_id" id="performApplicationSelect"></select></label>
+            <label>Stage
+              <select name="stage">
+                <option>Phone Screen</option><option>First Round</option><option>Panel Interview</option><option>Final Round</option>
+              </select>
+            </label>
+            <label>Intensity
+              <select name="intensity"><option>Warm-Up</option><option selected>Standard</option><option>High Pressure</option></select>
+            </label>
+            <label>Duration mins <input name="duration_minutes" type="number" value="20" min="10" max="90" /></label>
+            <button type="submit">Start Session</button>
+          </form>
+          <div id="sessionPanel" class="hidden">
+            <p><strong>Active Session:</strong> <span id="activeSessionMeta"></span></p>
+            <div id="transcript" class="transcript"></div>
+            <form id="turnForm" class="row">
+              <input name="message" placeholder="Type your spoken response transcript..." />
+              <button type="submit">Send turn</button>
+              <button type="button" class="secondary" id="endSessionBtn">End session + Debrief</button>
+            </form>
+          </div>
+        </section>
+
+        <section class="tab" id="tab-debrief">
+          <h3>Debrief</h3>
+          <label>Session ID <input id="debriefSessionId" type="number" /></label>
+          <button id="loadDebriefBtn">Load Debrief</button>
+          <div id="debriefPanel"></div>
+        </section>
+
+        <section class="tab" id="tab-observe">
+          <h3>Observe Module</h3>
+          <label>Session ID <input id="observeSessionId" type="number" /></label>
+          <button id="generateObserveBtn">Generate Observe Runs</button>
+          <button id="loadObserveBtn" class="secondary">Load Observe Runs</button>
+          <div id="observePanel"></div>
+        </section>
+
+        <section class="tab" id="tab-history">
+          <h3>Session History</h3>
+          <button id="loadHistoryBtn">Refresh History</button>
+          <div id="historyPanel"></div>
+        </section>
+      </section>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
