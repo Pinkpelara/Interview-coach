@@ -21,6 +21,17 @@ export async function POST(request: Request) {
       );
     }
 
+    // Test database connectivity first
+    try {
+      await prisma.$connect();
+    } catch (dbError) {
+      console.error("Database connection failed:", dbError);
+      return NextResponse.json(
+        { error: "Database is not configured. Please set up DATABASE_URL in your environment variables (e.g., from Neon.tech)." },
+        { status: 503 }
+      );
+    }
+
     const existingUser = await prisma.user.findUnique({
       where: { email: email.toLowerCase() },
     });
@@ -49,6 +60,30 @@ export async function POST(request: Request) {
     );
   } catch (error) {
     console.error("Signup error:", error);
+
+    const message = error instanceof Error ? error.message : "";
+
+    if (message.includes("connect") || message.includes("ECONNREFUSED") || message.includes("ENOTFOUND")) {
+      return NextResponse.json(
+        { error: "Cannot connect to the database. Please check your DATABASE_URL environment variable." },
+        { status: 503 }
+      );
+    }
+
+    if (message.includes("Unique constraint")) {
+      return NextResponse.json(
+        { error: "An account with this email already exists." },
+        { status: 409 }
+      );
+    }
+
+    if (message.includes("does not exist") || message.includes("relation")) {
+      return NextResponse.json(
+        { error: "Database tables not set up. Run 'npx prisma db push' to create them." },
+        { status: 503 }
+      );
+    }
+
     return NextResponse.json(
       { error: "Something went wrong. Please try again." },
       { status: 500 }

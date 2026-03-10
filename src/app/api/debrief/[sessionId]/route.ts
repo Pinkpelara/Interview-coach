@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { chatCompletionJSON, chatCompletion, isPuterConfigured } from '@/lib/puter-ai'
 
 function randomInt(min: number, max: number) {
   return Math.floor(Math.random() * (max - min + 1)) + min
@@ -127,17 +128,88 @@ export async function GET(
       })
     }
 
-    // Generate mock analysis
-    const momentMap = generateMomentMap()
-    const nextTargets = generateNextTargets()
-    const answerQuality = randomInt(50, 90)
-    const deliveryConfidence = randomInt(50, 90)
-    const pressureRecovery = randomInt(50, 90)
-    const companyFitLanguage = randomInt(50, 90)
-    const listeningAccuracy = randomInt(50, 90)
-    const hiringProbability = randomInt(55, 85)
+    // Generate analysis — use AI if configured, otherwise fallback
+    let momentMap
+    let nextTargets
+    let answerQuality: number
+    let deliveryConfidence: number
+    let pressureRecovery: number
+    let companyFitLanguage: number
+    let listeningAccuracy: number
+    let hiringProbability: number
+    let coachScript: string
 
-    const coachScript = `Okay — let's talk about what just happened in there. Overall, you showed real promise in several areas. Your storytelling on the leadership question was genuinely compelling — the interviewer leaned in, which is always a good sign. But we need to address a few things. That weakness question? That answer has to go. "I work too hard" is the interviewing equivalent of a participation trophy. We are going to rebuild that answer from scratch. Your pressure recovery was solid in spots, but I noticed your filler words spike when you are caught off guard. We will work on that silence drill I mentioned. Here is the good news: your hiring probability is at ${hiringProbability}%. That is in range. With targeted practice on these three areas, I think we can push you into the high-confidence zone. Let us get to work.`
+    const exchanges = interviewSession.exchanges || []
+    const exchangeText = exchanges
+      .map((e) => `${e.speaker}: ${e.messageText}`)
+      .join('\n')
+      .slice(0, 3000)
+
+    if (isPuterConfigured() && exchangeText.length > 0) {
+      try {
+        const [scoresResult, coachResult] = await Promise.all([
+          chatCompletionJSON<{
+            answerQuality: number
+            deliveryConfidence: number
+            pressureRecovery: number
+            companyFitLanguage: number
+            listeningAccuracy: number
+            hiringProbability: number
+            nextTargets: Array<{ title: string; description: string; action: string; successMetric: string }>
+          }>(
+            'You are an expert interview coach analyzing a practice interview session. Score the candidate objectively.',
+            `Analyze this interview transcript and return JSON with:
+- answerQuality: 0-100 score for answer quality
+- deliveryConfidence: 0-100 score for delivery confidence
+- pressureRecovery: 0-100 score for how they handle pressure
+- companyFitLanguage: 0-100 score for company-specific language use
+- listeningAccuracy: 0-100 score for how well they listen and respond to the actual question
+- hiringProbability: 0-100 estimated hiring probability
+- nextTargets: array of exactly 3 improvement targets, each with title, description, action, and successMetric
+
+Transcript:
+${exchangeText}`,
+            { temperature: 0.5 }
+          ),
+          chatCompletion(
+            'You are a direct, encouraging interview coach delivering a post-interview debrief. Speak naturally and conversationally. Reference specific moments from the interview. Keep it to 3-4 sentences.',
+            `Give a brief coaching debrief based on this interview transcript:\n\n${exchangeText}`,
+            { temperature: 0.8, maxTokens: 300 }
+          ),
+        ])
+
+        answerQuality = scoresResult.answerQuality
+        deliveryConfidence = scoresResult.deliveryConfidence
+        pressureRecovery = scoresResult.pressureRecovery
+        companyFitLanguage = scoresResult.companyFitLanguage
+        listeningAccuracy = scoresResult.listeningAccuracy
+        hiringProbability = scoresResult.hiringProbability
+        nextTargets = scoresResult.nextTargets
+        coachScript = coachResult
+        momentMap = generateMomentMap()
+      } catch (aiError) {
+        console.error('AI debrief generation failed, using fallback:', aiError)
+        momentMap = generateMomentMap()
+        nextTargets = generateNextTargets()
+        answerQuality = randomInt(50, 90)
+        deliveryConfidence = randomInt(50, 90)
+        pressureRecovery = randomInt(50, 90)
+        companyFitLanguage = randomInt(50, 90)
+        listeningAccuracy = randomInt(50, 90)
+        hiringProbability = randomInt(55, 85)
+        coachScript = `Good session. Let's review what happened and identify areas for improvement. Your overall hiring probability is estimated at ${hiringProbability}%. With focused practice, we can improve that.`
+      }
+    } else {
+      momentMap = generateMomentMap()
+      nextTargets = generateNextTargets()
+      answerQuality = randomInt(50, 90)
+      deliveryConfidence = randomInt(50, 90)
+      pressureRecovery = randomInt(50, 90)
+      companyFitLanguage = randomInt(50, 90)
+      listeningAccuracy = randomInt(50, 90)
+      hiringProbability = randomInt(55, 85)
+      coachScript = `Good session. Let's review what happened and identify areas for improvement. Your overall hiring probability is estimated at ${hiringProbability}%. With focused practice, we can improve that.`
+    }
 
     const analysis = await prisma.sessionAnalysis.create({
       data: {

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { chatCompletionJSON, isPuterConfigured } from '@/lib/puter-ai'
 
 export async function GET() {
   try {
@@ -62,34 +63,58 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Resume text is required' }, { status: 400 })
     }
 
-    // Generate placeholder alignment score (random 60-85)
-    const alignmentScore = Math.floor(Math.random() * 26) + 60
+    // Analyze resume vs JD — use AI if configured, otherwise fallback
+    let alignmentScore: number
+    let skillGaps: string
+    let strengths: string
+    let missingKeywords: string
+    let probeAreas: string
 
-    // Generate placeholder analysis data
-    const skillGaps = JSON.stringify([
-      'System Design',
-      'Cloud Architecture',
-      'CI/CD Pipeline Management',
-    ])
-    const strengths = JSON.stringify([
-      'Problem Solving',
-      'Team Leadership',
-      'Agile Methodology',
-      'Technical Communication',
-    ])
-    const missingKeywords = JSON.stringify([
-      'Kubernetes',
-      'Terraform',
-      'GraphQL',
-      'Event-Driven Architecture',
-      'SLA Management',
-    ])
-    const probeAreas = JSON.stringify([
-      'Experience scaling distributed systems',
-      'Handling production incidents under pressure',
-      'Cross-team collaboration on technical decisions',
-      'Approach to technical debt prioritization',
-    ])
+    if (isPuterConfigured()) {
+      try {
+        const analysis = await chatCompletionJSON<{
+          alignmentScore: number
+          skillGaps: string[]
+          strengths: string[]
+          missingKeywords: string[]
+          probeAreas: string[]
+        }>(
+          'You are an expert career coach analyzing a resume against a job description. Be specific and accurate.',
+          `Analyze this resume against the job description and return JSON:
+
+Resume (first 1500 chars): ${resumeText.trim().slice(0, 1500)}
+
+Job Description (first 1500 chars): ${jdText.trim().slice(0, 1500)}
+
+Return:
+- alignmentScore: 0-100 how well the resume matches the JD
+- skillGaps: array of 3-5 skills the JD requires that are missing/weak in the resume
+- strengths: array of 3-5 strengths from the resume that match the JD
+- missingKeywords: array of 4-6 important keywords from the JD not found in the resume
+- probeAreas: array of 3-5 topics interviewers will likely probe based on gaps`,
+          { temperature: 0.3 }
+        )
+
+        alignmentScore = Math.min(100, Math.max(0, analysis.alignmentScore))
+        skillGaps = JSON.stringify(analysis.skillGaps)
+        strengths = JSON.stringify(analysis.strengths)
+        missingKeywords = JSON.stringify(analysis.missingKeywords)
+        probeAreas = JSON.stringify(analysis.probeAreas)
+      } catch (aiError) {
+        console.error('AI analysis failed, using fallback:', aiError)
+        alignmentScore = Math.floor(Math.random() * 26) + 60
+        skillGaps = JSON.stringify(['System Design', 'Cloud Architecture', 'CI/CD Pipeline Management'])
+        strengths = JSON.stringify(['Problem Solving', 'Team Leadership', 'Agile Methodology'])
+        missingKeywords = JSON.stringify(['Kubernetes', 'Terraform', 'GraphQL'])
+        probeAreas = JSON.stringify(['Experience scaling distributed systems', 'Handling production incidents'])
+      }
+    } else {
+      alignmentScore = Math.floor(Math.random() * 26) + 60
+      skillGaps = JSON.stringify(['System Design', 'Cloud Architecture', 'CI/CD Pipeline Management'])
+      strengths = JSON.stringify(['Problem Solving', 'Team Leadership', 'Agile Methodology', 'Technical Communication'])
+      missingKeywords = JSON.stringify(['Kubernetes', 'Terraform', 'GraphQL', 'Event-Driven Architecture', 'SLA Management'])
+      probeAreas = JSON.stringify(['Experience scaling distributed systems', 'Handling production incidents', 'Cross-team collaboration', 'Technical debt prioritization'])
+    }
 
     // Create application with parsed data in a transaction
     const application = await prisma.$transaction(async (tx) => {
