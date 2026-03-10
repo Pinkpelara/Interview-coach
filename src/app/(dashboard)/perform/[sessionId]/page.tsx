@@ -21,6 +21,7 @@ import {
   VolumeX,
 } from 'lucide-react'
 import Script from 'next/script'
+import AnimatedAvatar from '@/components/perform/AnimatedAvatar'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -154,22 +155,8 @@ function formatTime(seconds: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Realistic avatar URL generator using thispersondoesnotexist-style photos
-// Uses pravatar.cc (free, no API key, seeded by name for consistency)
-// ---------------------------------------------------------------------------
-
-function getAvatarUrl(name: string): string {
-  // Use a hash of the name to get a consistent avatar ID (1-70 range for pravatar)
-  let h = 0
-  for (let i = 0; i < name.length; i++) {
-    h = ((h << 5) - h + name.charCodeAt(i)) | 0
-  }
-  const id = (Math.abs(h) % 70) + 1
-  return `https://i.pravatar.cc/400?img=${id}`
-}
-
-// ---------------------------------------------------------------------------
-// Character Face Component — Realistic Photo Avatar with Live Animations
+// Character Face Component — Real-Time Animated Video Avatar
+// Uses Canvas-based face renderer with lip sync, blinking, expressions
 // ---------------------------------------------------------------------------
 
 function CharacterFace({
@@ -184,137 +171,34 @@ function CharacterFace({
   isLookingAway: boolean
 }) {
   const color = ARCHETYPE_COLORS[character.archetype] || '#6b7280'
-  const [imgLoaded, setImgLoaded] = useState(false)
-  const [imgError, setImgError] = useState(false)
-  const [animClass, setAnimClass] = useState('')
-  const avatarUrl = getAvatarUrl(character.name)
-
-  // Natural head movement animations based on expression
-  useEffect(() => {
-    switch (expression) {
-      case 'nodding':
-        setAnimClass('animate-nod')
-        const t1 = setTimeout(() => setAnimClass(''), 1800)
-        return () => clearTimeout(t1)
-      case 'skeptical':
-        setAnimClass('animate-tilt-left')
-        return
-      case 'interested':
-        setAnimClass('animate-tilt-right')
-        return
-      case 'writing':
-        setAnimClass('animate-look-down')
-        return
-      default:
-        setAnimClass('')
-    }
-  }, [expression])
-
-  // Speaking animation — subtle movement
-  const speakingClass = isSpeaking ? 'animate-speaking' : ''
-  const lookAwayClass = isLookingAway ? 'animate-look-away' : ''
-
-  // Initials fallback
-  const initials = character.name.split(' ').map(n => n[0]).join('').toUpperCase()
 
   return (
-    <div className="relative w-full h-full rounded-xl overflow-hidden bg-[#0d0d1a] group">
-      {/* CSS animations injected inline */}
-      <style>{`
-        @keyframes nod {
-          0%, 100% { transform: scale(1.05) translateY(0px); }
-          25% { transform: scale(1.05) translateY(3px); }
-          50% { transform: scale(1.05) translateY(-1px); }
-          75% { transform: scale(1.05) translateY(2px); }
-        }
-        @keyframes speaking {
-          0%, 100% { transform: scale(1.05) translateY(0px); }
-          30% { transform: scale(1.05) translateY(1px) translateX(0.5px); }
-          60% { transform: scale(1.05) translateY(-0.5px) translateX(-0.5px); }
-        }
-        @keyframes look-away {
-          0%, 100% { transform: scale(1.05) translateX(0px); }
-          50% { transform: scale(1.05) translateX(8px) translateY(3px); }
-        }
-        @keyframes breathing {
-          0%, 100% { transform: scale(1.05); }
-          50% { transform: scale(1.06); }
-        }
-        .animate-nod { animation: nod 0.6s ease-in-out 3; }
-        .animate-speaking { animation: speaking 0.8s ease-in-out infinite; }
-        .animate-look-away { animation: look-away 4s ease-in-out infinite; }
-        .animate-tilt-left { transform: scale(1.05) rotate(-2deg); transition: transform 0.5s ease; }
-        .animate-tilt-right { transform: scale(1.05) rotate(1.5deg); transition: transform 0.5s ease; }
-        .animate-look-down { transform: scale(1.05) translateY(4px); transition: transform 0.5s ease; }
-        .animate-idle { animation: breathing 4s ease-in-out infinite; }
-      `}</style>
-
-      {/* Photo avatar — fills entire tile like a real video feed */}
-      <div className={`absolute inset-0 transition-transform duration-500 ${
-        animClass || speakingClass || lookAwayClass || 'animate-idle'
-      }`}>
-        {!imgError ? (
-          <img
-            src={avatarUrl}
-            alt={character.name}
-            className={`w-full h-full object-cover transition-opacity duration-500 ${imgLoaded ? 'opacity-100' : 'opacity-0'}`}
-            onLoad={() => setImgLoaded(true)}
-            onError={() => setImgError(true)}
-            draggable={false}
-          />
-        ) : null}
-
-        {/* Fallback: professional gradient with large initials if image fails */}
-        {(imgError || !imgLoaded) && (
-          <div
-            className="absolute inset-0 flex items-center justify-center"
-            style={{
-              background: `linear-gradient(135deg, ${color}30 0%, ${color}10 50%, #0d0d1a 100%)`,
-            }}
-          >
-            <div
-              className="w-24 h-24 md:w-32 md:h-32 rounded-full flex items-center justify-center text-3xl md:text-4xl font-bold text-white"
-              style={{ backgroundColor: color + '40', border: `3px solid ${color}60` }}
-            >
-              {initials}
-            </div>
-          </div>
-        )}
+    <div className="relative w-full h-full rounded-xl overflow-hidden bg-[#0a0e14] group">
+      {/* Animated Canvas Avatar — real-time rendered face */}
+      <div className="absolute inset-0">
+        <AnimatedAvatar
+          seed={character.name}
+          isSpeaking={isSpeaking}
+          expression={expression}
+          isLookingAway={isLookingAway}
+          accentColor={color}
+          width={480}
+          height={480}
+        />
       </div>
 
-      {/* Subtle dark overlay at edges — looks like real webcam vignette */}
-      <div className="absolute inset-0 pointer-events-none" style={{
-        background: 'radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.3) 100%)',
-      }} />
-
-      {/* Speaking: green animated border + audio wave indicator */}
+      {/* Speaking border glow */}
       {isSpeaking && (
-        <>
-          <div
-            className="absolute inset-0 rounded-xl pointer-events-none"
-            style={{
-              border: `2px solid ${color}`,
-              boxShadow: `0 0 20px ${color}40, inset 0 0 20px ${color}10`,
-            }}
-          />
-          {/* Audio waveform bars at bottom */}
-          <div className="absolute bottom-12 left-1/2 -translate-x-1/2 flex items-end gap-[3px]">
-            {[0, 1, 2, 3, 4, 2, 1].map((_, i) => (
-              <div
-                key={i}
-                className="w-[3px] rounded-full bg-green-400"
-                style={{
-                  animation: `speaking 0.5s ease-in-out ${i * 0.07}s infinite alternate`,
-                  height: `${8 + Math.sin(i * 1.2) * 8}px`,
-                  opacity: 0.8,
-                }}
-              />
-            ))}
-          </div>
-        </>
+        <div
+          className="absolute inset-0 rounded-xl pointer-events-none"
+          style={{
+            border: `2px solid ${color}`,
+            boxShadow: `0 0 20px ${color}40, inset 0 0 10px ${color}10`,
+          }}
+        />
       )}
 
-      {/* Name label — matches real video call UI */}
+      {/* Name label — video call style */}
       <div className="absolute bottom-0 left-0 right-0 p-2.5 bg-gradient-to-t from-black/80 via-black/40 to-transparent">
         <div className="flex items-center gap-2">
           <p className="text-white text-sm font-medium truncate">{character.name}</p>
@@ -328,7 +212,7 @@ function CharacterFace({
         <p className="text-gray-400 text-xs truncate">{character.title}</p>
       </div>
 
-      {/* Expression overlay indicator (subtle) */}
+      {/* Expression overlay indicators */}
       {expression === 'writing' && (
         <div className="absolute top-2 right-2 bg-black/50 backdrop-blur-sm rounded-full px-2 py-0.5 flex items-center gap-1.5">
           <span className="text-yellow-400 text-[10px]">Taking notes</span>
