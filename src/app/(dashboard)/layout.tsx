@@ -14,6 +14,8 @@ import {
   LogOut,
   Menu,
   X,
+  DollarSign,
+  Calendar,
 } from 'lucide-react'
 
 const navLinks = [
@@ -21,6 +23,7 @@ const navLinks = [
   { href: '/applications', label: 'Applications', icon: Briefcase },
   { href: '/session-history', label: 'Session History', icon: History },
   { href: '/pressure-lab', label: 'Pressure Lab', icon: Zap },
+  { href: '/salary-negotiation', label: 'Salary Negotiation', icon: DollarSign },
   { href: '/pricing', label: 'Pricing', icon: CreditCard },
   { href: '/settings', label: 'Settings', icon: Settings },
 ]

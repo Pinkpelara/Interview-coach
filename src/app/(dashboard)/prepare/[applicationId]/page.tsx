@@ -253,7 +253,14 @@ export default function PreparePage() {
   const [confidenceRating, setConfidenceRating] = useState(0)
   const [typingTimer, setTypingTimer] = useState<NodeJS.Timeout | null>(null)
   const [showRedFlags, setShowRedFlags] = useState(false)
-  const [mockFeedbackVisible, setMockFeedbackVisible] = useState(false)
+  const [aiFeedback, setAiFeedback] = useState<{
+    strengths: string[]
+    issues: string[]
+    missingElements: string[]
+    scores: { structure: number; specificity: number; confidence: number; overall: number }
+    verdict: string
+  } | null>(null)
+  const [analyzingAnswer, setAnalyzingAnswer] = useState(false)
 
   // Flashcard state
   const [flashcardIndex, setFlashcardIndex] = useState(0)
@@ -689,7 +696,30 @@ export default function PreparePage() {
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => setMockFeedbackVisible(!mockFeedbackVisible)}
+                            loading={analyzingAnswer}
+                            onClick={async () => {
+                              if (!draftText.trim() || !activeQuestion) return
+                              setAnalyzingAnswer(true)
+                              setAiFeedback(null)
+                              try {
+                                const res = await fetch('/api/answers/analyze', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({
+                                    questionId: activeQuestion.id,
+                                    answerText: draftText,
+                                  }),
+                                })
+                                if (res.ok) {
+                                  const data = await res.json()
+                                  setAiFeedback(data)
+                                }
+                              } catch (err) {
+                                console.error('Analysis failed:', err)
+                              } finally {
+                                setAnalyzingAnswer(false)
+                              }
+                            }}
                           >
                             <Sparkles className="mr-1 h-3.5 w-3.5" />
                             Analyze My Answer
@@ -701,21 +731,63 @@ export default function PreparePage() {
                               setAnswerWorkspaceId(null)
                               setDraftText('')
                               setConfidenceRating(0)
-                              setMockFeedbackVisible(false)
+                              setAiFeedback(null)
                             }}
                           >
                             Close
                           </Button>
                         </div>
 
-                        {/* Mock feedback placeholder */}
-                        {mockFeedbackVisible && (
-                          <div className="rounded-lg bg-blue-50 border border-blue-200 p-3 space-y-2">
-                            <h5 className="text-xs font-semibold text-blue-800">AI Feedback (Preview)</h5>
-                            <p className="text-xs text-blue-700">
-                              Your answer demonstrates good structure. Consider adding more specific metrics to strengthen the Result section.
-                              The opening is clear but could benefit from a stronger hook. Overall confidence level: solid foundation, ready for rehearsal.
+                        {/* AI Feedback */}
+                        {aiFeedback && (
+                          <div className="rounded-lg bg-blue-50 border border-blue-200 p-4 space-y-3">
+                            <div className="flex items-center justify-between">
+                              <h5 className="text-xs font-semibold text-blue-800">AI Analysis</h5>
+                              <div className="flex items-center gap-2">
+                                {(['structure', 'specificity', 'confidence', 'overall'] as const).map(dim => (
+                                  <span key={dim} className="inline-flex items-center gap-1 text-[10px] font-medium text-blue-700 bg-blue-100 rounded-full px-2 py-0.5">
+                                    {dim}: {aiFeedback.scores[dim]}/10
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+
+                            <p className="text-xs font-semibold text-blue-900 border-b border-blue-200 pb-2">
+                              {aiFeedback.verdict}
                             </p>
+
+                            {aiFeedback.strengths.length > 0 && (
+                              <div>
+                                <p className="text-[10px] font-bold text-green-700 uppercase mb-1">Strengths</p>
+                                {aiFeedback.strengths.map((s, i) => (
+                                  <p key={i} className="text-xs text-green-700 flex items-start gap-1.5">
+                                    <Check className="h-3 w-3 mt-0.5 flex-shrink-0" />{s}
+                                  </p>
+                                ))}
+                              </div>
+                            )}
+
+                            {aiFeedback.issues.length > 0 && (
+                              <div>
+                                <p className="text-[10px] font-bold text-red-700 uppercase mb-1">Issues</p>
+                                {aiFeedback.issues.map((s, i) => (
+                                  <p key={i} className="text-xs text-red-700 flex items-start gap-1.5">
+                                    <AlertTriangle className="h-3 w-3 mt-0.5 flex-shrink-0" />{s}
+                                  </p>
+                                ))}
+                              </div>
+                            )}
+
+                            {aiFeedback.missingElements.length > 0 && (
+                              <div>
+                                <p className="text-[10px] font-bold text-amber-700 uppercase mb-1">Missing Elements</p>
+                                {aiFeedback.missingElements.map((s, i) => (
+                                  <p key={i} className="text-xs text-amber-700 flex items-start gap-1.5">
+                                    <Flag className="h-3 w-3 mt-0.5 flex-shrink-0" />{s}
+                                  </p>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
@@ -790,7 +862,7 @@ export default function PreparePage() {
                                 setAnswerWorkspaceId(q.id)
                                 setDraftText(q.userAnswers[0]?.answerText || '')
                                 setConfidenceRating(q.userAnswers[0]?.confidenceRating || 0)
-                                setMockFeedbackVisible(false)
+                                setAiFeedback(null)
                               }}
                             >
                               <Mic className="mr-1 h-3.5 w-3.5" />

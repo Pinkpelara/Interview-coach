@@ -388,10 +388,10 @@ export default async function ApplicationDetailPage({
                 View Observe
               </Button>
             </Link>
-            <Link href={`/applications/${application.id}/schedule`}>
+            <Link href={`/countdown/${application.id}`}>
               <Button variant="outline">
                 <CalendarDays className="mr-2 h-4 w-4" />
-                Set Interview Date
+                Interview Countdown
               </Button>
             </Link>
           </div>
