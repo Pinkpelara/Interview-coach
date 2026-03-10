@@ -99,31 +99,38 @@ const ARCHETYPE_BG: Record<string, string> = {
 // Opening / Closing lines
 // ---------------------------------------------------------------------------
 
-const OPENING_LINES: Record<string, string[]> = {
-  skeptic: [
-    "Let's get started. I have some tough questions for you today.",
-    "Thanks for joining. I'm going to challenge your assumptions today, so be prepared.",
-  ],
-  friendly_champion: [
-    "Welcome! Thanks so much for taking the time to chat with us today. We're really excited to learn more about you.",
-    "Hi there! Great to meet you. Let's have a relaxed conversation about your experience.",
-  ],
-  technical_griller: [
-    "Hello. Let's dive right into the technical aspects. I want to understand your engineering depth.",
-    "Welcome. I'll be focusing on the technical side today, so let's get into the details.",
-  ],
-  distracted_senior: [
-    "Hey, sorry — just wrapping up something. OK, let's jump in. Tell me about yourself.",
-    "Right, hi. I've got a few minutes carved out for this. Let's make the most of it.",
-  ],
-  culture_fit: [
-    "Welcome! I'm excited to get to know you better as a person. We really care about team fit here.",
-    "Hi! Today I'd like to understand how you work with others and what kind of environment you thrive in.",
-  ],
-  silent_observer: [
-    "Hello.",
-    "...",
-  ],
+function getOpeningLines(archetype: string, companyName?: string, jobTitle?: string): string[] {
+  const company = companyName || 'our company'
+  const role = jobTitle || 'this position'
+
+  const lines: Record<string, string[]> = {
+    skeptic: [
+      `Let's get started. I have some tough questions about your fit for the ${role} role at ${company}.`,
+      `Thanks for joining. I'll be digging into your qualifications for ${role} today, so be prepared to back up your claims.`,
+    ],
+    friendly_champion: [
+      `Welcome! Thanks so much for coming in today. We're really excited about the ${role} position at ${company}, and I'd love to learn how your experience connects to what we're building.`,
+      `Hi there! Great to meet you. I'm looking forward to hearing about your background and why you're interested in joining ${company} as ${role}.`,
+    ],
+    technical_griller: [
+      `Hello. I'll be focusing on the technical requirements for the ${role} position today. Let's dive right in.`,
+      `Welcome. As you know, the ${role} role at ${company} has some specific technical demands. I want to understand your depth in those areas.`,
+    ],
+    distracted_senior: [
+      `Hey, sorry — just wrapping up something. OK, so you're interviewing for ${role} at ${company}. Tell me, what drew you to us?`,
+      `Right, hi. I've got a few minutes carved out for this. So — ${role}. Why ${company}?`,
+    ],
+    culture_fit: [
+      `Welcome! I'm really looking forward to understanding how you'd fit into the team at ${company}. Culture is a big part of how we work here.`,
+      `Hi! For the ${role} position, we care a lot about how people collaborate. I'd love to understand your working style.`,
+    ],
+    silent_observer: [
+      `Hello.`,
+      `...`,
+    ],
+  }
+
+  return lines[archetype] || lines.friendly_champion
 }
 
 const CLOSING_LINES: Record<string, string> = {
@@ -369,14 +376,28 @@ function CharacterFace({
 
 function useSpeech() {
   const synthRef = useRef<SpeechSynthesis | null>(null)
+  const voicesRef = useRef<SpeechSynthesisVoice[]>([])
   const [speaking, setSpeaking] = useState(false)
 
   useEffect(() => {
     synthRef.current = window.speechSynthesis
-    return () => { synthRef.current?.cancel() }
+
+    // Voices load asynchronously in most browsers
+    const loadVoices = () => {
+      voicesRef.current = synthRef.current?.getVoices() || []
+    }
+    loadVoices()
+    if (synthRef.current) {
+      synthRef.current.onvoiceschanged = loadVoices
+    }
+
+    return () => {
+      synthRef.current?.cancel()
+      if (synthRef.current) synthRef.current.onvoiceschanged = null
+    }
   }, [])
 
-  const speak = useCallback((text: string, voiceConfig?: { pitch: number; rate: number }) => {
+  const speak = useCallback((text: string, voiceConfig?: { pitch: number; rate: number; preferFemale?: boolean }) => {
     return new Promise<void>((resolve) => {
       if (!synthRef.current) { resolve(); return }
       synthRef.current.cancel()
@@ -386,11 +407,36 @@ function useSpeech() {
       utterance.rate = voiceConfig?.rate ?? 0.95
       utterance.volume = 1
 
-      // Try to pick a natural voice
-      const voices = synthRef.current.getVoices()
-      const preferred = voices.find(v =>
-        v.lang.startsWith('en') && (v.name.includes('Natural') || v.name.includes('Google') || v.name.includes('Samantha'))
-      ) || voices.find(v => v.lang.startsWith('en'))
+      // Pick the best available English voice, with gender preference
+      const voices = voicesRef.current.length > 0 ? voicesRef.current : (synthRef.current.getVoices() || [])
+      const enVoices = voices.filter(v => v.lang.startsWith('en'))
+
+      // Prefer natural/high-quality voices
+      const naturalKeywords = ['Natural', 'Neural', 'Premium', 'Enhanced']
+      const goodKeywords = ['Google', 'Microsoft', 'Samantha', 'Daniel', 'Karen', 'Moira', 'Rishi', 'Tessa']
+
+      // Female voice names (common across browsers)
+      const femaleNames = ['Samantha', 'Karen', 'Moira', 'Tessa', 'Victoria', 'Fiona', 'Zira', 'Jenny', 'Aria']
+      // Male voice names
+      const maleNames = ['Daniel', 'Alex', 'Rishi', 'David', 'Guy', 'Mark', 'James', 'Ryan']
+
+      let preferred: SpeechSynthesisVoice | undefined
+
+      if (voiceConfig?.preferFemale !== undefined) {
+        const genderNames = voiceConfig.preferFemale ? femaleNames : maleNames
+        // Try natural + gender match first
+        preferred = enVoices.find(v => naturalKeywords.some(k => v.name.includes(k)) && genderNames.some(n => v.name.includes(n)))
+        // Then good + gender match
+        if (!preferred) preferred = enVoices.find(v => goodKeywords.some(k => v.name.includes(k)) && genderNames.some(n => v.name.includes(n)))
+        // Then any gender match
+        if (!preferred) preferred = enVoices.find(v => genderNames.some(n => v.name.includes(n)))
+      }
+
+      // Fallback: best quality English voice
+      if (!preferred) preferred = enVoices.find(v => naturalKeywords.some(k => v.name.includes(k)))
+      if (!preferred) preferred = enVoices.find(v => goodKeywords.some(k => v.name.includes(k)))
+      if (!preferred) preferred = enVoices[0]
+
       if (preferred) utterance.voice = preferred
 
       utterance.onstart = () => setSpeaking(true)
@@ -413,13 +459,13 @@ function useSpeech() {
 // Voice config per archetype
 // ---------------------------------------------------------------------------
 
-const VOICE_CONFIG: Record<string, { pitch: number; rate: number }> = {
-  skeptic: { pitch: 0.85, rate: 0.85 },
-  friendly_champion: { pitch: 1.1, rate: 1.05 },
-  technical_griller: { pitch: 0.9, rate: 0.9 },
-  distracted_senior: { pitch: 1.0, rate: 1.1 },
-  culture_fit: { pitch: 1.05, rate: 0.95 },
-  silent_observer: { pitch: 0.8, rate: 0.8 },
+const VOICE_CONFIG: Record<string, { pitch: number; rate: number; preferFemale?: boolean }> = {
+  skeptic: { pitch: 0.85, rate: 0.85, preferFemale: false },
+  friendly_champion: { pitch: 1.1, rate: 1.0, preferFemale: true },
+  technical_griller: { pitch: 0.9, rate: 0.9, preferFemale: false },
+  distracted_senior: { pitch: 1.0, rate: 1.05, preferFemale: false },
+  culture_fit: { pitch: 1.05, rate: 0.95, preferFemale: true },
+  silent_observer: { pitch: 0.8, rate: 0.8, preferFemale: false },
 }
 
 // ---------------------------------------------------------------------------
@@ -693,7 +739,7 @@ export default function InterviewRoomPage() {
       const characters = updated.characters || sessionData.characters
       for (let i = 0; i < characters.length; i++) {
         const char = characters[i]
-        const lines = OPENING_LINES[char.archetype] || OPENING_LINES.friendly_champion
+        const lines = getOpeningLines(char.archetype, sessionData.application?.companyName, sessionData.application?.jobTitle)
         const line = randomFrom(lines)
 
         setSpeakingCharacterId(char.id)
@@ -1162,24 +1208,29 @@ export default function InterviewRoomPage() {
   // -------------------------------------------
 
   const renderCharacterGrid = () => {
-    const gridClass = characters.length === 1
-      ? 'flex justify-center'
-      : characters.length === 2
-      ? 'grid grid-cols-2 gap-2'
-      : 'grid grid-cols-2 gap-2'
+    // Height class based on number of characters
+    const heightClass = characters.length <= 2 ? 'h-[45vh]' : 'h-[50vh]'
 
-    return (
-      <div className={`${gridClass} p-2 max-w-4xl mx-auto`}>
-        {characters.map((char, idx) => {
-          const isLast = characters.length === 3 && idx === 2
-          return (
-            <div
-              key={char.id}
-              className={`aspect-video ${
-                characters.length === 1 ? 'w-full max-w-lg' :
-                isLast ? 'col-span-2 max-w-sm mx-auto w-full' : ''
-              }`}
-            >
+    if (characters.length === 1) {
+      return (
+        <div className={`${heightClass} flex justify-center items-center p-3`}>
+          <div className="w-full max-w-2xl h-full">
+            <CharacterFace
+              character={characters[0]}
+              isSpeaking={speakingCharacterId === characters[0].id}
+              expression={(characterExpressions[characters[0].id] || 'neutral') as 'neutral' | 'interested' | 'skeptical' | 'nodding' | 'writing'}
+              isLookingAway={characterLookingAway[characters[0].id] || false}
+            />
+          </div>
+        </div>
+      )
+    }
+
+    if (characters.length === 2) {
+      return (
+        <div className={`${heightClass} grid grid-cols-2 gap-2 p-3 max-w-5xl mx-auto`}>
+          {characters.map(char => (
+            <div key={char.id} className="h-full">
               <CharacterFace
                 character={char}
                 isSpeaking={speakingCharacterId === char.id}
@@ -1187,8 +1238,36 @@ export default function InterviewRoomPage() {
                 isLookingAway={characterLookingAway[char.id] || false}
               />
             </div>
-          )
-        })}
+          ))}
+        </div>
+      )
+    }
+
+    // 3 characters: 2 on top, 1 centered below
+    return (
+      <div className={`${heightClass} flex flex-col gap-2 p-3 max-w-5xl mx-auto`}>
+        <div className="flex-1 grid grid-cols-2 gap-2 min-h-0">
+          {characters.slice(0, 2).map(char => (
+            <div key={char.id} className="h-full">
+              <CharacterFace
+                character={char}
+                isSpeaking={speakingCharacterId === char.id}
+                expression={(characterExpressions[char.id] || 'neutral') as 'neutral' | 'interested' | 'skeptical' | 'nodding' | 'writing'}
+                isLookingAway={characterLookingAway[char.id] || false}
+              />
+            </div>
+          ))}
+        </div>
+        <div className="flex-1 flex justify-center min-h-0">
+          <div className="w-1/2 h-full">
+            <CharacterFace
+              character={characters[2]}
+              isSpeaking={speakingCharacterId === characters[2].id}
+              expression={(characterExpressions[characters[2].id] || 'neutral') as 'neutral' | 'interested' | 'skeptical' | 'nodding' | 'writing'}
+              isLookingAway={characterLookingAway[characters[2].id] || false}
+            />
+          </div>
+        </div>
       </div>
     )
   }
@@ -1208,13 +1287,13 @@ export default function InterviewRoomPage() {
       </div>
 
       {/* Main content: character feeds + chat */}
-      <div className="flex-1 flex flex-col min-h-0">
-        {/* Character video feeds */}
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+        {/* Character video feeds — fixed height */}
         {renderCharacterGrid()}
 
-        {/* Chat / Transcript area */}
+        {/* Chat / Transcript area — fills remaining space */}
         <div className="flex-1 flex flex-col min-h-0 px-4 pb-2">
-          <div className="flex-1 overflow-y-auto space-y-2 mb-3 pr-2">
+          <div className="flex-1 overflow-y-auto space-y-2 mb-3 pr-2 min-h-0">
             {exchanges.map(exchange => {
               const isCandidate = exchange.speaker === 'candidate'
               const char = getCharacter(exchange.characterId)
