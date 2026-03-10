@@ -1,0 +1,244 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  passwordHash  String
+  fullName      String?
+  emailVerified Boolean   @default(false)
+  verifyToken   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  profile       UserProfile?
+  applications  Application[]
+  userAnswers   UserAnswer[]
+  sessions      InterviewSession[]
+  subscription  Subscription?
+  onboarded     Boolean   @default(false)
+}
+
+model UserProfile {
+  id              String  @id @default(cuid())
+  userId          String  @unique
+  user            User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  anxietyLevel    Int     @default(5)
+  currentRole     String?
+  yearsExperience String?
+  currentIndustry String?
+  targetIndustry  String?
+  workArrangement String?
+  interviewDifficulty String?
+  linkedinUrl     String?
+  portfolioUrl    String?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model Application {
+  id                String   @id @default(cuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  companyName       String
+  jobTitle          String
+  jdText            String
+  resumeText        String
+  interviewStage    String?
+  realInterviewDate DateTime?
+  alignmentScore    Int?
+  status            String   @default("active")
+
+  skillGaps         String?
+  strengths         String?
+  missingKeywords   String?
+  probeAreas        String?
+  readinessScore    Int      @default(0)
+
+  parsedResume      ParsedResume?
+  parsedJD          ParsedJD?
+  questions         Question[]
+  sessions          InterviewSession[]
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model ParsedResume {
+  id              String      @id @default(cuid())
+  applicationId   String      @unique
+  application     Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  careerTimeline  String?
+  topSkills       String?
+  experienceGaps  String?
+  achievements    String?
+  education       String?
+
+  createdAt       DateTime    @default(now())
+}
+
+model ParsedJD {
+  id                      String      @id @default(cuid())
+  applicationId           String      @unique
+  application             Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  requiredSkills          String?
+  preferredSkills         String?
+  responsibilities        String?
+  seniorityLevel          String?
+  valuesLanguage          String?
+  redFlagAreas            String?
+  interviewFormatPrediction String?
+
+  createdAt               DateTime    @default(now())
+}
+
+model Question {
+  id              String      @id @default(cuid())
+  applicationId   String
+  application     Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  questionText    String
+  questionType    String
+  whyAsked        String?
+  framework       String?
+  modelAnswer     String?
+  whatNotToSay    String?
+  timeGuidance    Int?
+  difficulty      Int         @default(3)
+  likelyFollowUp  String?
+
+  userAnswers     UserAnswer[]
+
+  createdAt       DateTime    @default(now())
+}
+
+model UserAnswer {
+  id              String    @id @default(cuid())
+  questionId      String
+  question        Question  @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  answerText      String
+  audioUrl        String?
+  confidenceRating Int      @default(0)
+  status          String    @default("drafting")
+  practiceCount   Int       @default(0)
+  isFavorite      Boolean   @default(false)
+
+  feedbacks       AnswerFeedback[]
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model AnswerFeedback {
+  id              String     @id @default(cuid())
+  userAnswerId    String
+  userAnswer      UserAnswer @relation(fields: [userAnswerId], references: [id], onDelete: Cascade)
+
+  strengths       String?
+  issues          String?
+  missingElements String?
+  structureScore  Int?
+  specificityScore Int?
+  confidenceScore Int?
+  overallScore    Int?
+  verdict         String?
+
+  createdAt       DateTime   @default(now())
+}
+
+model InterviewSession {
+  id              String      @id @default(cuid())
+  userId          String
+  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applicationId   String
+  application     Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  stage           String
+  intensity       String      @default("standard")
+  durationMinutes Int         @default(45)
+  status          String      @default("pending")
+  characters      String?
+
+  startedAt       DateTime?
+  endedAt         DateTime?
+
+  exchanges       SessionExchange[]
+  analysis        SessionAnalysis?
+  observeSessions ObserveSession[]
+
+  createdAt       DateTime    @default(now())
+}
+
+model SessionExchange {
+  id              String           @id @default(cuid())
+  sessionId       String
+  session         InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  sequenceNumber  Int
+  speaker         String
+  characterId     String?
+  messageText     String
+  audioUrl        String?
+  timestampMs     Int
+
+  createdAt       DateTime         @default(now())
+}
+
+model SessionAnalysis {
+  id                String           @id @default(cuid())
+  sessionId         String           @unique
+  session           InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  momentMap         String?
+  answerQuality     Int?
+  deliveryConfidence Int?
+  pressureRecovery  Int?
+  companyFitLanguage Int?
+  listeningAccuracy Int?
+  hiringProbability Int?
+  nextTargets       String?
+  coachScript       String?
+
+  createdAt         DateTime         @default(now())
+}
+
+model ObserveSession {
+  id              String           @id @default(cuid())
+  sourceSessionId String
+  sourceSession   InterviewSession @relation(fields: [sourceSessionId], references: [id], onDelete: Cascade)
+
+  type            String
+  exchanges       String?
+  annotations     String?
+
+  createdAt       DateTime         @default(now())
+}
+
+model Subscription {
+  id                String   @id @default(cuid())
+  userId            String   @unique
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  plan              String   @default("free")
+  status            String   @default("active")
+  currentPeriodEnd  DateTime?
+  stripeCustomerId  String?
+  stripeSubId       String?
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
