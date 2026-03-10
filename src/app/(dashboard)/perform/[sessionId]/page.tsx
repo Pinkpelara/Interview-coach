@@ -278,16 +278,46 @@ const FALLBACK_VOICE_CONFIG: Record<string, { pitch: number; rate: number }> = {
 }
 
 // ---------------------------------------------------------------------------
-// Speech synthesis hook — uses Puter.js OpenAI TTS, falls back to Web Speech
+// Speech synthesis hook — Puter.js TTS (free, no API key needed)
+// Cascade: OpenAI TTS → AWS Polly (default) → Web Speech API
 // ---------------------------------------------------------------------------
+
+// Wait for Puter.js to be fully loaded
+function waitForPuter(timeoutMs = 10000): Promise<any> {
+  return new Promise((resolve) => {
+    const start = Date.now()
+    const check = () => {
+      const puter = (window as any).puter
+      if (puter?.ai?.txt2speech) {
+        resolve(puter)
+        return
+      }
+      if (Date.now() - start > timeoutMs) {
+        resolve(null)
+        return
+      }
+      setTimeout(check, 200)
+    }
+    check()
+  })
+}
 
 function useSpeech() {
   const [speaking, setSpeaking] = useState(false)
   const currentAudioRef = useRef<HTMLAudioElement | null>(null)
   const synthRef = useRef<SpeechSynthesis | null>(null)
+  const puterReadyRef = useRef<any>(null)
 
   useEffect(() => {
     synthRef.current = window.speechSynthesis
+    // Pre-load voices (some browsers need this)
+    synthRef.current.getVoices()
+    // Start waiting for Puter.js immediately
+    waitForPuter().then(p => {
+      puterReadyRef.current = p
+      if (p) console.log('Puter.js TTS ready')
+      else console.warn('Puter.js TTS not available, will use Web Speech')
+    })
     return () => {
       currentAudioRef.current?.pause()
       synthRef.current?.cancel()
@@ -305,45 +335,68 @@ function useSpeech() {
 
       setSpeaking(true)
 
-      // Try Puter.js OpenAI TTS first (human-quality voices)
-      try {
-        const puter = (window as any).puter
-        if (puter?.ai?.txt2speech && voiceConfig) {
-          const audio: HTMLAudioElement = await puter.ai.txt2speech(text, {
-            provider: 'openai',
-            model: 'gpt-4o-mini-tts',
-            voice: voiceConfig.voice || 'alloy',
-            instructions: voiceConfig.instructions || '',
-            response_format: 'mp3',
-          })
+      // Helper to play audio from Puter TTS
+      const playPuterAudio = (audio: HTMLAudioElement): Promise<void> => {
+        return new Promise((res, rej) => {
           currentAudioRef.current = audio
-          audio.onended = () => { setSpeaking(false); currentAudioRef.current = null; resolve() }
-          audio.onerror = () => { setSpeaking(false); currentAudioRef.current = null; resolve() }
-          await audio.play()
-          return
-        }
-      } catch (e) {
-        console.warn('Puter TTS failed, falling back to Web Speech:', e)
+          audio.onended = () => { setSpeaking(false); currentAudioRef.current = null; res() }
+          audio.onerror = () => { currentAudioRef.current = null; rej(new Error('audio playback failed')) }
+          audio.play().catch(rej)
+        })
       }
 
-      // Second attempt: try Puter.js with simpler config
-      try {
-        const puter = (window as any).puter
-        if (puter?.ai?.txt2speech && voiceConfig) {
-          const audio: HTMLAudioElement = await puter.ai.txt2speech(text, {
-            voice: voiceConfig.voice || 'alloy',
-          })
-          currentAudioRef.current = audio
-          audio.onended = () => { setSpeaking(false); currentAudioRef.current = null; resolve() }
-          audio.onerror = () => { setSpeaking(false); currentAudioRef.current = null; resolve() }
-          await audio.play()
-          return
-        }
-      } catch {
-        // Fall through to Web Speech
+      // Check if Puter.js is available (may still be loading)
+      let puter = puterReadyRef.current
+      if (!puter) {
+        // One more quick check
+        puter = (window as any).puter
+        if (puter?.ai?.txt2speech) puterReadyRef.current = puter
       }
 
-      // Fallback: Web Speech API — pick the most natural-sounding voice available
+      if (puter?.ai?.txt2speech) {
+        // Attempt 1: OpenAI TTS via Puter (best quality, human-like voices)
+        if (voiceConfig) {
+          try {
+            const audio = await puter.ai.txt2speech(text, {
+              provider: 'openai',
+              model: 'gpt-4o-mini-tts',
+              voice: voiceConfig.voice || 'alloy',
+              instructions: voiceConfig.instructions || '',
+              response_format: 'mp3',
+            })
+            await playPuterAudio(audio)
+            resolve()
+            return
+          } catch (e) {
+            console.warn('Puter OpenAI TTS failed:', e)
+          }
+        }
+
+        // Attempt 2: AWS Polly via Puter (default provider, neural engine)
+        try {
+          const audio = await puter.ai.txt2speech(text, {
+            provider: 'aws',
+            engine: 'neural',
+          })
+          await playPuterAudio(audio)
+          resolve()
+          return
+        } catch (e) {
+          console.warn('Puter AWS TTS failed:', e)
+        }
+
+        // Attempt 3: Puter default (simplest call — no options)
+        try {
+          const audio = await puter.ai.txt2speech(text)
+          await playPuterAudio(audio)
+          resolve()
+          return
+        } catch (e) {
+          console.warn('Puter default TTS failed:', e)
+        }
+      }
+
+      // Last resort: Web Speech API
       if (!synthRef.current) { setSpeaking(false); resolve(); return }
 
       const utterance = new SpeechSynthesisUtterance(text)
@@ -353,7 +406,7 @@ function useSpeech() {
       utterance.rate = fallback.rate
       utterance.volume = 1
 
-      // Prioritize natural/neural voices that sound human, not robotic
+      // Pick the most natural-sounding voice available
       const voices = synthRef.current.getVoices().filter(v => v.lang.startsWith('en'))
       const naturalVoice = voices.find(v =>
         v.name.includes('Natural') || v.name.includes('Neural') ||
@@ -1390,8 +1443,8 @@ export default function InterviewRoomPage() {
         </button>
       </div>
 
-      {/* Puter.js for OpenAI TTS */}
-      <Script src="https://js.puter.com/v2/" strategy="afterInteractive" />
+      {/* Puter.js for OpenAI TTS — load eagerly so it's ready when interview starts */}
+      <Script src="https://js.puter.com/v2/" strategy="beforeInteractive" />
 
       {/* Hidden video element for camera stream (used by selfViewRef in grid) */}
       {cameraActive && (

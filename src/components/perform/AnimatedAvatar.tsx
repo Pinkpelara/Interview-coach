@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -19,31 +19,15 @@ export interface AnimatedAvatarProps {
 }
 
 // ---------------------------------------------------------------------------
-// Mouth shapes for lip sync (CSS-driven)
-// ---------------------------------------------------------------------------
-
-interface MouthShape {
-  openness: number
-  width: number
-  roundness: number
-  teethShow: boolean
-}
-
-const VISEMES: Record<string, MouthShape> = {
-  rest:  { openness: 0,    width: 1.0, roundness: 0,   teethShow: false },
-  aa:    { openness: 0.9,  width: 0.9, roundness: 0.2, teethShow: true },
-  ee:    { openness: 0.3,  width: 1.2, roundness: 0.1, teethShow: true },
-  oo:    { openness: 0.65, width: 0.5, roundness: 0.9, teethShow: false },
-  ch:    { openness: 0.2,  width: 0.8, roundness: 0.2, teethShow: true },
-  ff:    { openness: 0.1,  width: 1.0, roundness: 0,   teethShow: true },
-  mm:    { openness: 0,    width: 0.9, roundness: 0,   teethShow: false },
-  th:    { openness: 0.15, width: 0.9, roundness: 0,   teethShow: true },
-}
-
-const SPEECH_ORDER: (keyof typeof VISEMES)[] = ['aa', 'ee', 'oo', 'ch', 'ff', 'mm', 'aa', 'ee', 'th', 'oo']
-
-// ---------------------------------------------------------------------------
-// Component
+// Component — Real human photo with life-like movement animation
+//
+// Approach: Instead of crude overlays on the face (which never look right),
+// we animate the entire photo with realistic webcam-like motion:
+// - Continuous subtle breathing/sway (never static)
+// - Expression-driven head movement (lean, tilt, nod)
+// - Speaking animation (chin movement + subtle body shift)
+// - Video-call visual treatment (vignette, noise, color temp)
+// This makes the photo look like a live video feed of a real person.
 // ---------------------------------------------------------------------------
 
 export default function AnimatedAvatar({
@@ -55,285 +39,204 @@ export default function AnimatedAvatar({
 }: AnimatedAvatarProps) {
   const [imgLoaded, setImgLoaded] = useState(false)
   const [imgError, setImgError] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const animRef = useRef<number>(0)
 
-  // Animation states
-  const [blinking, setBlinking] = useState(false)
-  const [mouthShape, setMouthShape] = useState<MouthShape>(VISEMES.rest)
-  const [headTransform, setHeadTransform] = useState('translate(0px, 0px) rotate(0deg) scale(1.08)')
-
-  const blinkTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined)
-  const visemeRef = useRef(0)
-  const visemeTimerRef = useRef<ReturnType<typeof setInterval>>(undefined)
-  const idleRef = useRef<ReturnType<typeof requestAnimationFrame>>(undefined)
-  const timeRef = useRef(0)
-  const nodPhaseRef = useRef(0)
-  const noddingRef = useRef(false)
-
-  // Target values for smooth interpolation
-  const targetRef = useRef({ x: 0, y: 0, rot: 0, scale: 1.08 })
-  const currentRef = useRef({ x: 0, y: 0, rot: 0, scale: 1.08 })
+  // Persistent animation state (no React re-renders — direct DOM manipulation for 60fps)
+  const stateRef = useRef({
+    time: 0,
+    // Current interpolated values
+    cx: 0, cy: 0, crot: 0, cscale: 1.12, cbrightness: 1.0,
+    // Targets
+    tx: 0, ty: 0, trot: 0, tscale: 1.12, tbrightness: 1.0,
+    // Nodding
+    nodding: false, nodPhase: 0,
+    // Speaking bounce
+    speakPhase: 0,
+    // Idle variation
+    idleSeed: Math.random() * 100,
+  })
 
   const avatarUrl = `/api/avatar?seed=${encodeURIComponent(seed)}`
 
-  // --- NATURAL BLINKING ---
+  // --- EXPRESSION-DRIVEN TARGETS ---
   useEffect(() => {
-    const scheduleBlink = () => {
-      const delay = 2000 + Math.random() * 4000
-      blinkTimerRef.current = setTimeout(() => {
-        setBlinking(true)
-        // Double blink sometimes
-        const doubleBlink = Math.random() < 0.2
-        setTimeout(() => {
-          setBlinking(false)
-          if (doubleBlink) {
-            setTimeout(() => {
-              setBlinking(true)
-              setTimeout(() => setBlinking(false), 120)
-            }, 180)
-          }
-        }, 130)
-        scheduleBlink()
-      }, delay)
-    }
-    scheduleBlink()
-    return () => clearTimeout(blinkTimerRef.current)
-  }, [])
-
-  // --- LIP SYNC ---
-  useEffect(() => {
-    if (isSpeaking) {
-      visemeTimerRef.current = setInterval(() => {
-        visemeRef.current = (visemeRef.current + 1 + Math.floor(Math.random() * 2)) % SPEECH_ORDER.length
-        setMouthShape(VISEMES[SPEECH_ORDER[visemeRef.current]])
-      }, 90 + Math.random() * 80)
-    } else {
-      clearInterval(visemeTimerRef.current)
-      setMouthShape(VISEMES.rest)
-    }
-    return () => clearInterval(visemeTimerRef.current)
-  }, [isSpeaking])
-
-  // --- EXPRESSION & HEAD MOVEMENT ---
-  useEffect(() => {
-    const t = targetRef.current
-    noddingRef.current = false
+    const s = stateRef.current
+    s.nodding = false
 
     switch (expression) {
       case 'neutral':
-        t.x = 0; t.y = 0; t.rot = 0; t.scale = 1.08
+        s.tx = 0; s.ty = 0; s.trot = 0; s.tscale = 1.12; s.tbrightness = 1.0
         break
       case 'interested':
-        t.x = 1; t.y = -2; t.rot = 1.5; t.scale = 1.11 // lean in
+        // Lean forward slightly, tilt head, brighten (engaged)
+        s.tx = 2; s.ty = -4; s.trot = 2; s.tscale = 1.16; s.tbrightness = 1.03
         break
       case 'skeptical':
-        t.x = -2; t.y = 0; t.rot = -2.5; t.scale = 1.07
+        // Lean back, tilt opposite, slightly darker (evaluating)
+        s.tx = -3; s.ty = 1; s.trot = -3; s.tscale = 1.10; s.tbrightness = 0.97
         break
       case 'nodding':
-        noddingRef.current = true
-        nodPhaseRef.current = 0
-        t.scale = 1.09
+        s.nodding = true; s.nodPhase = 0; s.tscale = 1.13
         break
       case 'writing':
-        t.x = 3; t.y = 5; t.rot = -1.5; t.scale = 1.06 // looking down
+        // Look down at notes, shift to side
+        s.tx = 5; s.ty = 8; s.trot = -2; s.tscale = 1.10; s.tbrightness = 0.96
         break
     }
   }, [expression])
 
   // --- LOOKING AWAY ---
   useEffect(() => {
-    const t = targetRef.current
+    const s = stateRef.current
     if (isLookingAway) {
-      t.x = 10 + Math.random() * 8
-      t.y = 3 + Math.random() * 3
-      t.rot = 3
+      const dir = Math.random() > 0.5 ? 1 : -1
+      s.tx = dir * (12 + Math.random() * 10)
+      s.ty = 3 + Math.random() * 5
+      s.trot = dir * 4
+      s.tscale = 1.10
     } else if (expression === 'neutral') {
-      t.x = 0; t.y = 0; t.rot = 0
+      s.tx = 0; s.ty = 0; s.trot = 0; s.tscale = 1.12
     }
   }, [isLookingAway, expression])
 
-  // --- SMOOTH ANIMATION LOOP (idle sway + interpolation) ---
+  // --- 60FPS ANIMATION LOOP (direct DOM updates, no setState) ---
   useEffect(() => {
-    const tick = () => {
-      timeRef.current += 0.016
-      const t = timeRef.current
-      const target = targetRef.current
-      const cur = currentRef.current
+    const el = containerRef.current
+    if (!el) return
 
-      // Nodding animation
-      if (noddingRef.current) {
-        nodPhaseRef.current += 0.072
-        target.y = Math.sin(nodPhaseRef.current) * 4
-        target.rot = Math.sin(nodPhaseRef.current * 0.5) * 1.2
-        if (nodPhaseRef.current > Math.PI * 5) {
-          noddingRef.current = false
-          target.y = 0; target.rot = 0
+    let lastTs = 0
+
+    const tick = (ts: number) => {
+      const dt = lastTs ? Math.min((ts - lastTs) / 1000, 0.05) : 0.016
+      lastTs = ts
+      const s = stateRef.current
+      s.time += dt
+
+      const t = s.time
+      const lerp = 1 - Math.pow(0.03, dt) // smooth ~30ms response
+
+      // --- Nodding ---
+      if (s.nodding) {
+        s.nodPhase += dt * 5
+        s.ty = Math.sin(s.nodPhase) * 5
+        s.trot = Math.sin(s.nodPhase * 0.6) * 1.5
+        if (s.nodPhase > Math.PI * 6) {
+          s.nodding = false
+          s.ty = 0; s.trot = 0
         }
       }
 
-      // Smooth lerp
-      const lerp = 0.06
-      cur.x += (target.x - cur.x) * lerp
-      cur.y += (target.y - cur.y) * lerp
-      cur.rot += (target.rot - cur.rot) * lerp
-      cur.scale += (target.scale - cur.scale) * lerp
+      // --- Speaking body movement ---
+      if (isSpeaking) {
+        s.speakPhase += dt * 8
+        // Subtle chin/jaw movement + slight body shift
+        s.cy += (s.ty + Math.sin(s.speakPhase) * 1.8 + Math.sin(s.speakPhase * 1.7) * 0.8 - s.cy) * lerp
+        s.cx += (s.tx + Math.sin(s.speakPhase * 0.5) * 1.5 - s.cx) * lerp
+      } else {
+        s.speakPhase = 0
+        s.cx += (s.tx - s.cx) * lerp
+        s.cy += (s.ty - s.cy) * lerp
+      }
 
-      // Add idle micro-sway (always on — makes them look alive)
-      const idleX = cur.x + Math.sin(t * 0.6) * 1.0 + Math.sin(t * 1.3) * 0.5
-      const idleY = cur.y + Math.sin(t * 0.8) * 0.7 + Math.sin(t * 0.3) * 0.8
-      const idleRot = cur.rot + Math.sin(t * 0.5) * 0.3
-      const breatheScale = cur.scale + Math.sin(t * 1.2) * 0.003
+      // --- Smooth interpolation ---
+      s.crot += (s.trot - s.crot) * lerp
+      s.cscale += (s.tscale - s.cscale) * lerp
+      s.cbrightness += (s.tbrightness - s.cbrightness) * lerp
 
-      setHeadTransform(
-        `translate(${idleX.toFixed(2)}px, ${idleY.toFixed(2)}px) rotate(${idleRot.toFixed(2)}deg) scale(${breatheScale.toFixed(4)})`
-      )
+      // --- Idle micro-sway (always active — the key to looking alive) ---
+      const seed = s.idleSeed
+      const idleX = s.cx + Math.sin(t * 0.4 + seed) * 1.5 + Math.sin(t * 1.1 + seed * 2) * 0.7
+      const idleY = s.cy + Math.sin(t * 0.55 + seed * 3) * 1.0 + Math.sin(t * 0.25 + seed) * 1.2
+      const idleRot = s.crot + Math.sin(t * 0.35 + seed) * 0.5 + Math.sin(t * 0.8 + seed * 2) * 0.3
+      const breathe = s.cscale + Math.sin(t * 1.3) * 0.004 // breathing rhythm
 
-      idleRef.current = requestAnimationFrame(tick)
+      // --- Occasional webcam-like auto-exposure shift ---
+      const exposureShift = Math.sin(t * 0.15) * 0.02
+
+      // Apply directly to DOM (bypasses React render cycle for smooth 60fps)
+      el.style.transform = `translate(${idleX.toFixed(1)}px, ${idleY.toFixed(1)}px) rotate(${idleRot.toFixed(2)}deg) scale(${breathe.toFixed(4)})`
+      el.style.filter = `brightness(${(s.cbrightness + exposureShift).toFixed(3)})`
+
+      animRef.current = requestAnimationFrame(tick)
     }
-    idleRef.current = requestAnimationFrame(tick)
-    return () => { if (idleRef.current) cancelAnimationFrame(idleRef.current) }
-  }, [])
+
+    animRef.current = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(animRef.current)
+  }, [isSpeaking])
 
   // Initials fallback
   const initials = seed.split(' ').map(n => n[0]).join('').toUpperCase()
 
-  // Mouth overlay dimensions
-  const mouthOpen = mouthShape.openness
-  const mouthW = 18 * mouthShape.width
-  const mouthH = mouthOpen * 14
-  const isRound = mouthShape.roundness > 0.5
-
   return (
     <div className="relative w-full h-full overflow-hidden bg-[#0c0f14]">
-      {/* Photo layer — the real human face */}
+      {/* Animated photo container — transformed at 60fps */}
       <div
-        className="absolute inset-0 transition-none"
-        style={{ transform: headTransform, transformOrigin: 'center 40%' }}
+        ref={containerRef}
+        className="absolute inset-0 will-change-transform"
+        style={{ transformOrigin: 'center 40%' }}
       >
         {!imgError ? (
           <img
             src={avatarUrl}
             alt=""
-            className={`w-full h-full object-cover select-none ${imgLoaded ? 'opacity-100' : 'opacity-0'}`}
-            style={{ transition: 'opacity 0.5s' }}
+            className="w-full h-full object-cover select-none"
+            style={{
+              opacity: imgLoaded ? 1 : 0,
+              transition: 'opacity 0.6s ease-in',
+            }}
             onLoad={() => setImgLoaded(true)}
             onError={() => setImgError(true)}
             draggable={false}
           />
         ) : null}
 
-        {/* Fallback initials if photo fails */}
+        {/* Fallback: initials if photo fails to load */}
         {(imgError || !imgLoaded) && (
-          <div className="absolute inset-0 flex items-center justify-center">
+          <div className="absolute inset-0 flex items-center justify-center"
+            style={{ background: `linear-gradient(135deg, #1a1a2e 0%, ${accentColor}15 100%)` }}>
             <div
-              className="w-28 h-28 rounded-full flex items-center justify-center text-3xl font-bold text-white"
-              style={{ backgroundColor: accentColor + '40', border: `3px solid ${accentColor}60` }}
+              className="w-28 h-28 rounded-full flex items-center justify-center text-3xl font-bold text-white shadow-2xl"
+              style={{ backgroundColor: accentColor + '35', border: `3px solid ${accentColor}50` }}
             >
               {initials}
             </div>
           </div>
         )}
-
-        {/* === BLINK OVERLAY === */}
-        {/* Skin-colored patches over eye areas when blinking */}
-        {blinking && imgLoaded && (
-          <>
-            <div
-              className="absolute rounded-full"
-              style={{
-                left: '32%', top: '35%',
-                width: '12%', height: '4%',
-                backgroundColor: '#c4a882',
-                mixBlendMode: 'normal',
-                filter: 'blur(1px)',
-                opacity: 0.92,
-              }}
-            />
-            <div
-              className="absolute rounded-full"
-              style={{
-                left: '56%', top: '35%',
-                width: '12%', height: '4%',
-                backgroundColor: '#c4a882',
-                mixBlendMode: 'normal',
-                filter: 'blur(1px)',
-                opacity: 0.92,
-              }}
-            />
-          </>
-        )}
-
-        {/* === MOUTH ANIMATION OVERLAY === */}
-        {mouthOpen > 0.02 && imgLoaded && (
-          <div
-            className="absolute"
-            style={{
-              left: '50%',
-              top: '62%',
-              transform: 'translate(-50%, -50%)',
-              width: `${mouthW + 8}%`,
-              height: `${mouthH + 4}%`,
-            }}
-          >
-            {/* Mouth interior (dark) */}
-            <div
-              className="absolute inset-0 overflow-hidden"
-              style={{
-                backgroundColor: '#2a1218',
-                borderRadius: isRound ? '50%' : '40% 40% 50% 50%',
-                width: `${isRound ? 50 : 85}%`,
-                height: `${mouthH > 3 ? 80 : 60}%`,
-                left: '50%',
-                top: '50%',
-                transform: 'translate(-50%, -50%)',
-              }}
-            >
-              {/* Upper teeth */}
-              {mouthShape.teethShow && mouthOpen > 0.15 && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: '15%',
-                    right: '15%',
-                    height: '30%',
-                    backgroundColor: '#f0ece6',
-                    borderRadius: '0 0 3px 3px',
-                  }}
-                />
-              )}
-              {/* Tongue hint */}
-              {mouthOpen > 0.5 && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    bottom: '5%',
-                    left: '25%',
-                    right: '25%',
-                    height: '30%',
-                    backgroundColor: '#b04555',
-                    borderRadius: '50% 50% 0 0',
-                  }}
-                />
-              )}
-            </div>
-          </div>
-        )}
       </div>
 
-      {/* Vignette overlay — webcam realism */}
+      {/* Speaking indicator: subtle chin shadow that pulses with speech */}
+      {isSpeaking && imgLoaded && (
+        <div
+          className="absolute pointer-events-none animate-pulse"
+          style={{
+            left: '30%', right: '30%',
+            bottom: '30%', height: '8%',
+            background: 'radial-gradient(ellipse, rgba(0,0,0,0.15) 0%, transparent 70%)',
+            animation: 'pulse 0.4s ease-in-out infinite alternate',
+          }}
+        />
+      )}
+
+      {/* Webcam vignette effect */}
       <div
         className="absolute inset-0 pointer-events-none"
         style={{
-          background: 'radial-gradient(ellipse at center 40%, transparent 45%, rgba(0,0,0,0.35) 100%)',
+          background: 'radial-gradient(ellipse at center 40%, transparent 40%, rgba(0,0,0,0.4) 100%)',
         }}
       />
 
-      {/* Subtle scanlines */}
+      {/* Subtle color temperature variation (warmer, like indoor lighting) */}
       <div
-        className="absolute inset-0 pointer-events-none opacity-[0.03]"
+        className="absolute inset-0 pointer-events-none mix-blend-overlay opacity-[0.04]"
+        style={{ backgroundColor: '#ffaa44' }}
+      />
+
+      {/* Very subtle noise texture */}
+      <div
+        className="absolute inset-0 pointer-events-none opacity-[0.025]"
         style={{
-          backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 1px, rgba(0,0,0,1) 1px, rgba(0,0,0,1) 2px)',
-          backgroundSize: '100% 2px',
+          backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`,
         }}
       />
     </div>
