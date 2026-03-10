@@ -88,15 +88,6 @@ const ARCHETYPE_LABELS: Record<string, string> = {
   silent_observer: 'Silent Observer',
 }
 
-const ARCHETYPE_BG: Record<string, string> = {
-  skeptic: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
-  friendly_champion: 'linear-gradient(135deg, #1a2e1a 0%, #162e21 50%, #0f4630 100%)',
-  technical_griller: 'linear-gradient(135deg, #1a1a2e 0%, #2d1b4e 50%, #1a0f3e 100%)',
-  distracted_senior: 'linear-gradient(135deg, #2e2a1a 0%, #3e3216 50%, #46380f 100%)',
-  culture_fit: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)',
-  silent_observer: 'linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 50%, #1a1a1a 100%)',
-}
-
 // ---------------------------------------------------------------------------
 // Opening / Closing lines
 // ---------------------------------------------------------------------------
@@ -163,23 +154,22 @@ function formatTime(seconds: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Mouth shapes for lip sync animation
+// Realistic avatar URL generator using thispersondoesnotexist-style photos
+// Uses pravatar.cc (free, no API key, seeded by name for consistency)
 // ---------------------------------------------------------------------------
 
-type MouthShape = 'closed' | 'small' | 'medium' | 'wide' | 'round'
-
-function getMouthPath(shape: MouthShape): string {
-  switch (shape) {
-    case 'closed': return 'M 35 72 Q 50 74 65 72'
-    case 'small': return 'M 38 70 Q 50 77 62 70'
-    case 'medium': return 'M 36 68 Q 50 80 64 68'
-    case 'wide': return 'M 34 67 Q 50 83 66 67'
-    case 'round': return 'M 40 68 Q 50 80 60 68 Q 50 84 40 68'
+function getAvatarUrl(name: string): string {
+  // Use a hash of the name to get a consistent avatar ID (1-70 range for pravatar)
+  let h = 0
+  for (let i = 0; i < name.length; i++) {
+    h = ((h << 5) - h + name.charCodeAt(i)) | 0
   }
+  const id = (Math.abs(h) % 70) + 1
+  return `https://i.pravatar.cc/400?img=${id}`
 }
 
 // ---------------------------------------------------------------------------
-// Character Face Component
+// Character Face Component — Realistic Photo Avatar with Live Animations
 // ---------------------------------------------------------------------------
 
 function CharacterFace({
@@ -194,180 +184,167 @@ function CharacterFace({
   isLookingAway: boolean
 }) {
   const color = ARCHETYPE_COLORS[character.archetype] || '#6b7280'
-  const bg = ARCHETYPE_BG[character.archetype] || ARCHETYPE_BG.silent_observer
-  const [mouthShape, setMouthShape] = useState<MouthShape>('closed')
-  const [eyeOffset, setEyeOffset] = useState({ x: 0, y: 0 })
-  const [headTilt, setHeadTilt] = useState(0)
-  const frameRef = useRef<number>(0)
+  const [imgLoaded, setImgLoaded] = useState(false)
+  const [imgError, setImgError] = useState(false)
+  const [animClass, setAnimClass] = useState('')
+  const avatarUrl = getAvatarUrl(character.name)
 
-  // Lip sync animation
-  useEffect(() => {
-    if (!isSpeaking) {
-      setMouthShape('closed')
-      return
-    }
-    const shapes: MouthShape[] = ['small', 'medium', 'wide', 'round', 'medium', 'small']
-    let idx = 0
-    const interval = setInterval(() => {
-      setMouthShape(shapes[idx % shapes.length])
-      idx++
-    }, 120)
-    return () => clearInterval(interval)
-  }, [isSpeaking])
-
-  // Eye movement
-  useEffect(() => {
-    const move = () => {
-      if (isLookingAway) {
-        setEyeOffset({ x: Math.random() * 6 - 3, y: Math.random() * 4 + 2 })
-      } else {
-        setEyeOffset({ x: Math.random() * 2 - 1, y: Math.random() * 2 - 1 })
-      }
-      frameRef.current = window.setTimeout(move, 2000 + Math.random() * 3000) as unknown as number
-    }
-    move()
-    return () => clearTimeout(frameRef.current)
-  }, [isLookingAway])
-
-  // Head tilt for expressions
+  // Natural head movement animations based on expression
   useEffect(() => {
     switch (expression) {
-      case 'skeptical': setHeadTilt(-3); break
-      case 'interested': setHeadTilt(2); break
-      case 'nodding': {
-        let count = 0
-        const nod = setInterval(() => {
-          setHeadTilt(count % 2 === 0 ? 4 : -1)
-          count++
-          if (count > 4) { clearInterval(nod); setHeadTilt(0) }
-        }, 300)
-        return () => clearInterval(nod)
-      }
-      default: setHeadTilt(0)
+      case 'nodding':
+        setAnimClass('animate-nod')
+        const t1 = setTimeout(() => setAnimClass(''), 1800)
+        return () => clearTimeout(t1)
+      case 'skeptical':
+        setAnimClass('animate-tilt-left')
+        return
+      case 'interested':
+        setAnimClass('animate-tilt-right')
+        return
+      case 'writing':
+        setAnimClass('animate-look-down')
+        return
+      default:
+        setAnimClass('')
     }
   }, [expression])
 
-  // Eyebrow positions based on expression
-  const leftBrowY = expression === 'skeptical' ? 28 : expression === 'interested' ? 26 : 30
-  const rightBrowY = expression === 'skeptical' ? 32 : expression === 'interested' ? 26 : 30
+  // Speaking animation — subtle movement
+  const speakingClass = isSpeaking ? 'animate-speaking' : ''
+  const lookAwayClass = isLookingAway ? 'animate-look-away' : ''
+
+  // Initials fallback
+  const initials = character.name.split(' ').map(n => n[0]).join('').toUpperCase()
 
   return (
-    <div
-      className="relative w-full h-full rounded-xl overflow-hidden"
-      style={{ background: bg }}
-    >
-      {/* Character video feed area */}
-      <div className="absolute inset-0 flex items-center justify-center">
-        <svg
-          viewBox="0 0 100 100"
-          className="w-48 h-48 md:w-56 md:h-56 transition-transform duration-500"
-          style={{ transform: `rotate(${headTilt}deg)` }}
-        >
-          {/* Head */}
-          <ellipse cx="50" cy="50" rx="30" ry="35" fill={color} opacity="0.15" />
-          <ellipse cx="50" cy="50" rx="28" ry="33" fill={color} opacity="0.25" />
+    <div className="relative w-full h-full rounded-xl overflow-hidden bg-[#0d0d1a] group">
+      {/* CSS animations injected inline */}
+      <style>{`
+        @keyframes nod {
+          0%, 100% { transform: scale(1.05) translateY(0px); }
+          25% { transform: scale(1.05) translateY(3px); }
+          50% { transform: scale(1.05) translateY(-1px); }
+          75% { transform: scale(1.05) translateY(2px); }
+        }
+        @keyframes speaking {
+          0%, 100% { transform: scale(1.05) translateY(0px); }
+          30% { transform: scale(1.05) translateY(1px) translateX(0.5px); }
+          60% { transform: scale(1.05) translateY(-0.5px) translateX(-0.5px); }
+        }
+        @keyframes look-away {
+          0%, 100% { transform: scale(1.05) translateX(0px); }
+          50% { transform: scale(1.05) translateX(8px) translateY(3px); }
+        }
+        @keyframes breathing {
+          0%, 100% { transform: scale(1.05); }
+          50% { transform: scale(1.06); }
+        }
+        .animate-nod { animation: nod 0.6s ease-in-out 3; }
+        .animate-speaking { animation: speaking 0.8s ease-in-out infinite; }
+        .animate-look-away { animation: look-away 4s ease-in-out infinite; }
+        .animate-tilt-left { transform: scale(1.05) rotate(-2deg); transition: transform 0.5s ease; }
+        .animate-tilt-right { transform: scale(1.05) rotate(1.5deg); transition: transform 0.5s ease; }
+        .animate-look-down { transform: scale(1.05) translateY(4px); transition: transform 0.5s ease; }
+        .animate-idle { animation: breathing 4s ease-in-out infinite; }
+      `}</style>
 
-          {/* Hair hint */}
-          <path d="M 22 40 Q 30 15 50 12 Q 70 15 78 40" fill={color} opacity="0.3" />
-
-          {/* Eyes */}
-          <g>
-            {/* Left eye */}
-            <ellipse
-              cx={38 + eyeOffset.x}
-              cy={44 + eyeOffset.y}
-              rx="5"
-              ry="3.5"
-              fill="white"
-            />
-            <circle
-              cx={38 + eyeOffset.x}
-              cy={44 + eyeOffset.y}
-              r="2"
-              fill="#1a1a2e"
-            />
-            <circle
-              cx={38.5 + eyeOffset.x}
-              cy={43.5 + eyeOffset.y}
-              r="0.7"
-              fill="white"
-            />
-
-            {/* Right eye */}
-            <ellipse
-              cx={62 + eyeOffset.x}
-              cy={44 + eyeOffset.y}
-              rx="5"
-              ry="3.5"
-              fill="white"
-            />
-            <circle
-              cx={62 + eyeOffset.x}
-              cy={44 + eyeOffset.y}
-              r="2"
-              fill="#1a1a2e"
-            />
-            <circle
-              cx={62.5 + eyeOffset.x}
-              cy={43.5 + eyeOffset.y}
-              r="0.7"
-              fill="white"
-            />
-          </g>
-
-          {/* Eyebrows */}
-          <line x1="32" y1={leftBrowY} x2="44" y2={leftBrowY - 2} stroke={color} strokeWidth="1.5" strokeLinecap="round" opacity="0.6" />
-          <line x1="56" y1={rightBrowY - 2} x2="68" y2={rightBrowY} stroke={color} strokeWidth="1.5" strokeLinecap="round" opacity="0.6" />
-
-          {/* Nose */}
-          <path d="M 50 48 L 47 58 Q 50 60 53 58 Z" fill={color} opacity="0.15" />
-
-          {/* Mouth */}
-          <path
-            d={getMouthPath(mouthShape)}
-            fill={isSpeaking ? '#e8a0a0' : 'none'}
-            stroke={color}
-            strokeWidth="1.2"
-            opacity="0.5"
-            className="transition-all duration-100"
+      {/* Photo avatar — fills entire tile like a real video feed */}
+      <div className={`absolute inset-0 transition-transform duration-500 ${
+        animClass || speakingClass || lookAwayClass || 'animate-idle'
+      }`}>
+        {!imgError ? (
+          <img
+            src={avatarUrl}
+            alt={character.name}
+            className={`w-full h-full object-cover transition-opacity duration-500 ${imgLoaded ? 'opacity-100' : 'opacity-0'}`}
+            onLoad={() => setImgLoaded(true)}
+            onError={() => setImgError(true)}
+            draggable={false}
           />
+        ) : null}
 
-          {/* Writing gesture indicator */}
-          {expression === 'writing' && (
-            <g opacity="0.4">
-              <rect x="70" y="65" width="12" height="16" rx="2" fill="white" opacity="0.3" />
-              <line x1="72" y1="69" x2="80" y2="69" stroke={color} strokeWidth="0.5" />
-              <line x1="72" y1="72" x2="78" y2="72" stroke={color} strokeWidth="0.5" />
-              <line x1="72" y1="75" x2="79" y2="75" stroke={color} strokeWidth="0.5" />
-            </g>
-          )}
-        </svg>
+        {/* Fallback: professional gradient with large initials if image fails */}
+        {(imgError || !imgLoaded) && (
+          <div
+            className="absolute inset-0 flex items-center justify-center"
+            style={{
+              background: `linear-gradient(135deg, ${color}30 0%, ${color}10 50%, #0d0d1a 100%)`,
+            }}
+          >
+            <div
+              className="w-24 h-24 md:w-32 md:h-32 rounded-full flex items-center justify-center text-3xl md:text-4xl font-bold text-white"
+              style={{ backgroundColor: color + '40', border: `3px solid ${color}60` }}
+            >
+              {initials}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Name label */}
-      <div className="absolute bottom-0 left-0 right-0 p-3 bg-gradient-to-t from-black/60 to-transparent">
-        <p className="text-white text-sm font-medium truncate">{character.name}</p>
-        <p className="text-gray-300 text-xs truncate">{character.title}</p>
-      </div>
+      {/* Subtle dark overlay at edges — looks like real webcam vignette */}
+      <div className="absolute inset-0 pointer-events-none" style={{
+        background: 'radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.3) 100%)',
+      }} />
 
-      {/* Speaking indicator */}
+      {/* Speaking: green animated border + audio wave indicator */}
       {isSpeaking && (
-        <div className="absolute top-3 right-3 flex items-center gap-1.5 bg-green-500/20 rounded-full px-2 py-1">
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
-          </span>
-          <span className="text-green-300 text-[10px] font-medium">Speaking</span>
+        <>
+          <div
+            className="absolute inset-0 rounded-xl pointer-events-none"
+            style={{
+              border: `2px solid ${color}`,
+              boxShadow: `0 0 20px ${color}40, inset 0 0 20px ${color}10`,
+            }}
+          />
+          {/* Audio waveform bars at bottom */}
+          <div className="absolute bottom-12 left-1/2 -translate-x-1/2 flex items-end gap-[3px]">
+            {[0, 1, 2, 3, 4, 2, 1].map((_, i) => (
+              <div
+                key={i}
+                className="w-[3px] rounded-full bg-green-400"
+                style={{
+                  animation: `speaking 0.5s ease-in-out ${i * 0.07}s infinite alternate`,
+                  height: `${8 + Math.sin(i * 1.2) * 8}px`,
+                  opacity: 0.8,
+                }}
+              />
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* Name label — matches real video call UI */}
+      <div className="absolute bottom-0 left-0 right-0 p-2.5 bg-gradient-to-t from-black/80 via-black/40 to-transparent">
+        <div className="flex items-center gap-2">
+          <p className="text-white text-sm font-medium truncate">{character.name}</p>
+          {isSpeaking && (
+            <span className="relative flex h-2 w-2 shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+            </span>
+          )}
+        </div>
+        <p className="text-gray-400 text-xs truncate">{character.title}</p>
+      </div>
+
+      {/* Expression overlay indicator (subtle) */}
+      {expression === 'writing' && (
+        <div className="absolute top-2 right-2 bg-black/50 backdrop-blur-sm rounded-full px-2 py-0.5 flex items-center gap-1.5">
+          <span className="text-yellow-400 text-[10px]">Taking notes</span>
+          <span className="text-yellow-400 text-[10px] animate-pulse">...</span>
         </div>
       )}
 
-      {/* Border glow when speaking */}
-      {isSpeaking && (
-        <div
-          className="absolute inset-0 rounded-xl pointer-events-none"
-          style={{ boxShadow: `inset 0 0 20px ${color}40, 0 0 15px ${color}20` }}
-        />
-      )}
+      {/* Archetype label on hover */}
+      <div className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity">
+        <span
+          className="text-[10px] font-medium px-2 py-0.5 rounded-full backdrop-blur-sm"
+          style={{ backgroundColor: color + '30', color: color }}
+        >
+          {ARCHETYPE_LABELS[character.archetype] || character.archetype}
+        </span>
+      </div>
     </div>
   )
 }
