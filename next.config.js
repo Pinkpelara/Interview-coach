@@ -1,6 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  experimental: {},
+  output: 'standalone',
+  images: {
+    remotePatterns: [],
+  },
 }
 
 module.exports = nextConfig
