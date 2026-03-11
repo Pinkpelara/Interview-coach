@@ -1,8 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams } from 'next/navigation'
-import { useSession } from 'next-auth/react'
 import { Card, CardHeader, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { ScoreGauge } from '@/components/ui/ScoreGauge'
@@ -56,6 +55,25 @@ interface AnalysisData {
   hiringProbability: number
   nextTargets: NextTarget[]
   coachScript: string
+  scoreDetails?: Record<
+    string,
+    {
+      observations: string[]
+      weakness: string
+    }
+  >
+  hiringAssessment?: {
+    wouldAdvance: boolean
+    reasonsYes: string[]
+    reasonsNo: string[]
+    comparisonToRoleRequirements: string
+  }
+  progressSeries?: Array<{
+    sessionId: string
+    label: string
+    probability: number
+    createdAt: string
+  }>
 }
 
 interface SessionData {
@@ -107,13 +125,15 @@ const segmentBadgeVariants = {
 export default function DebriefPage() {
   const params = useParams()
   const sessionId = params.sessionId as string
-  const { data: authSession } = useSession()
 
   const [data, setData] = useState<DebriefResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedSegment, setSelectedSegment] = useState<MomentSegment | null>(null)
   const [audioPlaying, setAudioPlaying] = useState(false)
+  const [audioLoading, setAudioLoading] = useState(false)
+  const [audioUrl, setAudioUrl] = useState<string | null>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
 
   useEffect(() => {
     async function fetchDebrief() {
@@ -136,6 +156,17 @@ export default function DebriefPage() {
       fetchDebrief()
     }
   }, [sessionId])
+
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause()
+      }
+      if (audioUrl) {
+        URL.revokeObjectURL(audioUrl)
+      }
+    }
+  }, [audioUrl])
 
   if (loading) {
     return (
@@ -164,44 +195,88 @@ export default function DebriefPage() {
     )
   }
 
-  const { session: interviewSession, analysis } = data
+  const { analysis } = data
 
   const scores = [
-    { name: 'Answer Quality', score: analysis.answerQuality, observations: ['Used STAR framework in 4/6 behavioral questions', 'Provided specific metrics in leadership answers', 'Weakness answer lacked authenticity'], weakness: 'Generic weakness response needs complete rework' },
-    { name: 'Delivery Confidence', score: analysis.deliveryConfidence, observations: ['Strong eye contact during opening', 'Voice pitch rose under pressure questions', 'Good pacing on rehearsed answers'], weakness: 'Filler words increase 3x during unexpected follow-ups' },
-    { name: 'Pressure Recovery', score: analysis.pressureRecovery, observations: ['Recovered well after the failure question', 'Maintained composure during rapid-fire segment', 'Paused effectively before answering twice'], weakness: 'Silence-filling tendency when caught off guard' },
-    { name: 'Company Fit Language', score: analysis.companyFitLanguage, observations: ['Referenced company mission once', 'Used industry-specific terminology', 'Aligned growth goals with role trajectory'], weakness: 'Only 2 direct references to JD language vs. target of 5+' },
-    { name: 'Listening Accuracy', score: analysis.listeningAccuracy, observations: ['Answered the question asked in 8/10 exchanges', 'Picked up on interviewer cues for elaboration', 'Adapted answer length based on interviewer engagement'], weakness: 'Missed a clarifying sub-question in the prioritization exchange' },
+    { key: 'answerQuality', name: 'Answer Quality', score: analysis.answerQuality },
+    { key: 'deliveryConfidence', name: 'Delivery Confidence', score: analysis.deliveryConfidence },
+    { key: 'pressureRecovery', name: 'Pressure Recovery', score: analysis.pressureRecovery },
+    { key: 'companyFitLanguage', name: 'Company Fit Language', score: analysis.companyFitLanguage },
+    { key: 'listeningAccuracy', name: 'Listening Accuracy', score: analysis.listeningAccuracy },
   ]
 
   const hiringProb = analysis.hiringProbability
-  const wouldAdvance = hiringProb >= 65
+  const wouldAdvance = analysis.hiringAssessment?.wouldAdvance ?? hiringProb >= 65
 
-  const reasonsYes = [
-    'Strong technical storytelling with specific metrics',
-    'Demonstrated leadership with cross-functional examples',
-    'Growth trajectory aligns with role requirements',
+  const reasonsYes = analysis.hiringAssessment?.reasonsYes || [
+    'Clear ownership in key examples',
+    'Good role-relevant experience signals',
+    'Consistent effort under pressure',
+  ]
+  const reasonsNo = analysis.hiringAssessment?.reasonsNo || [
+    'Needs tighter specificity in weaker moments',
+    'Some confidence dips under pressure',
+    'Can better mirror company language',
   ]
 
-  const reasonsNo = [
-    'Weakness answer signals low self-awareness',
-    'Filler words under pressure may concern senior interviewers',
-    'Insufficient company-specific language for culture fit',
-  ]
+  const progressData = (analysis.progressSeries || []).map((p) => ({
+    session: p.label,
+    probability: p.probability,
+  }))
 
-  // Mock progress data for chart
-  const progressData = [
-    { session: 'S1', probability: Math.max(35, hiringProb - 28) },
-    { session: 'S2', probability: Math.max(40, hiringProb - 20) },
-    { session: 'S3', probability: Math.max(45, hiringProb - 14) },
-    { session: 'S4', probability: Math.max(50, hiringProb - 8) },
-    { session: 'S5', probability: hiringProb },
-  ]
+  async function handlePlayAudio(autoplay = false) {
+    if (audioRef.current && audioPlaying) {
+      audioRef.current.pause()
+      return
+    }
 
-  function handlePlayAudio() {
-    setAudioPlaying(true)
-    setTimeout(() => setAudioPlaying(false), 3000)
+    try {
+      setAudioLoading(true)
+      let url = audioUrl
+
+      if (!url) {
+        const ttsRes = await fetch('/api/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: analysis.coachScript,
+            voice: 'nova',
+            instructions: 'Speak as a direct but encouraging interview coach.',
+          }),
+        })
+
+        if (!ttsRes.ok) {
+          return
+        }
+
+        const blob = await ttsRes.blob()
+        url = URL.createObjectURL(blob)
+        setAudioUrl(url)
+      }
+
+      if (!audioRef.current) {
+        audioRef.current = new Audio(url)
+        audioRef.current.onplay = () => setAudioPlaying(true)
+        audioRef.current.onpause = () => setAudioPlaying(false)
+        audioRef.current.onended = () => setAudioPlaying(false)
+      } else if (audioRef.current.src !== url) {
+        audioRef.current.src = url
+      }
+
+      await audioRef.current.play()
+    } catch {
+      // Non-blocking: written coach summary remains visible.
+    } finally {
+      setAudioLoading(false)
+    }
   }
+
+  useEffect(() => {
+    if (analysis?.coachScript) {
+      void handlePlayAudio(true)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [analysis?.coachScript])
 
   return (
     <div className="space-y-8 pb-12">
@@ -226,11 +301,11 @@ export default function DebriefPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={handlePlayAudio}
-                disabled={audioPlaying}
+                onClick={() => void handlePlayAudio(false)}
+                disabled={audioLoading}
               >
                 <Play className="h-4 w-4 mr-2" />
-                {audioPlaying ? 'Playing...' : 'Play Coach Audio'}
+                {audioLoading ? 'Loading audio...' : audioPlaying ? 'Pause Coach Audio' : 'Play Coach Audio'}
               </Button>
             </div>
           </div>
@@ -325,7 +400,7 @@ export default function DebriefPage() {
                   <h4 className="font-semibold text-gray-900">{dim.name}</h4>
                 </div>
                 <ul className="space-y-1.5 mb-3">
-                  {dim.observations.map((obs, i) => (
+                  {(analysis.scoreDetails?.[dim.key]?.observations || []).map((obs, i) => (
                     <li key={i} className="flex items-start gap-2 text-sm text-gray-600">
                       <CheckCircle className="h-3.5 w-3.5 text-green-500 mt-0.5 flex-shrink-0" />
                       {obs}
@@ -334,7 +409,9 @@ export default function DebriefPage() {
                 </ul>
                 <div className="flex items-start gap-2 text-sm border-t border-gray-100 pt-2">
                   <AlertTriangle className="h-3.5 w-3.5 text-amber-500 mt-0.5 flex-shrink-0" />
-                  <span className="text-gray-500">{dim.weakness}</span>
+                  <span className="text-gray-500">
+                    {analysis.scoreDetails?.[dim.key]?.weakness || 'Keep improving this dimension with focused practice.'}
+                  </span>
                 </div>
               </CardContent>
             </Card>
@@ -357,6 +434,11 @@ export default function DebriefPage() {
               >
                 Would Advance: {wouldAdvance ? 'Yes' : 'No'}
               </div>
+              {analysis.hiringAssessment?.comparisonToRoleRequirements && (
+                <p className="text-sm text-gray-600">
+                  {analysis.hiringAssessment.comparisonToRoleRequirements}
+                </p>
+              )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>

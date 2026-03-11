@@ -7,91 +7,450 @@ import { DebriefScoreSchema } from '@/lib/ai/validation'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { debriefCoachSystemPrompt, debriefScoringSystemPrompt } from '@/lib/ai/prompts'
 
-function randomInt(min: number, max: number) {
-  return Math.floor(Math.random() * (max - min + 1)) + min
+type MomentType = 'strong' | 'recoverable' | 'dropped'
+
+type Pair = {
+  question: string
+  answer: string
+  timestampMs: number
+  characterId: string | null
 }
 
-function generateMomentMap() {
-  const types: Array<'strong' | 'recoverable' | 'dropped'> = ['strong', 'recoverable', 'dropped']
-  const segments = []
-  const count = randomInt(8, 12)
-  const segmentDuration = Math.floor(100 / count)
+type Stats = {
+  answersCount: number
+  totalWords: number
+  avgWords: number
+  fillerCount: number
+  uncertainCount: number
+  quantifiedAnswers: number
+  ownershipAnswers: number
+  shortAnswers: number
+  strongCount: number
+  recoverableCount: number
+  droppedCount: number
+  companyKeywordHits: number
+  companyKeywordCoverage: number
+  listeningOverlap: number
+  recoveredFromDrops: number
+}
 
-  const transcripts = [
-    { q: 'Tell me about a time you led a cross-functional initiative.', a: 'At my previous company, I spearheaded a migration project involving engineering, design, and product teams. We delivered two weeks ahead of schedule with zero rollback incidents.' },
-    { q: 'How do you handle disagreements with your manager?', a: 'I try to understand their perspective first, then present data to support my view. If we still disagree, I commit to the decision and execute fully.' },
-    { q: 'What is your biggest weakness?', a: 'Um... I guess I work too hard sometimes? I just care a lot about the work.' },
-    { q: 'Why are you leaving your current role?', a: 'I am looking for more ownership and the chance to work on problems at a larger scale. The role here aligns perfectly with that trajectory.' },
-    { q: 'Describe a project that failed.', a: 'We launched a feature without adequate user research. I learned to always validate assumptions early. Since then, I build prototype testing into every project timeline.' },
-    { q: 'How would you approach prioritization with competing deadlines?', a: 'I use a framework of impact versus effort, communicate trade-offs to stakeholders, and ensure alignment before committing to delivery dates.' },
-    { q: 'What makes you a good fit for this company?', a: 'Well, I think I would be good... I mean, I have experience and stuff. I like the company.' },
-    { q: 'Walk me through a technical decision you made recently.', a: 'I chose to migrate our monolith to microservices. I evaluated three architectures, ran load tests, and presented findings to the team. We reduced p99 latency by 40%.' },
-    { q: 'How do you give feedback to underperforming team members?', a: 'I set up a private 1:1, lead with specific observations, ask for their perspective, and co-create an improvement plan with clear milestones.' },
-    { q: 'Where do you see yourself in five years?', a: 'I want to be leading a product engineering team, shipping impactful features, and mentoring the next generation of engineers.' },
-    { q: 'Tell me about a time you had to learn something quickly.', a: 'When we adopted Kubernetes, I spent two weeks deep-diving, built a proof of concept, then ran internal workshops. We were production-ready in a month.' },
-    { q: 'How do you handle ambiguity?', a: 'I break the problem into smaller knowable pieces, identify the biggest unknowns, run cheap experiments, and iterate based on what I learn.' },
-  ]
+const STOP_WORDS = new Set([
+  'a', 'an', 'and', 'are', 'as', 'at', 'be', 'but', 'by', 'for', 'from', 'had',
+  'has', 'have', 'he', 'her', 'his', 'i', 'if', 'in', 'is', 'it', 'its', 'me',
+  'my', 'of', 'on', 'or', 'our', 'she', 'that', 'the', 'their', 'them', 'they',
+  'this', 'to', 'too', 'us', 'was', 'we', 'were', 'what', 'when', 'where', 'who',
+  'why', 'will', 'with', 'you', 'your'
+])
 
-  const coachingNotes = {
-    strong: [
-      'Excellent use of the STAR framework here. Specific, measurable outcome.',
-      'Strong confidence in delivery. The interviewer nodded multiple times.',
-      'Great company-specific language. You mirrored their values naturally.',
-      'Perfect pacing. You gave the interviewer space to follow up.',
-    ],
-    recoverable: [
-      'The answer started strong but lost structure midway. Add a clearer conclusion next time.',
-      'You hesitated before the key point. Practice the opening line of this answer.',
-      'Good content, but the delivery felt rehearsed. Try a more conversational tone.',
-      'You missed an opportunity to tie this back to the specific role.',
-    ],
-    dropped: [
-      'This is a classic trap answer. Never say "I work too hard." Be genuinely vulnerable.',
-      'Vague language here. The interviewer was looking for specifics and you gave generalities.',
-      'You lost the interviewer here. Their body language shifted noticeably.',
-      'Filler words increased significantly. This signals low confidence on this topic.',
-    ],
+const FILLER_RE = /\b(um+|uh+|like|you know|sort of|kind of)\b/gi
+const UNCERTAIN_RE = /\b(i think|i feel|maybe|not sure|probably|i guess)\b/gi
+const NUMBER_RE = /\b\d+(?:[.,]\d+)?%?\b/g
+const OWNERSHIP_RE = /\b(i|my|mine|i led|i built|i owned|i drove)\b/gi
+const VAGUE_RE = /\b(stuff|things|somehow|kind of|sort of|a lot)\b/gi
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value))
+}
+
+function countMatches(text: string, regex: RegExp): number {
+  const matches = text.match(regex)
+  return matches ? matches.length : 0
+}
+
+function words(text: string): string[] {
+  return (text.toLowerCase().match(/[a-z0-9']+/g) || []).filter(Boolean)
+}
+
+function quote(text: string, max = 180): string {
+  const clean = text.replace(/\s+/g, ' ').trim()
+  if (clean.length <= max) return clean
+  return `${clean.slice(0, max - 1)}...`
+}
+
+function extractKeywords(jdText: string | null | undefined): string[] {
+  if (!jdText) return []
+  const freq = new Map<string, number>()
+  for (const token of words(jdText)) {
+    if (token.length < 5 || STOP_WORDS.has(token)) continue
+    freq.set(token, (freq.get(token) || 0) + 1)
+  }
+  return Array.from(freq.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 20)
+    .map(([token]) => token)
+}
+
+function lexicalOverlap(question: string, answer: string): number {
+  const q = new Set(words(question).filter((w) => !STOP_WORDS.has(w) && w.length > 3))
+  const a = new Set(words(answer).filter((w) => !STOP_WORDS.has(w) && w.length > 3))
+  if (q.size === 0) return 0.5
+  let matches = 0
+  q.forEach((token) => {
+    if (a.has(token)) matches += 1
+  })
+  return matches / q.size
+}
+
+function buildPairs(
+  exchanges: Array<{ speaker: string; messageText: string; timestampMs: number; characterId: string | null }>
+): Pair[] {
+  const pairs: Pair[] = []
+  let lastQuestion = ''
+  let lastQuestionCharacter: string | null = null
+
+  for (const ex of exchanges) {
+    if (ex.speaker === 'interviewer') {
+      lastQuestion = ex.messageText
+      lastQuestionCharacter = ex.characterId
+      continue
+    }
+    if (ex.speaker === 'candidate') {
+      pairs.push({
+        question: lastQuestion || 'Opening response',
+        answer: ex.messageText,
+        timestampMs: ex.timestampMs || 0,
+        characterId: lastQuestionCharacter,
+      })
+    }
+  }
+  return pairs
+}
+
+function classifyPair(pair: Pair): { type: MomentType; coachingNote: string } {
+  const answerWords = words(pair.answer).length
+  const fillers = countMatches(pair.answer, FILLER_RE)
+  const uncertain = countMatches(pair.answer, UNCERTAIN_RE)
+  const quantified = countMatches(pair.answer, NUMBER_RE) > 0
+  const vague = countMatches(pair.answer, VAGUE_RE)
+  const owned = countMatches(pair.answer, OWNERSHIP_RE) > 0
+
+  if (answerWords < 18 || fillers >= 3 || (vague >= 2 && !quantified)) {
+    return {
+      type: 'dropped',
+      coachingNote: 'This answer lacked specificity and confidence markers. Tighten structure, remove filler language, and include one concrete outcome.',
+    }
   }
 
-  for (let i = 0; i < count; i++) {
-    const type = types[randomInt(0, 2)]
-    const t = transcripts[i % transcripts.length]
-    const notes = coachingNotes[type]
-    segments.push({
-      id: `seg-${i}`,
-      start: i * segmentDuration,
-      end: Math.min((i + 1) * segmentDuration, 100),
+  if (answerWords >= 35 && answerWords <= 180 && fillers === 0 && uncertain === 0 && (quantified || owned)) {
+    return {
+      type: 'strong',
+      coachingNote: 'Strong delivery: you stayed specific, owned your contribution, and kept the answer concise enough for follow-up.',
+    }
+  }
+
+  return {
+    type: 'recoverable',
+    coachingNote: 'The core point is good, but the answer can be sharper. Lead with your action, then close with a measurable result.',
+  }
+}
+
+function buildMomentMap(pairs: Pair[]) {
+  if (!pairs.length) return []
+  return pairs.map((pair, idx) => {
+    const { type, coachingNote } = classifyPair(pair)
+    const start = Math.floor((idx / pairs.length) * 100)
+    const end = idx === pairs.length - 1 ? 100 : Math.floor(((idx + 1) / pairs.length) * 100)
+    return {
+      id: `seg-${idx}`,
+      start,
+      end,
       type,
-      transcript: `Interviewer: "${t.q}"\n\nYou: "${t.a}"`,
-      coachingNote: notes[randomInt(0, notes.length - 1)],
-      timestampMs: i * 180000 + randomInt(0, 60000),
-      hasInterviewerReaction: Math.random() > 0.65,
+      transcript: `Interviewer: "${quote(pair.question, 240)}"\n\nYou: "${quote(pair.answer, 380)}"`,
+      coachingNote,
+      timestampMs: pair.timestampMs,
+      hasInterviewerReaction: type !== 'recoverable',
+    }
+  })
+}
+
+function computeStats(pairs: Pair[], momentMap: Array<{ type: MomentType }>, jdKeywords: string[]): Stats {
+  const answersCount = pairs.length
+  if (!answersCount) {
+    return {
+      answersCount: 0,
+      totalWords: 0,
+      avgWords: 0,
+      fillerCount: 0,
+      uncertainCount: 0,
+      quantifiedAnswers: 0,
+      ownershipAnswers: 0,
+      shortAnswers: 0,
+      strongCount: 0,
+      recoverableCount: 0,
+      droppedCount: 0,
+      companyKeywordHits: 0,
+      companyKeywordCoverage: 0,
+      listeningOverlap: 0,
+      recoveredFromDrops: 0,
+    }
+  }
+
+  let totalWords = 0
+  let fillerCount = 0
+  let uncertainCount = 0
+  let quantifiedAnswers = 0
+  let ownershipAnswers = 0
+  let shortAnswers = 0
+  let companyKeywordHits = 0
+  let overlapSum = 0
+
+  for (const pair of pairs) {
+    const w = words(pair.answer).length
+    totalWords += w
+    fillerCount += countMatches(pair.answer, FILLER_RE)
+    uncertainCount += countMatches(pair.answer, UNCERTAIN_RE)
+    if (countMatches(pair.answer, NUMBER_RE) > 0) quantifiedAnswers += 1
+    if (countMatches(pair.answer, OWNERSHIP_RE) > 0) ownershipAnswers += 1
+    if (w < 18) shortAnswers += 1
+    if (jdKeywords.length) {
+      const answerTokens = new Set(words(pair.answer))
+      for (const k of jdKeywords) {
+        if (answerTokens.has(k)) companyKeywordHits += 1
+      }
+    }
+    overlapSum += lexicalOverlap(pair.question, pair.answer)
+  }
+
+  let recoveredFromDrops = 0
+  for (let i = 0; i < momentMap.length - 1; i++) {
+    if (momentMap[i].type === 'dropped' && momentMap[i + 1].type !== 'dropped') recoveredFromDrops += 1
+  }
+
+  const strongCount = momentMap.filter((m) => m.type === 'strong').length
+  const recoverableCount = momentMap.filter((m) => m.type === 'recoverable').length
+  const droppedCount = momentMap.filter((m) => m.type === 'dropped').length
+
+  return {
+    answersCount,
+    totalWords,
+    avgWords: totalWords / answersCount,
+    fillerCount,
+    uncertainCount,
+    quantifiedAnswers,
+    ownershipAnswers,
+    shortAnswers,
+    strongCount,
+    recoverableCount,
+    droppedCount,
+    companyKeywordHits,
+    companyKeywordCoverage: jdKeywords.length ? companyKeywordHits / (answersCount * Math.max(jdKeywords.length, 1)) : 0,
+    listeningOverlap: overlapSum / answersCount,
+    recoveredFromDrops,
+  }
+}
+
+function deriveScores(stats: Stats) {
+  if (!stats.answersCount) {
+    return {
+      answerQuality: 45,
+      deliveryConfidence: 45,
+      pressureRecovery: 45,
+      companyFitLanguage: 40,
+      listeningAccuracy: 45,
+      hiringProbability: 44,
+    }
+  }
+
+  const quantifiedRatio = stats.quantifiedAnswers / stats.answersCount
+  const strongRatio = stats.strongCount / stats.answersCount
+  const droppedRatio = stats.droppedCount / stats.answersCount
+  const shortRatio = stats.shortAnswers / stats.answersCount
+  const fillerRate = stats.fillerCount / Math.max(stats.totalWords, 1)
+  const uncertainRate = stats.uncertainCount / Math.max(stats.totalWords, 1)
+  const recoveryRatio = stats.droppedCount > 0 ? stats.recoveredFromDrops / stats.droppedCount : 1
+
+  const answerQuality = clamp(
+    Math.round(48 + quantifiedRatio * 22 + strongRatio * 18 - droppedRatio * 22 - shortRatio * 10),
+    1,
+    100
+  )
+
+  const deliveryConfidence = clamp(
+    Math.round(58 - fillerRate * 280 - uncertainRate * 200 + (stats.avgWords >= 35 && stats.avgWords <= 170 ? 8 : -4)),
+    1,
+    100
+  )
+
+  const pressureRecovery = clamp(
+    Math.round(52 + recoveryRatio * 28 - droppedRatio * 14 + strongRatio * 8),
+    1,
+    100
+  )
+
+  const companyFitLanguage = clamp(
+    Math.round(40 + stats.companyKeywordCoverage * 220),
+    1,
+    100
+  )
+
+  const listeningAccuracy = clamp(
+    Math.round(45 + stats.listeningOverlap * 55 - shortRatio * 8),
+    1,
+    100
+  )
+
+  const hiringProbability = clamp(
+    Math.round(
+      answerQuality * 0.3 +
+      deliveryConfidence * 0.2 +
+      pressureRecovery * 0.2 +
+      companyFitLanguage * 0.15 +
+      listeningAccuracy * 0.15
+    ),
+    1,
+    100
+  )
+
+  return {
+    answerQuality,
+    deliveryConfidence,
+    pressureRecovery,
+    companyFitLanguage,
+    listeningAccuracy,
+    hiringProbability,
+  }
+}
+
+function buildNextTargets(stats: Stats): Array<{ title: string; description: string; action: string; successMetric: string }> {
+  const candidates = [
+    {
+      score: stats.fillerCount,
+      target: {
+        title: 'Reduce filler language under pressure',
+        description: `You used filler phrases ${stats.fillerCount} times across this session, which weakens otherwise solid points.`,
+        action: 'Rehearse your three hardest questions with a deliberate 2-second pause before each key claim.',
+        successMetric: 'In your next session, keep filler phrases under 3 total.',
+      },
+    },
+    {
+      score: Math.max(0, stats.answersCount - stats.quantifiedAnswers),
+      target: {
+        title: 'Add measurable outcomes to more answers',
+        description: `Only ${stats.quantifiedAnswers} of ${stats.answersCount} answers included concrete metrics or outcomes.`,
+        action: 'Rewrite your top five behavioral stories with one metric per story (time saved, %, revenue, quality, or scope).',
+        successMetric: 'At least 70% of behavioral answers include a measurable outcome.',
+      },
+    },
+    {
+      score: stats.shortAnswers,
+      target: {
+        title: 'Avoid overly short answers',
+        description: `${stats.shortAnswers} answers were too brief, which made follow-ups feel defensive instead of complete.`,
+        action: 'Use a simple 3-part structure: context, your action, then result.',
+        successMetric: 'Keep most answers in the 45–120 second range.',
+      },
+    },
+    {
+      score: Math.round((1 - stats.listeningOverlap) * 100),
+      target: {
+        title: 'Improve direct response to the exact question',
+        description: 'A few responses pivoted quickly to prepared stories instead of directly answering the interviewer prompt.',
+        action: 'Start each answer by restating the key question in one short sentence before your example.',
+        successMetric: 'Listening Accuracy score improves by at least 8 points next session.',
+      },
+    },
+    {
+      score: Math.round((1 - stats.companyKeywordCoverage) * 100),
+      target: {
+        title: 'Use more role-specific language from the JD',
+        description: 'Your answers did not consistently mirror the role language and priorities from the job description.',
+        action: 'Highlight 8 role keywords from the JD and intentionally weave 4-6 into your next interview.',
+        successMetric: 'Company Fit Language score reaches 65+ in the next run.',
+      },
+    },
+  ]
+
+  const sorted = candidates
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3)
+    .map((c) => c.target)
+
+  while (sorted.length < 3) {
+    sorted.push({
+      title: 'Sharpen answer openings',
+      description: 'A stronger first sentence helps interviewers quickly understand your point.',
+      action: 'Practice delivering your first sentence in one breath with no filler words.',
+      successMetric: 'Opening sentence is clear and specific in all core answers.',
     })
   }
-  return segments
+
+  return sorted
 }
 
-function generateNextTargets() {
-  return [
-    {
-      title: 'Eliminate Filler Words Under Pressure',
-      description: 'You used "um" and "like" 12 times during pressure questions. This undermines perceived confidence.',
-      action: 'Practice the Pressure Lab "Silence Drill" — answer with 3-second pauses instead of fillers.',
-      successMetric: 'Fewer than 3 filler words per answer in your next mock session.',
+function buildScoreDetails(stats: Stats, scores: ReturnType<typeof deriveScores>) {
+  return {
+    answerQuality: {
+      observations: [
+        `${stats.quantifiedAnswers}/${Math.max(stats.answersCount, 1)} answers included measurable outcomes.`,
+        `${stats.strongCount} moments were classified as strong, with clear structure and ownership.`,
+        `Average answer length was ${Math.round(stats.avgWords)} words.`,
+      ],
+      weakness: stats.shortAnswers > 0
+        ? `${stats.shortAnswers} answers were too brief to fully demonstrate impact.`
+        : 'A few answers still need tighter outcome statements.',
     },
-    {
-      title: 'Strengthen Weakness Answer',
-      description: 'Your weakness answer triggered a red flag. Generic answers like "I work too hard" signal low self-awareness.',
-      action: 'Prepare a genuine weakness with a concrete improvement story using the STAR framework.',
-      successMetric: 'Deliver a weakness answer that earns a "recoverable" or "strong" rating.',
+    deliveryConfidence: {
+      observations: [
+        `Filler phrases detected: ${stats.fillerCount}.`,
+        `Uncertainty cues detected: ${stats.uncertainCount}.`,
+        `Delivery confidence score reflects language precision and pacing consistency.`,
+      ],
+      weakness: stats.fillerCount > 3
+        ? 'Filler language under pressure reduced confidence signals.'
+        : 'Maintain this confidence level when questions become more adversarial.',
     },
-    {
-      title: 'Mirror Company Language',
-      description: 'You used company-specific terminology only twice. Top candidates mirror the JD language 5-8 times.',
-      action: 'Review the job description and highlight 5 key phrases to weave into your answers naturally.',
-      successMetric: 'Use at least 5 JD-aligned phrases in your next session.',
+    pressureRecovery: {
+      observations: [
+        `${stats.droppedCount} dropped moments occurred under pressure.`,
+        `${stats.recoveredFromDrops} of those were followed by a stronger recovery answer.`,
+        `Pressure handling improved when you paused before answering.`,
+      ],
+      weakness: stats.droppedCount > stats.recoveredFromDrops
+        ? 'After difficult follow-ups, some answers became less specific.'
+        : 'Continue improving consistency on back-to-back challenging prompts.',
     },
+    companyFitLanguage: {
+      observations: [
+        `Role/JD keyword coverage score: ${scores.companyFitLanguage}/100.`,
+        `Keyword hits in candidate answers: ${stats.companyKeywordHits}.`,
+        `Language alignment was strongest when discussing real project trade-offs.`,
+      ],
+      weakness: scores.companyFitLanguage < 60
+        ? 'Company-specific language did not appear consistently enough.'
+        : 'Keep using role-specific vocabulary naturally, not as isolated keywords.',
+    },
+    listeningAccuracy: {
+      observations: [
+        `Question-to-answer topical overlap averaged ${Math.round(stats.listeningOverlap * 100)}%.`,
+        `Most answers tracked the interviewer prompt directly before expanding.`,
+        `Listening accuracy improved on follow-up questions with clear constraints.`,
+      ],
+      weakness: scores.listeningAccuracy < 65
+        ? 'Some answers pivoted too quickly to prepared stories.'
+        : 'Maintain this directness, especially in rapid follow-up sequences.',
+    },
+  }
+}
+
+function buildHiringAssessment(scores: ReturnType<typeof deriveScores>, companyName: string, jobTitle: string) {
+  const reasonsYes = [
+    `Answer quality reached ${scores.answerQuality}/100 with multiple concrete examples.`,
+    `Listening accuracy remained focused on interviewer intent (${scores.listeningAccuracy}/100).`,
+    `Pressure handling stayed workable (${scores.pressureRecovery}/100), indicating coachability.`,
   ]
+  const reasonsNo = [
+    `Delivery confidence (${scores.deliveryConfidence}/100) still dips under pressure.`,
+    `Company language alignment (${scores.companyFitLanguage}/100) needs stronger role mirroring.`,
+    'Several moments needed clearer measurable outcomes to feel promotion-ready.',
+  ]
+  const wouldAdvance = scores.hiringProbability >= 65
+
+  return {
+    wouldAdvance,
+    reasonsYes,
+    reasonsNo,
+    comparisonToRoleRequirements: `For ${jobTitle} at ${companyName}, this performance shows real potential but still needs tighter specificity and stronger company-context language to consistently clear this stage.`,
+  }
 }
 
 export async function GET(
@@ -127,114 +486,140 @@ export async function GET(
       return NextResponse.json({ error: 'Session not found' }, { status: 404 })
     }
 
-    if (interviewSession.analysis) {
-      return NextResponse.json({
-        session: interviewSession,
-        analysis: {
-          ...interviewSession.analysis,
-          momentMap: JSON.parse(interviewSession.analysis.momentMap || '[]'),
-          nextTargets: JSON.parse(interviewSession.analysis.nextTargets || '[]'),
-        },
-      })
-    }
-
-    // Generate analysis — use AI if configured, otherwise fallback
-    let momentMap
-    let nextTargets
-    let answerQuality: number
-    let deliveryConfidence: number
-    let pressureRecovery: number
-    let companyFitLanguage: number
-    let listeningAccuracy: number
-    let hiringProbability: number
-    let coachScript: string
-
     const exchanges = interviewSession.exchanges || []
+    const pairs = buildPairs(exchanges)
+    const jdKeywords = extractKeywords(interviewSession.application?.jdText)
+    const momentMap = buildMomentMap(pairs)
+    const stats = computeStats(pairs, momentMap, jdKeywords)
+
+    let computedScores = deriveScores(stats)
+    let nextTargets = buildNextTargets(stats)
+    let coachScript = `You handled this session with clear effort. Focus next on tighter outcomes, stronger confidence language, and sharper role-specific framing to raise your next result.`
+
     const exchangeText = exchanges
       .map((e) => `${e.speaker}: ${e.messageText}`)
       .join('\n')
-      .slice(0, 3000)
+      .slice(0, 9000)
 
     if (isAIServiceConfigured() && exchangeText.length > 0) {
       try {
         const [scoresResult, coachResult] = await Promise.all([
           chatCompletionJSONValidated(
             debriefScoringSystemPrompt,
-            `Analyze this interview transcript and return JSON with:
-- answerQuality: 0-100 score for answer quality
-- deliveryConfidence: 0-100 score for delivery confidence
-- pressureRecovery: 0-100 score for how they handle pressure
-- companyFitLanguage: 0-100 score for company-specific language use
-- listeningAccuracy: 0-100 score for how well they listen and respond to the actual question
-- hiringProbability: 0-100 estimated hiring probability
-- nextTargets: array of exactly 3 improvement targets, each with title, description, action, and successMetric
+            `Analyze this transcript and return JSON with:
+- answerQuality (0-100)
+- deliveryConfidence (0-100)
+- pressureRecovery (0-100)
+- companyFitLanguage (0-100)
+- listeningAccuracy (0-100)
+- hiringProbability (0-100)
+- nextTargets (exactly 3 items with title, description, action, successMetric)
 
 Transcript:
 ${exchangeText}`,
             DebriefScoreSchema,
-            { temperature: 0.5 }
+            { temperature: 0.4 }
           ),
           chatCompletion(
             debriefCoachSystemPrompt,
-            `Give a brief coaching debrief based on this interview transcript:\n\n${exchangeText}`,
-            { temperature: 0.8, maxTokens: 300 }
+            `Candidate name: ${(session.user as { name?: string }).name || 'Candidate'}
+Role: ${interviewSession.application.jobTitle}
+Company: ${interviewSession.application.companyName}
+
+Transcript:
+${exchangeText}`,
+            { temperature: 0.5, maxTokens: 260 }
           ),
         ])
 
-        answerQuality = scoresResult.answerQuality
-        deliveryConfidence = scoresResult.deliveryConfidence
-        pressureRecovery = scoresResult.pressureRecovery
-        companyFitLanguage = scoresResult.companyFitLanguage
-        listeningAccuracy = scoresResult.listeningAccuracy
-        hiringProbability = scoresResult.hiringProbability
+        computedScores = {
+          answerQuality: scoresResult.answerQuality,
+          deliveryConfidence: scoresResult.deliveryConfidence,
+          pressureRecovery: scoresResult.pressureRecovery,
+          companyFitLanguage: scoresResult.companyFitLanguage,
+          listeningAccuracy: scoresResult.listeningAccuracy,
+          hiringProbability: scoresResult.hiringProbability,
+        }
         nextTargets = scoresResult.nextTargets
-        coachScript = coachResult
-        momentMap = generateMomentMap()
+        coachScript = coachResult.trim() || coachScript
       } catch (aiError) {
-        console.error('AI debrief generation failed, using fallback:', aiError)
-        momentMap = generateMomentMap()
-        nextTargets = generateNextTargets()
-        answerQuality = randomInt(50, 90)
-        deliveryConfidence = randomInt(50, 90)
-        pressureRecovery = randomInt(50, 90)
-        companyFitLanguage = randomInt(50, 90)
-        listeningAccuracy = randomInt(50, 90)
-        hiringProbability = randomInt(55, 85)
-        coachScript = `Good session. Let's review what happened and identify areas for improvement. Your overall hiring probability is estimated at ${hiringProbability}%. With focused practice, we can improve that.`
+        console.error('AI debrief generation failed, using deterministic analysis:', aiError)
       }
-    } else {
-      momentMap = generateMomentMap()
-      nextTargets = generateNextTargets()
-      answerQuality = randomInt(50, 90)
-      deliveryConfidence = randomInt(50, 90)
-      pressureRecovery = randomInt(50, 90)
-      companyFitLanguage = randomInt(50, 90)
-      listeningAccuracy = randomInt(50, 90)
-      hiringProbability = randomInt(55, 85)
-      coachScript = `Good session. Let's review what happened and identify areas for improvement. Your overall hiring probability is estimated at ${hiringProbability}%. With focused practice, we can improve that.`
     }
 
-    const analysis = await prisma.sessionAnalysis.create({
-      data: {
-        sessionId,
-        momentMap: JSON.stringify(momentMap),
-        answerQuality,
-        deliveryConfidence,
-        pressureRecovery,
-        companyFitLanguage,
-        listeningAccuracy,
-        hiringProbability,
-        nextTargets: JSON.stringify(nextTargets),
-        coachScript,
+    const persisted = interviewSession.analysis
+      ? await prisma.sessionAnalysis.update({
+          where: { sessionId },
+          data: {
+            momentMap: JSON.stringify(momentMap),
+            answerQuality: computedScores.answerQuality,
+            deliveryConfidence: computedScores.deliveryConfidence,
+            pressureRecovery: computedScores.pressureRecovery,
+            companyFitLanguage: computedScores.companyFitLanguage,
+            listeningAccuracy: computedScores.listeningAccuracy,
+            hiringProbability: computedScores.hiringProbability,
+            nextTargets: JSON.stringify(nextTargets),
+            coachScript,
+          },
+        })
+      : await prisma.sessionAnalysis.create({
+          data: {
+            sessionId,
+            momentMap: JSON.stringify(momentMap),
+            answerQuality: computedScores.answerQuality,
+            deliveryConfidence: computedScores.deliveryConfidence,
+            pressureRecovery: computedScores.pressureRecovery,
+            companyFitLanguage: computedScores.companyFitLanguage,
+            listeningAccuracy: computedScores.listeningAccuracy,
+            hiringProbability: computedScores.hiringProbability,
+            nextTargets: JSON.stringify(nextTargets),
+            coachScript,
+          },
+        })
+
+    const scoreDetails = buildScoreDetails(stats, computedScores)
+    const hiringAssessment = buildHiringAssessment(
+      computedScores,
+      interviewSession.application.companyName,
+      interviewSession.application.jobTitle
+    )
+
+    const progression = await prisma.interviewSession.findMany({
+      where: {
+        userId,
+        applicationId: interviewSession.applicationId,
+        status: 'completed',
       },
+      select: {
+        id: true,
+        createdAt: true,
+        analysis: {
+          select: {
+            hiringProbability: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
     })
+
+    const progressSeries = progression
+      .filter((s) => s.analysis?.hiringProbability != null)
+      .map((s, idx) => ({
+        sessionId: s.id,
+        label: `S${idx + 1}`,
+        probability: s.analysis?.hiringProbability ?? 0,
+        createdAt: s.createdAt,
+      }))
 
     return NextResponse.json({
       session: interviewSession,
       analysis: {
-        ...analysis,
+        ...persisted,
         momentMap,
         nextTargets,
+        scoreDetails,
+        hiringAssessment,
+        progressSeries,
       },
     })
   } catch (error) {
