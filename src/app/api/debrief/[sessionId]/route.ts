@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { chatCompletionJSON, chatCompletion, isPuterConfigured } from '@/lib/puter-ai'
+import { chatCompletion, chatCompletionJSONValidated, isAIServiceConfigured } from '@/lib/ai'
+import { DebriefScoreSchema } from '@/lib/ai/validation'
+import { checkRateLimit } from '@/lib/rate-limit'
+import { debriefCoachSystemPrompt, debriefScoringSystemPrompt } from '@/lib/ai/prompts'
 
 function randomInt(min: number, max: number) {
   return Math.floor(Math.random() * (max - min + 1)) + min
@@ -102,6 +105,13 @@ export async function GET(
     }
 
     const userId = (session.user as { id: string }).id
+    const limiter = checkRateLimit(`debrief:${userId}`, 20, 60_000)
+    if (!limiter.allowed) {
+      return NextResponse.json(
+        { error: 'Too many debrief requests. Please wait and retry.' },
+        { status: 429, headers: { 'Retry-After': String(Math.ceil(limiter.retryAfterMs / 1000)) } }
+      )
+    }
     const { sessionId } = params
 
     const interviewSession = await prisma.interviewSession.findFirst({
@@ -145,19 +155,11 @@ export async function GET(
       .join('\n')
       .slice(0, 3000)
 
-    if (isPuterConfigured() && exchangeText.length > 0) {
+    if (isAIServiceConfigured() && exchangeText.length > 0) {
       try {
         const [scoresResult, coachResult] = await Promise.all([
-          chatCompletionJSON<{
-            answerQuality: number
-            deliveryConfidence: number
-            pressureRecovery: number
-            companyFitLanguage: number
-            listeningAccuracy: number
-            hiringProbability: number
-            nextTargets: Array<{ title: string; description: string; action: string; successMetric: string }>
-          }>(
-            'You are an expert interview coach analyzing a practice interview session. Score the candidate objectively.',
+          chatCompletionJSONValidated(
+            debriefScoringSystemPrompt,
             `Analyze this interview transcript and return JSON with:
 - answerQuality: 0-100 score for answer quality
 - deliveryConfidence: 0-100 score for delivery confidence
@@ -169,10 +171,11 @@ export async function GET(
 
 Transcript:
 ${exchangeText}`,
+            DebriefScoreSchema,
             { temperature: 0.5 }
           ),
           chatCompletion(
-            'You are a direct, encouraging interview coach delivering a post-interview debrief. Speak naturally and conversationally. Reference specific moments from the interview. Keep it to 3-4 sentences.',
+            debriefCoachSystemPrompt,
             `Give a brief coaching debrief based on this interview transcript:\n\n${exchangeText}`,
             { temperature: 0.8, maxTokens: 300 }
           ),

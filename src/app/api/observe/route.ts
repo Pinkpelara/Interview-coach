@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { checkRateLimit } from '@/lib/rate-limit'
 
 function generatePerfectExchanges() {
   return [
@@ -137,6 +138,13 @@ export async function GET(request: NextRequest) {
     }
 
     const userId = (session.user as { id: string }).id
+    const limiter = checkRateLimit(`observe:get:${userId}`, 60, 60_000)
+    if (!limiter.allowed) {
+      return NextResponse.json(
+        { error: 'Too many observe requests. Please retry shortly.' },
+        { status: 429, headers: { 'Retry-After': String(Math.ceil(limiter.retryAfterMs / 1000)) } }
+      )
+    }
     const { searchParams } = new URL(request.url)
     const sourceSessionId = searchParams.get('sourceSessionId')
 
@@ -191,6 +199,13 @@ export async function POST(request: NextRequest) {
     }
 
     const userId = (session.user as { id: string }).id
+    const limiter = checkRateLimit(`observe:create:${userId}`, 30, 60_000)
+    if (!limiter.allowed) {
+      return NextResponse.json(
+        { error: 'Too many observe generation requests. Please retry shortly.' },
+        { status: 429, headers: { 'Retry-After': String(Math.ceil(limiter.retryAfterMs / 1000)) } }
+      )
+    }
     const body = await request.json()
     const { sourceSessionId, type } = body
 

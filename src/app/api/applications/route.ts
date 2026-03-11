@@ -2,7 +2,9 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { chatCompletionJSON, isPuterConfigured } from '@/lib/puter-ai'
+import { chatCompletionJSONValidated, isAIServiceConfigured } from '@/lib/ai'
+import { ApplicationAlignmentSchema } from '@/lib/ai/validation'
+import { checkRateLimit } from '@/lib/rate-limit'
 
 export async function GET() {
   try {
@@ -55,6 +57,14 @@ export async function POST(request: Request) {
         { status: 403 }
       )
     }
+    const limiter = checkRateLimit(`applications:create:${userId}`, 20, 60_000)
+    if (!limiter.allowed) {
+      return NextResponse.json(
+        { error: 'Too many create requests. Please retry shortly.' },
+        { status: 429, headers: { 'Retry-After': String(Math.ceil(limiter.retryAfterMs / 1000)) } }
+      )
+    }
+
     const body = await request.json()
 
     const { companyName, jobTitle, jdText, resumeText, interviewStage } = body
@@ -80,15 +90,9 @@ export async function POST(request: Request) {
     let missingKeywords: string
     let probeAreas: string
 
-    if (isPuterConfigured()) {
+    if (isAIServiceConfigured()) {
       try {
-        const analysis = await chatCompletionJSON<{
-          alignmentScore: number
-          skillGaps: string[]
-          strengths: string[]
-          missingKeywords: string[]
-          probeAreas: string[]
-        }>(
+        const analysis = await chatCompletionJSONValidated(
           'You are an expert career coach analyzing a resume against a job description. Be specific and accurate.',
           `Analyze this resume against the job description and return JSON:
 
@@ -102,6 +106,7 @@ Return:
 - strengths: array of 3-5 strengths from the resume that match the JD
 - missingKeywords: array of 4-6 important keywords from the JD not found in the resume
 - probeAreas: array of 3-5 topics interviewers will likely probe based on gaps`,
+          ApplicationAlignmentSchema,
           { temperature: 0.3 }
         )
 

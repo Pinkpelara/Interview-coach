@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { chatCompletion, isPuterConfigured } from '@/lib/puter-ai'
+import { chatCompletion, isAIServiceConfigured } from '@/lib/ai'
+import { checkRateLimit } from '@/lib/rate-limit'
 
 interface Character {
   id: string
@@ -253,6 +254,13 @@ export async function POST(
     }
 
     const userId = (session.user as { id: string }).id
+    const limiter = checkRateLimit(`session:exchange:${userId}`, 120, 60_000)
+    if (!limiter.allowed) {
+      return NextResponse.json(
+        { error: 'Too many interview turns. Please wait a moment and continue.' },
+        { status: 429, headers: { 'Retry-After': String(Math.ceil(limiter.retryAfterMs / 1000)) } }
+      )
+    }
     const { id } = params
     const body = await request.json()
     const { messageText, characterId } = body
@@ -358,7 +366,7 @@ export async function POST(
 
     // Generate AI response with full context
     let responseText: string
-    if (isPuterConfigured()) {
+    if (isAIServiceConfigured()) {
       try {
         responseText = await generateResponseWithAI(
           respondingCharacter.archetype,
@@ -379,6 +387,16 @@ export async function POST(
         )
       }
     } else {
+      responseText = generateResponseFallback(
+        respondingCharacter.archetype,
+        messageText,
+        exchangeCount,
+        appCtx
+      )
+    }
+
+    responseText = responseText.trim()
+    if (!responseText) {
       responseText = generateResponseFallback(
         respondingCharacter.archetype,
         messageText,

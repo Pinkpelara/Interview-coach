@@ -2,7 +2,10 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { chatCompletionJSON, isPuterConfigured } from '@/lib/puter-ai'
+import { chatCompletionJSONValidated, isAIServiceConfigured } from '@/lib/ai'
+import { QuestionTemplateArraySchema } from '@/lib/ai/validation'
+import { checkRateLimit } from '@/lib/rate-limit'
+import { questionGenerationSystemPrompt } from '@/lib/ai/prompts'
 
 interface QuestionTemplate {
   questionText: string
@@ -22,25 +25,26 @@ async function generateQuestionsWithAI(
   resumeText: string,
   jdText: string
 ): Promise<QuestionTemplate[]> {
-  const systemPrompt = `You are an expert interview coach. Generate personalized interview questions based on the candidate's resume and the job description. Each question should be deeply relevant to the specific role and company.`
+  const systemPrompt = questionGenerationSystemPrompt
 
-  const userPrompt = `Generate exactly 20 interview questions for a candidate applying to "${jobTitle}" at "${companyName}".
+  const userPrompt = `Generate exactly 25 interview questions for a candidate applying to "${jobTitle}" at "${companyName}".
 
 Resume excerpt: ${resumeText.slice(0, 2000)}
 
 Job description excerpt: ${jdText.slice(0, 2000)}
 
 Generate this exact distribution:
-- 5 behavioral questions
+- 6 behavioral questions
 - 4 technical questions
 - 4 situational questions
 - 3 company-specific questions
+- 3 curveball questions
 - 2 opening questions
-- 2 closing questions
+- 3 closing questions
 
 Return a JSON array of objects with these exact fields:
 - questionText: the interview question
-- questionType: one of "behavioral", "technical", "situational", "company-specific", "opening", "closing"
+- questionType: one of "behavioral", "technical", "situational", "company-specific", "curveball", "opening", "closing"
 - whyAsked: why the interviewer asks this (reference the company and role specifically)
 - framework: recommended answer framework (e.g., "STAR", "Present → Past → Future")
 - modelAnswer: a strong example answer tailored to this role
@@ -49,7 +53,7 @@ Return a JSON array of objects with these exact fields:
 - difficulty: 1-5 scale
 - likelyFollowUp: a likely follow-up question`
 
-  return chatCompletionJSON<QuestionTemplate[]>(systemPrompt, userPrompt, {
+  return chatCompletionJSONValidated<QuestionTemplate[]>(systemPrompt, userPrompt, QuestionTemplateArraySchema, {
     temperature: 0.8,
     maxTokens: 4000,
   })
@@ -62,13 +66,14 @@ function generateQuestionsFallback(
   const types: Array<{ type: string; questions: string[]; count: number }> = [
     {
       type: 'behavioral',
-      count: 5,
+      count: 6,
       questions: [
         `Tell me about a time you had to lead a team through a challenging project.`,
         `Describe a situation where you received critical feedback. How did you handle it?`,
         `Give an example of when you had to manage conflicting priorities.`,
         `Tell me about a time you failed at something. What did you learn?`,
         `Describe a time you collaborated with someone whose working style was very different from yours.`,
+        `Tell me about a decision you made that was unpopular at first and how it turned out.`,
       ],
     },
     {
@@ -101,6 +106,15 @@ function generateQuestionsFallback(
       ],
     },
     {
+      type: 'curveball',
+      count: 3,
+      questions: [
+        `Your resume does not mention deep experience with one key requirement in this role. How would you close that gap quickly?`,
+        `Tell me about a professional setback that changed how you work today.`,
+        `Why should we choose you over candidates with more direct experience in this exact domain?`,
+      ],
+    },
+    {
       type: 'opening',
       count: 2,
       questions: [
@@ -110,10 +124,11 @@ function generateQuestionsFallback(
     },
     {
       type: 'closing',
-      count: 2,
+      count: 3,
       questions: [
         `What questions do you have for us about ${companyName} or the ${jobTitle} role?`,
         `Where do you see yourself in 3-5 years?`,
+        `How would you evaluate whether this role and team are the right fit for your long-term growth?`,
       ],
     },
   ]
@@ -190,6 +205,13 @@ export async function POST(request: Request) {
     }
 
     const userId = (session.user as { id: string }).id
+    const limiter = checkRateLimit(`questions:generate:${userId}`, 8, 60_000)
+    if (!limiter.allowed) {
+      return NextResponse.json(
+        { error: 'Too many generation attempts. Please wait and try again.' },
+        { status: 429, headers: { 'Retry-After': String(Math.ceil(limiter.retryAfterMs / 1000)) } }
+      )
+    }
     const body = await request.json()
     const { applicationId } = body
 
@@ -224,7 +246,7 @@ export async function POST(request: Request) {
 
     // Generate questions using AI (with fallback)
     let questionTemplates: QuestionTemplate[]
-    if (isPuterConfigured()) {
+    if (isAIServiceConfigured()) {
       try {
         questionTemplates = await generateQuestionsWithAI(
           application.companyName,

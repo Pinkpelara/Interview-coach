@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { pickPersonaForArchetype, type InterviewArchetype } from '@/lib/interviewerPersonas'
+import { checkRateLimit } from '@/lib/rate-limit'
 
 interface Character {
   id: string
@@ -155,6 +156,13 @@ export async function POST(request: Request) {
     }
 
     const userId = (session.user as { id: string }).id
+    const limiter = checkRateLimit(`sessions:create:${userId}`, 20, 60_000)
+    if (!limiter.allowed) {
+      return NextResponse.json(
+        { error: 'Too many session requests. Please retry shortly.' },
+        { status: 429, headers: { 'Retry-After': String(Math.ceil(limiter.retryAfterMs / 1000)) } }
+      )
+    }
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { onboarded: true },

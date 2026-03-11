@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
-import OpenAI from 'openai'
 import { authOptions } from '@/lib/auth'
+import { synthesizeSpeech, AIServiceError, isAIServiceConfigured } from '@/lib/ai'
+import { checkRateLimit } from '@/lib/rate-limit'
 
 const VOICES = new Set([
   'alloy',
@@ -24,13 +25,22 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    if (!process.env.PUTER_API_TOKEN) {
+    if (!isAIServiceConfigured()) {
       return NextResponse.json(
         {
           error: 'Human-like TTS is not configured on the server yet.',
           code: 'TTS_NOT_CONFIGURED',
         },
         { status: 503 }
+      )
+    }
+
+    const userId = (session.user as { id: string }).id
+    const limiter = checkRateLimit(`tts:${userId}`, 120, 60_000)
+    if (!limiter.allowed) {
+      return NextResponse.json(
+        { error: 'Too many voice synthesis requests. Please retry shortly.' },
+        { status: 429, headers: { 'Retry-After': String(Math.ceil(limiter.retryAfterMs / 1000)) } }
       )
     }
 
@@ -43,27 +53,20 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Text is required' }, { status: 400 })
     }
 
-    const client = new OpenAI({
-      baseURL: 'https://api.puter.com/puterai/openai/v1/',
-      apiKey: process.env.PUTER_API_TOKEN,
-    })
-
-    const response = await client.audio.speech.create({
-      model: 'gpt-4o-mini-tts',
-      voice,
-      input: text,
-      instructions,
-      response_format: 'mp3',
-    })
-
-    const audioBuffer = Buffer.from(await response.arrayBuffer())
-    return new NextResponse(audioBuffer, {
+    const audioBuffer = await synthesizeSpeech(text, voice, instructions)
+    return new NextResponse(new Uint8Array(audioBuffer), {
       headers: {
         'Content-Type': 'audio/mpeg',
         'Cache-Control': 'no-store',
       },
     })
   } catch (error) {
+    if (error instanceof AIServiceError) {
+      return NextResponse.json(
+        { error: 'Voice synthesis temporarily unavailable', code: error.code },
+        { status: 503 }
+      )
+    }
     console.error('TTS error:', error)
     return NextResponse.json(
       { error: 'Failed to synthesize interviewer voice' },

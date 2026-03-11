@@ -2,7 +2,10 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { chatCompletionJSON, isPuterConfigured } from '@/lib/puter-ai'
+import { chatCompletionJSONValidated, isAIServiceConfigured } from '@/lib/ai'
+import { AnswerAnalysisSchema } from '@/lib/ai/validation'
+import { checkRateLimit } from '@/lib/rate-limit'
+import { answerAnalysisSystemPrompt } from '@/lib/ai/prompts'
 
 interface AnalysisResult {
   strengths: string[]
@@ -25,6 +28,13 @@ export async function POST(request: Request) {
     }
 
     const userId = (session.user as { id: string }).id
+    const limiter = checkRateLimit(`answers:analyze:${userId}`, 40, 60_000)
+    if (!limiter.allowed) {
+      return NextResponse.json(
+        { error: 'Too many analysis requests. Please slow down and retry.' },
+        { status: 429, headers: { 'Retry-After': String(Math.ceil(limiter.retryAfterMs / 1000)) } }
+      )
+    }
     const body = await request.json()
     const { questionId, answerText } = body
 
@@ -45,7 +55,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Question not found' }, { status: 404 })
     }
 
-    if (!isPuterConfigured()) {
+    const generateFallback = () => {
       // Return smart fallback analysis
       const wordCount = answerText.trim().split(/\s+/).length
       const hasNumbers = /\d+/.test(answerText)
@@ -70,7 +80,7 @@ export async function POST(request: Request) {
         (wordCount > 50 ? 3 : 1) + (hasNumbers ? 2 : 0) + (hasI ? 2 : 0) + (wordCount > 100 ? 2 : 0) + 1
       )))
 
-      return NextResponse.json({
+      return {
         strengths: strengths.length ? strengths : ['You have started drafting an answer — keep building on it.'],
         issues: issues.length ? issues : ['No major issues detected at this stage.'],
         missingElements: missingElements.length ? missingElements : ['Review the model answer for additional techniques to incorporate.'],
@@ -85,21 +95,17 @@ export async function POST(request: Request) {
           : overall >= 4
           ? 'Good foundation but needs more specificity and structure.'
           : 'Early draft — focus on adding specific examples and measurable outcomes.',
-      } satisfies AnalysisResult)
+      } satisfies AnalysisResult
     }
 
-    const systemPrompt = `You are an expert interview coach analyzing a candidate's answer. The candidate is applying for ${question.application.jobTitle} at ${question.application.companyName}.
+    if (!isAIServiceConfigured()) {
+      return NextResponse.json(generateFallback())
+    }
 
-Analyze their answer and return a JSON object with this exact structure:
-{
-  "strengths": ["specific strength with quote from their answer", ...],
-  "issues": ["specific issue with quote and fix suggestion", ...],
-  "missingElements": ["what a strong answer would include that this doesn't", ...],
-  "scores": { "structure": 1-10, "specificity": 1-10, "confidence": 1-10, "overall": 1-10 },
-  "verdict": "one direct sentence summarizing the answer quality"
-}
-
-Be specific. Quote exact phrases from their answer. Reference the company and role context.`
+    const systemPrompt = answerAnalysisSystemPrompt(
+      question.application.jobTitle,
+      question.application.companyName
+    )
 
     const userPrompt = `Question: ${question.questionText}
 Question Type: ${question.questionType}
@@ -111,10 +117,20 @@ ${answerText}
 
 Analyze this answer.`
 
-    const analysis = await chatCompletionJSON<AnalysisResult>(systemPrompt, userPrompt, {
-      temperature: 0.5,
-      maxTokens: 1000,
-    })
+    let analysis: AnalysisResult
+    try {
+      analysis = await chatCompletionJSONValidated<AnalysisResult>(
+        systemPrompt,
+        userPrompt,
+        AnswerAnalysisSchema,
+        {
+          temperature: 0.5,
+          maxTokens: 1000,
+        }
+      )
+    } catch {
+      analysis = generateFallback()
+    }
 
     // Save feedback to database
     const existingAnswer = await prisma.userAnswer.findFirst({
