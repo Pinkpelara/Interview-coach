@@ -9,6 +9,7 @@
     "start": "next start",
     "lint": "next lint",
     "ai:conformance": "node scripts/ai-conformance.mjs",
+    "relay:dev": "npm --prefix services/media-relay run dev",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
     "postinstall": "prisma generate"

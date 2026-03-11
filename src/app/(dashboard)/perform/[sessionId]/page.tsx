@@ -18,6 +18,7 @@ import {
   VolumeX,
 } from 'lucide-react'
 import AnimatedAvatar from '@/components/perform/AnimatedAvatar'
+import { useInterviewExchangeTransport } from '@/lib/interview/useInterviewExchangeTransport'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -557,6 +558,24 @@ export default function InterviewRoomPage() {
   // Text mode fallback (if no speech recognition support)
   const [speechSupported, setSpeechSupported] = useState(true)
 
+  const sendExchangeHttp = useCallback(
+    async ({ messageText, characterId }: { messageText: string; characterId: string }) => {
+      const res = await fetch(`/api/sessions/${sessionId}/exchange`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageText, characterId }),
+      })
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || 'Failed to send message')
+      }
+      return res.json()
+    },
+    [sessionId]
+  )
+
+  const { sendExchange, transportStatus } = useInterviewExchangeTransport(sessionId, sendExchangeHttp)
+
   // -------------------------------------------
   // Fetch session data
   // -------------------------------------------
@@ -924,18 +943,10 @@ export default function InterviewRoomPage() {
       const silenceDuration = resolveSilenceDuration(respondingChar)
       await new Promise(resolve => setTimeout(resolve, silenceDuration))
 
-      const res = await fetch(`/api/sessions/${sessionId}/exchange`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messageText: userText, characterId: respondingChar.id }),
+      const data = await sendExchange({
+        messageText: userText,
+        characterId: respondingChar.id,
       })
-
-      if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.error || 'Failed to send message')
-      }
-
-      const data = await res.json()
       setIsConnectionHealthy(true)
 
       // Update expression based on response
@@ -1416,6 +1427,15 @@ export default function InterviewRoomPage() {
           <p className="text-gray-500 text-xs">{application.jobTitle} · {sessionData.stage}</p>
         </div>
         <div className="flex items-center gap-3 text-gray-300">
+          <span className={`text-[10px] px-2 py-0.5 rounded-full border ${
+            transportStatus === 'websocket'
+              ? 'text-cyan-300 border-cyan-500/30 bg-cyan-500/10'
+              : transportStatus === 'connecting'
+              ? 'text-yellow-300 border-yellow-500/30 bg-yellow-500/10'
+              : 'text-gray-300 border-gray-500/30 bg-gray-500/10'
+          }`}>
+            {transportStatus === 'websocket' ? 'WebSocket' : transportStatus === 'connecting' ? 'Connecting' : 'HTTP'}
+          </span>
           {isSpeakerOn && (
             <span className={`text-[10px] px-2 py-0.5 rounded-full border ${
               voiceEngine === 'server'
