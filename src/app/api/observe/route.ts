@@ -138,7 +138,7 @@ export async function GET(request: NextRequest) {
     }
 
     const userId = (session.user as { id: string }).id
-    const limiter = checkRateLimit(`observe:get:${userId}`, 60, 60_000)
+    const limiter = await checkRateLimit(`observe:get:${userId}`, 60, 60_000)
     if (!limiter.allowed) {
       return NextResponse.json(
         { error: 'Too many observe requests. Please retry shortly.' },
@@ -199,7 +199,7 @@ export async function POST(request: NextRequest) {
     }
 
     const userId = (session.user as { id: string }).id
-    const limiter = checkRateLimit(`observe:create:${userId}`, 30, 60_000)
+    const limiter = await checkRateLimit(`observe:create:${userId}`, 30, 60_000)
     if (!limiter.allowed) {
       return NextResponse.json(
         { error: 'Too many observe generation requests. Please retry shortly.' },

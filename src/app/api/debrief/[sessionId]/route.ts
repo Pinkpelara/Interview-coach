@@ -105,7 +105,7 @@ export async function GET(
     }
 
     const userId = (session.user as { id: string }).id
-    const limiter = checkRateLimit(`debrief:${userId}`, 20, 60_000)
+    const limiter = await checkRateLimit(`debrief:${userId}`, 20, 60_000)
     if (!limiter.allowed) {
       return NextResponse.json(
         { error: 'Too many debrief requests. Please wait and retry.' },

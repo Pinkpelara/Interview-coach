@@ -156,7 +156,7 @@ export async function POST(request: Request) {
     }
 
     const userId = (session.user as { id: string }).id
-    const limiter = checkRateLimit(`sessions:create:${userId}`, 20, 60_000)
+    const limiter = await checkRateLimit(`sessions:create:${userId}`, 20, 60_000)
     if (!limiter.allowed) {
       return NextResponse.json(
         { error: 'Too many session requests. Please retry shortly.' },

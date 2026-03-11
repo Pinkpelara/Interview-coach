@@ -254,7 +254,7 @@ export async function POST(
     }
 
     const userId = (session.user as { id: string }).id
-    const limiter = checkRateLimit(`session:exchange:${userId}`, 120, 60_000)
+    const limiter = await checkRateLimit(`session:exchange:${userId}`, 120, 60_000)
     if (!limiter.allowed) {
       return NextResponse.json(
         { error: 'Too many interview turns. Please wait a moment and continue.' },

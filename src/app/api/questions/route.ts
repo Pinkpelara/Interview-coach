@@ -205,7 +205,7 @@ export async function POST(request: Request) {
     }
 
     const userId = (session.user as { id: string }).id
-    const limiter = checkRateLimit(`questions:generate:${userId}`, 8, 60_000)
+    const limiter = await checkRateLimit(`questions:generate:${userId}`, 8, 60_000)
     if (!limiter.allowed) {
       return NextResponse.json(
         { error: 'Too many generation attempts. Please wait and try again.' },

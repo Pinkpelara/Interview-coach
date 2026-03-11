@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { aiHealthCheck, isAIServiceConfigured } from '@/lib/ai'
 import { metricSnapshot } from '@/lib/monitoring'
+import { sendAlert } from '@/lib/alerts'
 
 export async function GET() {
   const started = Date.now()
@@ -18,6 +19,18 @@ export async function GET() {
   const chatLatency = metricSnapshot('ai.chat.latency_ms', 60_000)
   const ttsLatency = metricSnapshot('ai.tts.latency_ms', 60_000)
   const ok = dbOk && (ai.ok || !isAIServiceConfigured())
+
+  if (!ok) {
+    await sendAlert('health_degraded', {
+      db_ok: dbOk,
+      ai_ok: ai.ok,
+      ai_detail: ai,
+      metrics: {
+        ai_chat_count: chatLatency.count,
+        ai_tts_count: ttsLatency.count,
+      },
+    })
+  }
 
   return NextResponse.json(
     {

@@ -431,6 +431,8 @@ export default function InterviewRoomPage() {
   const [exchanges, setExchanges] = useState<Exchange[]>([])
   const [inputText, setInputText] = useState('')
   const [isSending, setIsSending] = useState(false)
+  const [isConnectionHealthy, setIsConnectionHealthy] = useState(true)
+  const [pendingRetry, setPendingRetry] = useState<{ messageText: string; characterId: string } | null>(null)
   const [speakingCharacterId, setSpeakingCharacterId] = useState<string | null>(null)
   const [characterExpressions, setCharacterExpressions] = useState<Record<string, string>>({})
   const [characterLookingAway, setCharacterLookingAway] = useState<Record<string, boolean>>({})
@@ -702,6 +704,21 @@ export default function InterviewRoomPage() {
   }, [phase, sessionData])
 
   // -------------------------------------------
+  // Connectivity signals
+  // -------------------------------------------
+
+  useEffect(() => {
+    const onOnline = () => setIsConnectionHealthy(true)
+    const onOffline = () => setIsConnectionHealthy(false)
+    window.addEventListener('online', onOnline)
+    window.addEventListener('offline', onOffline)
+    return () => {
+      window.removeEventListener('online', onOnline)
+      window.removeEventListener('offline', onOffline)
+    }
+  }, [])
+
+  // -------------------------------------------
   // Start interview
   // -------------------------------------------
 
@@ -768,19 +785,29 @@ export default function InterviewRoomPage() {
   // Send message
   // -------------------------------------------
 
-  const handleSend = async () => {
-    if (!inputText.trim() || isSending || !sessionData) return
+  const handleSend = async (
+    forcedText?: string,
+    forcedCharacterId?: string
+  ) => {
+    const outboundText = (forcedText ?? inputText).trim()
+    if (!outboundText || isSending || !sessionData) return
 
     const characters = sessionData.characters
     if (!characters.length) return
 
-    const charIndex = nextCharacterIndexRef.current % characters.length
-    const respondingChar = characters[charIndex]
-    nextCharacterIndexRef.current = charIndex + 1
+    let respondingChar = characters[0]
+    if (forcedCharacterId) {
+      respondingChar = characters.find((c) => c.id === forcedCharacterId) || respondingChar
+    } else {
+      const charIndex = nextCharacterIndexRef.current % characters.length
+      respondingChar = characters[charIndex]
+      nextCharacterIndexRef.current = charIndex + 1
+    }
 
-    const userText = inputText.trim()
+    const userText = outboundText
     setInputText('')
     setIsSending(true)
+    setPendingRetry(null)
     stopListening()
 
     // Add candidate exchange
@@ -815,6 +842,7 @@ export default function InterviewRoomPage() {
       }
 
       const data = await res.json()
+      setIsConnectionHealthy(true)
 
       // Update expression based on response
       const isShortAnswer = userText.split(' ').length < 15
@@ -846,12 +874,21 @@ export default function InterviewRoomPage() {
       // Resume listening
       if (speechSupported && isMicOn) startListening()
     } catch (err) {
+      setIsConnectionHealthy(false)
+      setPendingRetry({ messageText: userText, characterId: respondingChar.id })
+      setExchanges(prev => prev.filter(e => e.id !== tempCandidateExchange.id))
       setError(err instanceof Error ? err.message : 'Failed to send message')
-      if (speechSupported && isMicOn) startListening()
     } finally {
       setSpeakingCharacterId(null)
       setIsSending(false)
     }
+  }
+
+  const handleRetryPending = async () => {
+    if (!pendingRetry || !sessionData) return
+    setError(null)
+    setIsConnectionHealthy(navigator.onLine)
+    await handleSend(pendingRetry.messageText, pendingRetry.characterId)
   }
 
   // Auto-send when speech recognition stops
@@ -1338,6 +1375,23 @@ export default function InterviewRoomPage() {
         {error && (
           <div className="px-3 py-2 bg-red-900/50 border border-red-700/50 rounded-lg">
             <p className="text-red-200 text-xs">{error}</p>
+            {pendingRetry && (
+              <button
+                onClick={handleRetryPending}
+                disabled={isSending}
+                className="mt-2 text-[11px] text-red-100 underline disabled:opacity-60"
+              >
+                Retry last answer
+              </button>
+            )}
+          </div>
+        )}
+
+        {!isConnectionHealthy && (
+          <div className="px-3 py-2 bg-amber-900/40 border border-amber-700/50 rounded-lg">
+            <p className="text-amber-200 text-xs">
+              Connection is unstable. Your last answer is preserved and can be retried.
+            </p>
           </div>
         )}
 

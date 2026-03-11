@@ -57,7 +57,7 @@ export async function POST(request: Request) {
         { status: 403 }
       )
     }
-    const limiter = checkRateLimit(`applications:create:${userId}`, 20, 60_000)
+    const limiter = await checkRateLimit(`applications:create:${userId}`, 20, 60_000)
     if (!limiter.allowed) {
       return NextResponse.json(
         { error: 'Too many create requests. Please retry shortly.' },

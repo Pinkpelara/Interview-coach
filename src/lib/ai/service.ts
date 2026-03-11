@@ -1,6 +1,7 @@
 import { z, type ZodType } from 'zod'
 import { aiConfig, type AIProviderConfig, isAIConfigured } from './config'
 import { logger, metricSnapshot, recordMetric } from '@/lib/monitoring'
+import { sendAlert } from '@/lib/alerts'
 
 type ChatOptions = {
   temperature?: number
@@ -156,6 +157,9 @@ export async function chatText(
   }
 
   if (lastError instanceof AIServiceError) throw lastError
+  await sendAlert('ai_chat_all_providers_failed', {
+    reason: 'all_providers_failed',
+  })
   throw new AIServiceError('All AI providers failed', 'ALL_PROVIDERS_FAILED')
 }
 
@@ -253,6 +257,9 @@ export async function synthesizeSpeech(
   }
 
   if (lastError instanceof AIServiceError) throw lastError
+  await sendAlert('ai_tts_all_providers_failed', {
+    reason: 'all_providers_failed',
+  })
   throw new AIServiceError('All TTS providers failed', 'ALL_PROVIDERS_FAILED')
 }
 

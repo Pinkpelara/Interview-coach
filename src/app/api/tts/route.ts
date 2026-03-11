@@ -36,7 +36,7 @@ export async function POST(request: Request) {
     }
 
     const userId = (session.user as { id: string }).id
-    const limiter = checkRateLimit(`tts:${userId}`, 120, 60_000)
+    const limiter = await checkRateLimit(`tts:${userId}`, 120, 60_000)
     if (!limiter.allowed) {
       return NextResponse.json(
         { error: 'Too many voice synthesis requests. Please retry shortly.' },
