@@ -10,6 +10,8 @@
     "lint": "next lint",
     "ai:conformance": "node scripts/ai-conformance.mjs",
     "relay:dev": "npm --prefix services/media-relay run dev",
+    "stack:up": "docker compose up --build",
+    "stack:up:gpu": "docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
     "postinstall": "prisma generate"
