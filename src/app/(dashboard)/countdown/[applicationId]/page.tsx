@@ -221,6 +221,7 @@ export default function CountdownPage() {
   const [savingDate, setSavingDate] = useState(false)
   const [interviewDate, setInterviewDate] = useState('')
   const [showDatePicker, setShowDatePicker] = useState(false)
+  const [plan, setPlan] = useState('free')
 
   const persistInterviewDate = async (dateValue: string) => {
     if (!dateValue) return
@@ -264,6 +265,17 @@ export default function CountdownPage() {
     fetchApp()
   }, [applicationId])
 
+  useEffect(() => {
+    async function fetchPlan() {
+      const res = await fetch('/api/settings')
+      if (res.ok) {
+        const data = await res.json()
+        setPlan(data.plan || 'free')
+      }
+    }
+    void fetchPlan()
+  }, [])
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[50vh]">
@@ -283,9 +295,30 @@ export default function CountdownPage() {
     )
   }
 
+  if (plan !== 'pro' && plan !== 'crunch') {
+    return (
+      <div className="space-y-6">
+        <Link href={`/applications/${applicationId}`} className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
+          <ArrowLeft className="h-4 w-4" /> Back to Application
+        </Link>
+        <Card>
+          <CardContent className="py-10 text-center space-y-3">
+            <h2 className="text-xl font-semibold text-gray-900">Countdown Mode is a Pro feature</h2>
+            <p className="text-sm text-gray-600">
+              Upgrade to unlock day-by-day interview countdown planning and reminder notifications.
+            </p>
+            <Link href="/pricing">
+              <Button>View plans</Button>
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
   const daysLeft = interviewDate ? getDaysUntil(interviewDate) : 0
   const weakDimensions = deriveWeakDimensions(application)
-  const plan = interviewDate ? generatePlan(daysLeft, application._count.sessions, weakDimensions) : []
+  const dayPlan = interviewDate ? generatePlan(daysLeft, application._count.sessions, weakDimensions) : []
 
   // No date set
   if (!interviewDate) {
@@ -364,7 +397,7 @@ export default function CountdownPage() {
         </p>
 
         <div className="space-y-3">
-          {plan.map((day, idx) => {
+          {dayPlan.map((day, idx) => {
             const Icon = day.icon
             const isToday = idx === 0
             const typeBadge: Record<string, { label: string; variant: 'default' | 'success' | 'warning' | 'info' | 'danger' }> = {
@@ -463,6 +496,18 @@ export default function CountdownPage() {
               </Button>
             )}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-gray-800">After your real interview</p>
+            <p className="text-xs text-gray-500">Log what was asked and compare against Seatvio predictions.</p>
+          </div>
+          <Link href={`/reflections/${applicationId}`}>
+            <Button size="sm" variant="outline">Open Reflection</Button>
+          </Link>
         </CardContent>
       </Card>
     </div>

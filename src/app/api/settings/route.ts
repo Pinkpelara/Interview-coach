@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import bcrypt from 'bcryptjs'
+import { getEffectivePlan } from '@/lib/subscription'
 
 export async function GET() {
   try {
@@ -19,12 +20,15 @@ export async function GET() {
       include: {
         profile: true,
         subscription: true,
+        notificationPreferences: true,
       },
     })
 
     if (!user) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
+
+    const effectivePlan = await getEffectivePlan(userId)
 
     return NextResponse.json({
       fullName: user.fullName,
@@ -33,12 +37,13 @@ export async function GET() {
       currentIndustry: user.profile?.currentIndustry || '',
       yearsExperience: user.profile?.yearsExperience || '',
       anxietyLevel: user.profile?.anxietyLevel ?? 5,
-      plan: user.subscription?.plan || 'free',
+      plan: effectivePlan,
       notifications: {
-        sessionSummaries: true,
-        dailyReminders: false,
-        weeklyProgress: true,
-        reEngagement: true,
+        sessionSummaries: user.notificationPreferences?.sessionSummaryEmail ?? true,
+        dailyReminders: user.notificationPreferences?.dailyCountdownEmail ?? false,
+        weeklyProgress: user.notificationPreferences?.weeklyProgressEmail ?? true,
+        reEngagement: user.notificationPreferences?.reengagementEmail ?? true,
+        interviewMorning: user.notificationPreferences?.interviewMorningEmail ?? true,
       },
     })
   } catch (error) {
@@ -118,6 +123,29 @@ export async function PUT(request: Request) {
         data: { passwordHash: hashedPassword },
       })
 
+      return NextResponse.json({ success: true })
+    }
+
+    if (body.section === 'notifications') {
+      const notifications = body.notifications || {}
+      await prisma.notificationPreference.upsert({
+        where: { userId },
+        create: {
+          userId,
+          sessionSummaryEmail: Boolean(notifications.sessionSummaries ?? true),
+          dailyCountdownEmail: Boolean(notifications.dailyReminders ?? false),
+          weeklyProgressEmail: Boolean(notifications.weeklyProgress ?? true),
+          reengagementEmail: Boolean(notifications.reEngagement ?? true),
+          interviewMorningEmail: Boolean(notifications.interviewMorning ?? true),
+        },
+        update: {
+          sessionSummaryEmail: Boolean(notifications.sessionSummaries ?? true),
+          dailyCountdownEmail: Boolean(notifications.dailyReminders ?? false),
+          weeklyProgressEmail: Boolean(notifications.weeklyProgress ?? true),
+          reengagementEmail: Boolean(notifications.reEngagement ?? true),
+          interviewMorningEmail: Boolean(notifications.interviewMorning ?? true),
+        },
+      })
       return NextResponse.json({ success: true })
     }
 

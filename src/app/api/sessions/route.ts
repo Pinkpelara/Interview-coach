@@ -4,6 +4,8 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { pickPersonaForArchetype, type InterviewArchetype } from '@/lib/interviewerPersonas'
 import { checkRateLimit } from '@/lib/rate-limit'
+import { checkFeature, getSessionLimit, getMaxCharacters } from '@/lib/feature-gate'
+import { getEffectivePlan } from '@/lib/subscription'
 
 interface Character {
   id: string
@@ -232,11 +234,44 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Application not found' }, { status: 404 })
     }
 
+    const plan = await getEffectivePlan(userId)
+    const sessionLimit = getSessionLimit(plan)
+    if (Number.isFinite(sessionLimit)) {
+      const monthStart = new Date()
+      monthStart.setDate(1)
+      monthStart.setHours(0, 0, 0, 0)
+      const currentMonthCount = await prisma.interviewSession.count({
+        where: { userId, createdAt: { gte: monthStart } },
+      })
+      if (currentMonthCount >= sessionLimit) {
+        return NextResponse.json(
+          { error: `Your ${plan} plan includes ${sessionLimit} sessions per month. Upgrade to continue.` },
+          { status: 403 }
+        )
+      }
+    }
+
+    if (plan === 'free') {
+      if (stage !== 'Phone Screen') {
+        return NextResponse.json(
+          { error: 'Free plan supports Phone Screen simulations only. Upgrade for all stages.' },
+          { status: 403 }
+        )
+      }
+    } else {
+      const stageGate = checkFeature(plan, 'all_stages')
+      if (!stageGate.allowed) {
+        return NextResponse.json({ error: stageGate.message }, { status: 403 })
+      }
+    }
+
     const characters = generatePanel(
       stage,
       application.companyName,
       Array.isArray(forcedArchetypes) ? (forcedArchetypes as InterviewArchetype[]) : undefined
     )
+    const maxCharacters = getMaxCharacters(plan)
+    const finalCharacters = characters.slice(0, maxCharacters)
 
     const interviewSession = await prisma.interviewSession.create({
       data: {
@@ -246,7 +281,7 @@ export async function POST(request: Request) {
         intensity: intensity || 'standard',
         durationMinutes: durationMinutes || 45,
         status: 'pending',
-        characters: JSON.stringify(characters),
+        characters: JSON.stringify(finalCharacters),
       },
       include: {
         application: {

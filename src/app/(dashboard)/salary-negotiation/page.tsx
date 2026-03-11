@@ -92,6 +92,7 @@ export default function SalaryNegotiationPage() {
   const [application, setApplication] = useState<ApplicationContext | null>(null)
   const [loadingApplication, setLoadingApplication] = useState(true)
   const [contextError, setContextError] = useState<string | null>(null)
+  const [plan, setPlan] = useState('free')
   const chatEndRef = useRef<HTMLDivElement>(null)
   const responseIndexRef = useRef(0)
 
@@ -117,7 +118,15 @@ export default function SalaryNegotiationPage() {
         setLoadingApplication(false)
       }
     }
+    async function loadPlan() {
+      const res = await fetch('/api/settings')
+      if (res.ok) {
+        const data = await res.json()
+        setPlan(data.plan || 'free')
+      }
+    }
     void loadContext()
+    void loadPlan()
   }, [applicationId])
 
   useEffect(() => {
@@ -209,6 +218,11 @@ export default function SalaryNegotiationPage() {
               {contextError}
             </div>
           )}
+          {plan !== 'pro' && plan !== 'crunch' && (
+            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+              Salary negotiation simulator is available on Pro and Crunch plans. <Link href="/pricing" className="underline">Upgrade</Link>
+            </div>
+          )}
         </div>
 
         <div className="grid gap-4 md:grid-cols-3">
@@ -218,7 +232,7 @@ export default function SalaryNegotiationPage() {
                 <Badge variant={config.badge}>{config.label}</Badge>
                 <p className="text-sm text-gray-600">{config.description}</p>
                 <p className="text-xs text-gray-400">Initial offer: {INITIAL_OFFERS[key].base} base</p>
-                <Button size="sm" disabled={Boolean(contextError)}>
+                <Button size="sm" disabled={Boolean(contextError) || (plan !== 'pro' && plan !== 'crunch')}>
                   Start Negotiation
                 </Button>
               </CardContent>

@@ -456,6 +456,12 @@ export default async function ApplicationDetailPage({
                 Interview Countdown
               </Button>
             </Link>
+            <Link href={`/reflections/${application.id}`}>
+              <Button variant="outline">
+                <Clock className="mr-2 h-4 w-4" />
+                Reflection Log
+              </Button>
+            </Link>
           </div>
         </CardContent>
       </Card>

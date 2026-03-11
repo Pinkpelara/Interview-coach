@@ -6,6 +6,8 @@ import { chatCompletion, chatCompletionJSONValidated, isAIServiceConfigured } fr
 import { DebriefScoreSchema } from '@/lib/ai/validation'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { debriefCoachSystemPrompt, debriefScoringSystemPrompt } from '@/lib/ai/prompts'
+import { getEffectivePlan } from '@/lib/subscription'
+import { checkFeature } from '@/lib/feature-gate'
 
 type MomentType = 'strong' | 'recoverable' | 'dropped'
 
@@ -464,6 +466,7 @@ export async function GET(
     }
 
     const userId = (session.user as { id: string }).id
+    const userPlan = await getEffectivePlan(userId)
     const limiter = await checkRateLimit(`debrief:${userId}`, 20, 60_000)
     if (!limiter.allowed) {
       return NextResponse.json(
@@ -611,16 +614,31 @@ ${exchangeText}`,
         createdAt: s.createdAt,
       }))
 
+    const fullDebriefGate = checkFeature(userPlan, 'full_debrief')
+    const analysisPayload = fullDebriefGate.allowed
+      ? {
+          ...persisted,
+          momentMap,
+          nextTargets,
+          scoreDetails,
+          hiringAssessment,
+          progressSeries,
+        }
+      : {
+          ...persisted,
+          momentMap: [],
+          nextTargets: [],
+          scoreDetails: {},
+          hiringAssessment: undefined,
+          progressSeries,
+          coachScript: '',
+          gatedMessage: fullDebriefGate.message,
+          requiredPlan: fullDebriefGate.requiredPlan,
+        }
+
     return NextResponse.json({
       session: interviewSession,
-      analysis: {
-        ...persisted,
-        momentMap,
-        nextTargets,
-        scoreDetails,
-        hiringAssessment,
-        progressSeries,
-      },
+      analysis: analysisPayload,
     })
   } catch (error) {
     console.error('Debrief API error:', error)

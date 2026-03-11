@@ -134,6 +134,7 @@ export default function PressureLabPage() {
   const [selectedApplicationId, setSelectedApplicationId] = useState('')
   const [loadingApps, setLoadingApps] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [plan, setPlan] = useState('free')
 
   useEffect(() => {
     async function fetchApplications() {
@@ -151,7 +152,15 @@ export default function PressureLabPage() {
         setLoadingApps(false)
       }
     }
+    async function fetchPlan() {
+      const res = await fetch('/api/settings')
+      if (res.ok) {
+        const data = await res.json()
+        setPlan(data.plan || 'free')
+      }
+    }
     void fetchApplications()
+    void fetchPlan()
   }, [])
 
   async function handleStart(scenario: PressureScenario) {
@@ -164,6 +173,10 @@ export default function PressureLabPage() {
     setError(null)
 
     try {
+      if (plan === 'free') {
+        setError('Pressure Lab is available on Prep and Pro plans.')
+        return
+      }
       if (!selectedApplicationId) {
         setError('Select an application before starting a pressure lab scenario.')
         return
@@ -241,6 +254,11 @@ export default function PressureLabPage() {
                 </option>
               ))}
           </select>
+          {plan === 'free' && (
+            <p className="text-xs text-amber-700">
+              Upgrade to Prep or Pro to unlock Pressure Lab scenarios.
+            </p>
+          )}
           {error && <p className="text-xs text-red-600">{error}</p>}
         </CardContent>
       </Card>
@@ -282,7 +300,7 @@ export default function PressureLabPage() {
                     className="w-full"
                     onClick={() => handleStart(scenario)}
                     loading={isStarting}
-                    disabled={startingId !== null || (!loadingApps && applications.length === 0)}
+                    disabled={plan === 'free' || startingId !== null || (!loadingApps && applications.length === 0)}
                   >
                     {scenario.id === 'salary-negotiation' ? 'Open Simulator' : 'Start Session'}
                     <ArrowRight className="ml-2 h-4 w-4" />

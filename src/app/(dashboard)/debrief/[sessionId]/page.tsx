@@ -76,6 +76,8 @@ interface AnalysisData {
     probability: number
     createdAt: string
   }>
+  gatedMessage?: string
+  requiredPlan?: string
 }
 
 interface SessionData {
@@ -137,6 +139,7 @@ export default function DebriefPage() {
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
   const [generatingCard, setGeneratingCard] = useState(false)
   const [hideRoleOnCard, setHideRoleOnCard] = useState(false)
+  const [plan, setPlan] = useState('free')
   const audioRef = useRef<HTMLAudioElement | null>(null)
 
   useEffect(() => {
@@ -171,6 +174,17 @@ export default function DebriefPage() {
       }
     }
   }, [audioUrl])
+
+  useEffect(() => {
+    async function fetchPlan() {
+      const res = await fetch('/api/settings')
+      if (res.ok) {
+        const json = await res.json()
+        setPlan(json.plan || 'free')
+      }
+    }
+    void fetchPlan()
+  }, [])
 
   if (loading) {
     return (
@@ -228,6 +242,7 @@ export default function DebriefPage() {
     session: p.label,
     probability: p.probability,
   }))
+  const hasFullDebrief = !analysis.gatedMessage
 
   async function handleDownloadDebriefCard() {
     try {
@@ -432,15 +447,21 @@ export default function DebriefPage() {
                 &ldquo;Okay — let&apos;s talk about what just happened in there.&rdquo;
               </blockquote>
               <p className="text-sm text-gray-600 leading-relaxed">{analysis.coachScript}</p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => void handlePlayAudio(false)}
-                disabled={audioLoading}
-              >
-                <Play className="h-4 w-4 mr-2" />
-                {audioLoading ? 'Loading audio...' : audioPlaying ? 'Pause Coach Audio' : 'Play Coach Audio'}
-              </Button>
+              {hasFullDebrief ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void handlePlayAudio(false)}
+                  disabled={audioLoading}
+                >
+                  <Play className="h-4 w-4 mr-2" />
+                  {audioLoading ? 'Loading audio...' : audioPlaying ? 'Pause Coach Audio' : 'Play Coach Audio'}
+                </Button>
+              ) : (
+                <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  {analysis.gatedMessage} <Link href="/pricing" className="underline font-medium">Upgrade</Link>
+                </div>
+              )}
             </div>
           </div>
         </CardContent>
@@ -468,55 +489,63 @@ export default function DebriefPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {/* Timeline */}
-          <div className="relative">
-            <div className="flex w-full h-10 rounded-lg overflow-hidden gap-0.5">
-              {analysis.momentMap.map((segment) => (
-                <button
-                  key={segment.id}
-                  className={`relative h-full transition-all hover:opacity-80 ${segmentColors[segment.type]} ${
-                    selectedSegment?.id === segment.id ? 'ring-2 ring-offset-1 ring-gray-900' : ''
-                  }`}
-                  style={{ width: `${segment.end - segment.start}%` }}
-                  onClick={() =>
-                    setSelectedSegment(
-                      selectedSegment?.id === segment.id ? null : segment
-                    )
-                  }
-                  title={`${segmentLabels[segment.type]} (${formatTimestamp(segment.timestampMs)})`}
-                >
-                  {segment.hasInterviewerReaction && (
-                    <Zap className="absolute top-0.5 right-0.5 h-3 w-3 text-white drop-shadow" />
-                  )}
-                </button>
-              ))}
-            </div>
-            <div className="flex justify-between mt-1 text-xs text-gray-400">
-              <span>0:00</span>
-              <span>{formatTimestamp(analysis.momentMap[analysis.momentMap.length - 1]?.timestampMs || 0)}</span>
-            </div>
-          </div>
+          {hasFullDebrief ? (
+            <>
+              {/* Timeline */}
+              <div className="relative">
+                <div className="flex w-full h-10 rounded-lg overflow-hidden gap-0.5">
+                  {analysis.momentMap.map((segment) => (
+                    <button
+                      key={segment.id}
+                      className={`relative h-full transition-all hover:opacity-80 ${segmentColors[segment.type]} ${
+                        selectedSegment?.id === segment.id ? 'ring-2 ring-offset-1 ring-gray-900' : ''
+                      }`}
+                      style={{ width: `${segment.end - segment.start}%` }}
+                      onClick={() =>
+                        setSelectedSegment(
+                          selectedSegment?.id === segment.id ? null : segment
+                        )
+                      }
+                      title={`${segmentLabels[segment.type]} (${formatTimestamp(segment.timestampMs)})`}
+                    >
+                      {segment.hasInterviewerReaction && (
+                        <Zap className="absolute top-0.5 right-0.5 h-3 w-3 text-white drop-shadow" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex justify-between mt-1 text-xs text-gray-400">
+                  <span>0:00</span>
+                  <span>{formatTimestamp(analysis.momentMap[analysis.momentMap.length - 1]?.timestampMs || 0)}</span>
+                </div>
+              </div>
 
-          {/* Selected Segment Detail */}
-          {selectedSegment && (
-            <div
-              className={`mt-4 rounded-lg border-2 p-4 space-y-3 ${segmentBorderColors[selectedSegment.type]}`}
-            >
-              <div className="flex items-center justify-between">
-                <Badge variant={segmentBadgeVariants[selectedSegment.type]}>
-                  {segmentLabels[selectedSegment.type]}
-                </Badge>
-                <span className="text-xs text-gray-500">
-                  {formatTimestamp(selectedSegment.timestampMs)}
-                </span>
-              </div>
-              <div className="bg-gray-50 rounded-md p-3 text-sm text-gray-700 whitespace-pre-line font-mono">
-                {selectedSegment.transcript}
-              </div>
-              <div className="flex items-start gap-2 text-sm">
-                <Eye className="h-4 w-4 text-brand-600 mt-0.5 flex-shrink-0" />
-                <p className="text-gray-600">{selectedSegment.coachingNote}</p>
-              </div>
+              {/* Selected Segment Detail */}
+              {selectedSegment && (
+                <div
+                  className={`mt-4 rounded-lg border-2 p-4 space-y-3 ${segmentBorderColors[selectedSegment.type]}`}
+                >
+                  <div className="flex items-center justify-between">
+                    <Badge variant={segmentBadgeVariants[selectedSegment.type]}>
+                      {segmentLabels[selectedSegment.type]}
+                    </Badge>
+                    <span className="text-xs text-gray-500">
+                      {formatTimestamp(selectedSegment.timestampMs)}
+                    </span>
+                  </div>
+                  <div className="bg-gray-50 rounded-md p-3 text-sm text-gray-700 whitespace-pre-line font-mono">
+                    {selectedSegment.transcript}
+                  </div>
+                  <div className="flex items-start gap-2 text-sm">
+                    <Eye className="h-4 w-4 text-brand-600 mt-0.5 flex-shrink-0" />
+                    <p className="text-gray-600">{selectedSegment.coachingNote}</p>
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800">
+              Moment Map is available on Prep and Pro plans. <Link href="/pricing" className="underline font-medium">Upgrade</Link>
             </div>
           )}
         </CardContent>
@@ -613,28 +642,34 @@ export default function DebriefPage() {
           <Target className="h-5 w-5 text-brand-600" />
           Next Session Targets
         </h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {analysis.nextTargets.map((target, i) => (
-            <Card key={i}>
-              <CardHeader>
-                <h4 className="font-semibold text-gray-900">{target.title}</h4>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  <p className="text-sm text-gray-600">{target.description}</p>
-                  <div className="bg-brand-50 rounded-md p-3">
-                    <p className="text-sm font-medium text-brand-800">Action</p>
-                    <p className="text-sm text-brand-700 mt-1">{target.action}</p>
+        {hasFullDebrief ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {analysis.nextTargets.map((target, i) => (
+              <Card key={i}>
+                <CardHeader>
+                  <h4 className="font-semibold text-gray-900">{target.title}</h4>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    <p className="text-sm text-gray-600">{target.description}</p>
+                    <div className="bg-brand-50 rounded-md p-3">
+                      <p className="text-sm font-medium text-brand-800">Action</p>
+                      <p className="text-sm text-brand-700 mt-1">{target.action}</p>
+                    </div>
+                    <div className="bg-gray-50 rounded-md p-3">
+                      <p className="text-sm font-medium text-gray-700">Success Metric</p>
+                      <p className="text-sm text-gray-600 mt-1">{target.successMetric}</p>
+                    </div>
                   </div>
-                  <div className="bg-gray-50 rounded-md p-3">
-                    <p className="text-sm font-medium text-gray-700">Success Metric</p>
-                    <p className="text-sm text-gray-600 mt-1">{target.successMetric}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800">
+            Detailed next-session targets are included in Prep and Pro.
+          </div>
+        )}
       </div>
 
       {/* Section F: Progress Tracking */}
@@ -696,27 +731,37 @@ export default function DebriefPage() {
             View Observe
           </Button>
         </Link>
-        <Button variant="outline" size="lg" onClick={() => void handleDownloadDebriefCard()} disabled={generatingCard}>
-          <Download className="h-4 w-4 mr-2" />
-          {generatingCard ? 'Generating Card...' : 'Download Debrief Card'}
-        </Button>
-        <Button variant="ghost" size="lg" onClick={shareToLinkedIn}>
-          <Share2 className="h-4 w-4 mr-2" />
-          Share to LinkedIn
-        </Button>
+        {(plan === 'pro' || plan === 'crunch') ? (
+          <>
+            <Button variant="outline" size="lg" onClick={() => void handleDownloadDebriefCard()} disabled={generatingCard}>
+              <Download className="h-4 w-4 mr-2" />
+              {generatingCard ? 'Generating Card...' : 'Download Debrief Card'}
+            </Button>
+            <Button variant="ghost" size="lg" onClick={shareToLinkedIn}>
+              <Share2 className="h-4 w-4 mr-2" />
+              Share to LinkedIn
+            </Button>
+          </>
+        ) : (
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            Debrief Card sharing is available on Pro. <Link href="/pricing" className="underline font-medium">Upgrade</Link>
+          </div>
+        )}
       </div>
 
-      <div className="flex justify-center">
-        <label className="inline-flex items-center gap-2 text-xs text-gray-500">
-          <input
-            type="checkbox"
-            checked={hideRoleOnCard}
-            onChange={(e) => setHideRoleOnCard(e.target.checked)}
-            className="rounded border-gray-300"
-          />
-          Hide company/role details on share card
-        </label>
-      </div>
+      {(plan === 'pro' || plan === 'crunch') && (
+        <div className="flex justify-center">
+          <label className="inline-flex items-center gap-2 text-xs text-gray-500">
+            <input
+              type="checkbox"
+              checked={hideRoleOnCard}
+              onChange={(e) => setHideRoleOnCard(e.target.checked)}
+              className="rounded border-gray-300"
+            />
+            Hide company/role details on share card
+          </label>
+        </div>
+      )}
     </div>
   )
 }

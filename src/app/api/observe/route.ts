@@ -3,6 +3,8 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { checkRateLimit } from '@/lib/rate-limit'
+import { getEffectivePlan } from '@/lib/subscription'
+import { checkFeature } from '@/lib/feature-gate'
 
 type SourceExchange = {
   speaker: string
@@ -208,6 +210,11 @@ export async function GET(request: NextRequest) {
     }
 
     const userId = (session.user as { id: string }).id
+    const plan = await getEffectivePlan(userId)
+    const gate = checkFeature(plan, 'observe_module')
+    if (!gate.allowed) {
+      return NextResponse.json({ error: gate.message, requiredPlan: gate.requiredPlan }, { status: 403 })
+    }
     const limiter = await checkRateLimit(`observe:get:${userId}`, 60, 60_000)
     if (!limiter.allowed) {
       return NextResponse.json(
@@ -269,6 +276,11 @@ export async function POST(request: NextRequest) {
     }
 
     const userId = (session.user as { id: string }).id
+    const plan = await getEffectivePlan(userId)
+    const gate = checkFeature(plan, 'observe_module')
+    if (!gate.allowed) {
+      return NextResponse.json({ error: gate.message, requiredPlan: gate.requiredPlan }, { status: 403 })
+    }
     const limiter = await checkRateLimit(`observe:create:${userId}`, 30, 60_000)
     if (!limiter.allowed) {
       return NextResponse.json(

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { isNotificationEnabled, sendNotificationEmail } from '@/lib/notifications'
 
 export async function GET(
   request: Request,
@@ -104,6 +105,47 @@ export async function PUT(
         },
       },
     })
+
+    if (body.status === 'completed') {
+      const shouldSend = await isNotificationEnabled(userId, 'sessionSummaryEmail')
+      if (shouldSend) {
+        const user = await prisma.user.findUnique({
+          where: { id: userId },
+          select: { email: true, fullName: true },
+        })
+        const analysis = await prisma.sessionAnalysis.findUnique({
+          where: { sessionId: id },
+          select: { hiringProbability: true, nextTargets: true },
+        })
+        const targets = (() => {
+          try {
+            const parsed = JSON.parse(analysis?.nextTargets || '[]')
+            return Array.isArray(parsed) ? parsed : []
+          } catch {
+            return []
+          }
+        })()
+        if (user?.email) {
+          const topTargets = targets
+            .slice(0, 3)
+            .map((t: { title?: string }, idx: number) => `${idx + 1}. ${t?.title || 'Refine your answer quality'}`)
+            .join('\n')
+          void sendNotificationEmail({
+            userId,
+            type: 'session_summary',
+            recipientEmail: user.email,
+            subject: `Seatvio Session Summary — ${updated.application.companyName} ${updated.stage}`,
+            body:
+              `Great work completing your session, ${user.fullName || 'there'}.\n\n` +
+              `Company: ${updated.application.companyName}\n` +
+              `Role: ${updated.application.jobTitle}\n` +
+              `Stage: ${updated.stage}\n` +
+              `Hiring Probability: ${analysis?.hiringProbability ?? 'Pending'}\n\n` +
+              `Top next targets:\n${topTargets || '1. Tighten specificity\n2. Improve confidence language\n3. Hold pauses under pressure'}`,
+          })
+        }
+      }
+    }
 
     return NextResponse.json({
       ...updated,
