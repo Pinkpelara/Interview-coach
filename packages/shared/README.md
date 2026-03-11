@@ -3,7 +3,12 @@
 Cross-service shared artifacts:
 
 - `types/` for transport contracts and shared interfaces
+- `constants/` for archetypes, plan limits, and session enums
+- `../prompts/` for model behavior and generation prompt assets
+- `../db/migrations/` for unified schema SQL
 
-Current:
+Core files:
 
-- `types/realtime.ts` WebSocket relay message contracts
+- `types/index.ts`
+- `types/realtime.ts`
+- `constants/index.ts`
