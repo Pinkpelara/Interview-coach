@@ -198,7 +198,7 @@ function CharacterTile({
         />
       )}
 
-      {/* Name label — video call style */}
+      {/* Name label — interview room style */}
       <div className="absolute bottom-0 left-0 right-0 p-2.5 bg-gradient-to-t from-black/80 via-black/40 to-transparent">
         <div className="flex items-center gap-2">
           <p className="text-white text-sm font-medium truncate">{character.name}</p>
@@ -1367,7 +1367,7 @@ export default function InterviewRoomPage() {
 
   return (
     <div className="fixed inset-0 bg-[#0a0a1a] flex flex-col z-50">
-      {/* Top bar — minimal, like a real video call */}
+      {/* Top bar — minimal, call-room style */}
       <div className="flex items-center justify-between px-4 py-2 bg-[#060610] border-b border-[#1a1a35]">
         <div>
           <p className="text-white text-sm font-medium">{application.companyName}</p>
@@ -1407,7 +1407,7 @@ export default function InterviewRoomPage() {
         </div>
       </div>
 
-      {/* Minimal status overlays (video-call style) */}
+      {/* Minimal status overlays */}
       <div className="absolute left-4 bottom-24 z-20 space-y-2 max-w-sm">
         {isListening && (
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-500/15 border border-red-500/30">
