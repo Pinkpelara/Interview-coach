@@ -21,7 +21,7 @@ export interface AnimatedAvatarProps {
 }
 
 // ---------------------------------------------------------------------------
-// Mouth shapes for lip sync (CSS-driven)
+// Speech visemes drive subtle jaw/lower-face motion
 // ---------------------------------------------------------------------------
 
 interface MouthShape {
@@ -227,11 +227,13 @@ export default function AnimatedAvatar({
   // Initials fallback
   const initials = seed.split(' ').map(n => n[0]).join('').toUpperCase()
 
-  // Mouth overlay dimensions
+  // Use viseme openness to drive subtle lower-face motion.
+  // This avoids uncanny cartoon overlays while preserving speech reactivity.
   const mouthOpen = mouthShape.openness
-  const mouthW = 18 * mouthShape.width
-  const mouthH = mouthOpen * 14
-  const isRound = mouthShape.roundness > 0.5
+  const jawShiftPx = mouthOpen * 2.8
+  const jawScaleY = 1 + mouthOpen * 0.12
+  const jawScaleX = 1 - mouthOpen * 0.03
+  const jawShadowOpacity = Math.min(0.26, 0.05 + mouthOpen * 0.2)
 
   return (
     <div className="relative w-full h-full overflow-hidden bg-[#0c0f14]">
@@ -264,88 +266,67 @@ export default function AnimatedAvatar({
           </div>
         )}
 
-        {/* === BLINK OVERLAY === */}
-        {/* Skin-colored patches over eye areas when blinking */}
+        {/* Blink cue: subtle upper-eye darkening instead of skin patches */}
         {blinking && imgLoaded && (
-          <>
+          <div className="absolute inset-0 pointer-events-none">
             <div
               className="absolute rounded-full"
               style={{
-                left: '32%', top: '35%',
-                width: '12%', height: '4%',
-                backgroundColor: '#c4a882',
-                mixBlendMode: 'normal',
-                filter: 'blur(1px)',
-                opacity: 0.92,
+                left: '31%',
+                top: '34.2%',
+                width: '13%',
+                height: '2.4%',
+                backgroundColor: 'rgba(0,0,0,0.22)',
+                filter: 'blur(0.8px)',
               }}
             />
             <div
               className="absolute rounded-full"
               style={{
-                left: '56%', top: '35%',
-                width: '12%', height: '4%',
-                backgroundColor: '#c4a882',
-                mixBlendMode: 'normal',
-                filter: 'blur(1px)',
-                opacity: 0.92,
+                left: '56%',
+                top: '34.2%',
+                width: '13%',
+                height: '2.4%',
+                backgroundColor: 'rgba(0,0,0,0.22)',
+                filter: 'blur(0.8px)',
               }}
             />
-          </>
+          </div>
         )}
 
-        {/* === MOUTH ANIMATION OVERLAY === */}
-        {mouthOpen > 0.02 && imgLoaded && (
-          <div
-            className="absolute"
-            style={{
-              left: '50%',
-              top: '62%',
-              transform: 'translate(-50%, -50%)',
-              width: `${mouthW + 8}%`,
-              height: `${mouthH + 4}%`,
-            }}
-          >
-            {/* Mouth interior (dark) */}
+        {/* Lower-face motion blend (no cartoon mouth drawing) */}
+        {imgLoaded && (
+          <div className="absolute inset-0 pointer-events-none overflow-hidden">
             <div
-              className="absolute inset-0 overflow-hidden"
               style={{
-                backgroundColor: '#2a1218',
-                borderRadius: isRound ? '50%' : '40% 40% 50% 50%',
-                width: `${isRound ? 50 : 85}%`,
-                height: `${mouthH > 3 ? 80 : 60}%`,
-                left: '50%',
-                top: '50%',
-                transform: 'translate(-50%, -50%)',
+                position: 'absolute',
+                left: '21%',
+                top: '53%',
+                width: '58%',
+                height: '31%',
+                borderRadius: '45% 45% 52% 52%',
+                overflow: 'hidden',
+                transform: `translateY(${jawShiftPx.toFixed(2)}px) scale(${jawScaleX.toFixed(3)}, ${jawScaleY.toFixed(3)})`,
+                transformOrigin: '50% 8%',
               }}
             >
-              {/* Upper teeth */}
-              {mouthShape.teethShow && mouthOpen > 0.15 && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: '15%',
-                    right: '15%',
-                    height: '30%',
-                    backgroundColor: '#f0ece6',
-                    borderRadius: '0 0 3px 3px',
-                  }}
-                />
-              )}
-              {/* Tongue hint */}
-              {mouthOpen > 0.5 && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    bottom: '5%',
-                    left: '25%',
-                    right: '25%',
-                    height: '30%',
-                    backgroundColor: '#b04555',
-                    borderRadius: '50% 50% 0 0',
-                  }}
-                />
-              )}
+              <img
+                src={avatarUrl}
+                alt=""
+                className="w-full h-full object-cover select-none"
+                style={{
+                  transform: 'scale(1.1)',
+                  transformOrigin: 'center 40%',
+                  opacity: 0.98,
+                }}
+                draggable={false}
+              />
+              <div
+                className="absolute inset-0"
+                style={{
+                  background: `linear-gradient(to bottom, rgba(0,0,0,0) 15%, rgba(0,0,0,${(jawShadowOpacity * 0.45).toFixed(3)}) 70%, rgba(0,0,0,${jawShadowOpacity.toFixed(3)}) 100%)`,
+                }}
+              />
             </div>
           </div>
         )}

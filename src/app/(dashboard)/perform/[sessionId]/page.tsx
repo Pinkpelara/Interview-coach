@@ -286,13 +286,16 @@ const FALLBACK_VOICE_CONFIG: Record<string, { pitch: number; rate: number }> = {
   silent_observer: { pitch: 0.85, rate: 0.82 },
 }
 
+const ALLOW_BROWSER_TTS_FALLBACK = process.env.NEXT_PUBLIC_ALLOW_BROWSER_TTS_FALLBACK === 'true'
+
 // ---------------------------------------------------------------------------
 // Speech synthesis hook — server TTS first, browser fallback
 // ---------------------------------------------------------------------------
 
 function useSpeech() {
   const [speaking, setSpeaking] = useState(false)
-  const [voiceEngine, setVoiceEngine] = useState<'server' | 'browser'>('browser')
+  const [voiceEngine, setVoiceEngine] = useState<'server' | 'browser'>('server')
+  const [speechError, setSpeechError] = useState<string | null>(null)
   const [speechLevel, setSpeechLevel] = useState(0)
   const currentAudioRef = useRef<HTMLAudioElement | null>(null)
   const currentAudioUrlRef = useRef<string | null>(null)
@@ -408,8 +411,11 @@ function useSpeech() {
       stopAudioLevelTracking()
 
       setSpeaking(true)
+      setSpeechError(null)
 
       // Primary path: server-generated TTS (stable and deterministic)
+      let serverTTSSuccess = false
+      let serverTTSErrorMessage = ''
       try {
         if (voiceConfig) {
           const response = await fetch('/api/tts', {
@@ -451,17 +457,35 @@ function useSpeech() {
               resolve()
             }
             await audio.play()
+            serverTTSSuccess = true
             return
+          } else {
+            const errorBody = await response.json().catch(() => ({}))
+            serverTTSErrorMessage =
+              typeof errorBody?.error === 'string'
+                ? errorBody.error
+                : 'Server voice synthesis is unavailable right now.'
           }
         }
       } catch (e) {
-        console.warn('Server TTS failed, falling back to browser voice:', e)
+        serverTTSErrorMessage = 'Server voice synthesis is unavailable right now.'
+        console.warn('Server TTS failed:', e)
+      }
+
+      if (!serverTTSSuccess && !ALLOW_BROWSER_TTS_FALLBACK) {
+        setVoiceEngine('server')
+        setSpeaking(false)
+        stopAudioLevelTracking()
+        setSpeechError(serverTTSErrorMessage || 'Human-like interviewer voice is unavailable. Configure server TTS.')
+        resolve()
+        return
       }
 
       // Fallback: Web Speech API — pick the most natural-sounding voice available
       if (!synthRef.current) { setSpeaking(false); resolve(); return }
       setVoiceEngine('browser')
       startBrowserSpeechTracking()
+      setSpeechError('Using browser fallback voice. Configure server TTS for human-like interview voices.')
 
       const utterance = new SpeechSynthesisUtterance(text)
       const archetype = Object.entries(VOICE_CONFIG).find(([, v]) => v.voice === voiceConfig?.voice)?.[0]
@@ -501,7 +525,7 @@ function useSpeech() {
     setSpeaking(false)
   }, [stopAudioLevelTracking])
 
-  return { speak, stop, speaking, voiceEngine, speechLevel }
+  return { speak, stop, speaking, voiceEngine, speechLevel, speechError }
 }
 
 // ---------------------------------------------------------------------------
@@ -533,7 +557,7 @@ export default function InterviewRoomPage() {
   const [characterLookingAway, setCharacterLookingAway] = useState<Record<string, boolean>>({})
 
   // Voice I/O
-  const { speak, stop: stopSpeech, speaking: isTTSSpeaking, voiceEngine, speechLevel } = useSpeech()
+  const { speak, stop: stopSpeech, speaking: isTTSSpeaking, voiceEngine, speechLevel, speechError } = useSpeech()
   const [isListening, setIsListening] = useState(false)
   const [isMicOn, setIsMicOn] = useState(true)
   const [isSpeakerOn, setIsSpeakerOn] = useState(true)
@@ -1442,7 +1466,7 @@ export default function InterviewRoomPage() {
                 ? 'text-emerald-300 border-emerald-500/30 bg-emerald-500/10'
                 : 'text-amber-300 border-amber-500/30 bg-amber-500/10'
             }`}>
-              {voiceEngine === 'server' ? 'Human voice' : 'Fallback voice'}
+              {voiceEngine === 'server' ? 'Human voice' : 'Browser fallback'}
             </span>
           )}
           {isTTSSpeaking && (
@@ -1499,6 +1523,12 @@ export default function InterviewRoomPage() {
                 Retry last answer
               </button>
             )}
+          </div>
+        )}
+
+        {speechError && (
+          <div className="px-3 py-2 bg-amber-900/45 border border-amber-700/50 rounded-lg">
+            <p className="text-amber-200 text-xs">{speechError}</p>
           </div>
         )}
 
