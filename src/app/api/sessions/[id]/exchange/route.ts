@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { chatCompletion, isAIServiceConfigured } from '@/lib/ai'
 import { checkRateLimit } from '@/lib/rate-limit'
+import { getArchetypePrompt } from '@/lib/prompts/archetypes'
 
 interface Character {
   id: string
@@ -27,15 +28,6 @@ interface ConversationTurn {
   speaker: string
   text: string
   characterId: string | null
-}
-
-const ARCHETYPE_DESCRIPTIONS: Record<string, string> = {
-  skeptic: 'You are a skeptical interviewer who challenges every claim. You demand specifics, metrics, and evidence. You push back on vague answers and ask pointed follow-ups.',
-  friendly_champion: 'You are a warm, enthusiastic interviewer who builds rapport. You encourage the candidate while still probing for depth. You show genuine interest.',
-  technical_griller: 'You are a technical interviewer who digs into implementation details, system design, architecture decisions, and edge cases. You want to understand how things actually work.',
-  distracted_senior: 'You are a senior executive who is somewhat distracted. You occasionally check your phone, ask about big-picture strategy, and sometimes change topics abruptly. You care about business impact.',
-  culture_fit: 'You are focused on team dynamics, values, and cultural alignment. You ask about collaboration, conflict resolution, and working styles.',
-  silent_observer: 'You are quiet and observant. You give minimal responses — short phrases, nods, or silence. You make the candidate uncomfortable with pauses. Respond in 1-10 words max.',
 }
 
 const ARCHETYPE_FALLBACK_RESPONSES: Record<string, (ctx: ApplicationContext | null) => string[]> = {
@@ -110,7 +102,7 @@ function buildSystemPrompt(
   appCtx: ApplicationContext | null,
   conversationHistory: ConversationTurn[]
 ): string {
-  const archetypeDesc = ARCHETYPE_DESCRIPTIONS[archetype] || ARCHETYPE_DESCRIPTIONS.friendly_champion
+  const archetypeDesc = getArchetypePrompt(archetype)
 
   let contextBlock = ''
   if (appCtx) {

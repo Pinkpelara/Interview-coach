@@ -12,6 +12,7 @@ export interface AnimatedAvatarProps {
   seed: string
   avatarKey?: string
   isSpeaking: boolean
+  audioLevel?: number
   expression: AvatarExpression
   isLookingAway: boolean
   accentColor: string
@@ -51,6 +52,7 @@ export default function AnimatedAvatar({
   seed,
   avatarKey,
   isSpeaking,
+  audioLevel = 0,
   expression,
   isLookingAway,
   accentColor,
@@ -101,9 +103,9 @@ export default function AnimatedAvatar({
     return () => clearTimeout(blinkTimerRef.current)
   }, [])
 
-  // --- LIP SYNC ---
+  // --- LIP SYNC (fallback timer when no live audio level) ---
   useEffect(() => {
-    if (isSpeaking) {
+    if (isSpeaking && audioLevel < 0.03) {
       visemeTimerRef.current = setInterval(() => {
         visemeRef.current = (visemeRef.current + 1 + Math.floor(Math.random() * 2)) % SPEECH_ORDER.length
         setMouthShape(VISEMES[SPEECH_ORDER[visemeRef.current]])
@@ -113,7 +115,34 @@ export default function AnimatedAvatar({
       setMouthShape(VISEMES.rest)
     }
     return () => clearInterval(visemeTimerRef.current)
-  }, [isSpeaking])
+  }, [isSpeaking, audioLevel])
+
+  // --- LIP SYNC (primary: audio-reactive level) ---
+  useEffect(() => {
+    if (!isSpeaking) {
+      setMouthShape(VISEMES.rest)
+      return
+    }
+
+    const level = Math.max(0, Math.min(1, audioLevel))
+    if (level < 0.04) {
+      setMouthShape(VISEMES.mm)
+      return
+    }
+    if (level < 0.18) {
+      setMouthShape(Math.random() > 0.5 ? VISEMES.ff : VISEMES.th)
+      return
+    }
+    if (level < 0.35) {
+      setMouthShape(Math.random() > 0.5 ? VISEMES.ee : VISEMES.ch)
+      return
+    }
+    if (level < 0.62) {
+      setMouthShape(Math.random() > 0.5 ? VISEMES.oo : VISEMES.ee)
+      return
+    }
+    setMouthShape(VISEMES.aa)
+  }, [audioLevel, isSpeaking])
 
   // --- EXPRESSION & HEAD MOVEMENT ---
   useEffect(() => {

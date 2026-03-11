@@ -166,11 +166,13 @@ function resolveSilenceDuration(character: Character): number {
 function CharacterFace({
   character,
   isSpeaking,
+  speechLevel,
   expression,
   isLookingAway,
 }: {
   character: Character
   isSpeaking: boolean
+  speechLevel: number
   expression: 'neutral' | 'interested' | 'skeptical' | 'nodding' | 'writing'
   isLookingAway: boolean
 }) {
@@ -184,6 +186,7 @@ function CharacterFace({
           seed={character.name}
           avatarKey={character.avatarKey}
           isSpeaking={isSpeaking}
+          audioLevel={speechLevel}
           expression={expression}
           isLookingAway={isLookingAway}
           accentColor={color}
@@ -289,9 +292,15 @@ const FALLBACK_VOICE_CONFIG: Record<string, { pitch: number; rate: number }> = {
 function useSpeech() {
   const [speaking, setSpeaking] = useState(false)
   const [voiceEngine, setVoiceEngine] = useState<'server' | 'browser'>('browser')
+  const [speechLevel, setSpeechLevel] = useState(0)
   const currentAudioRef = useRef<HTMLAudioElement | null>(null)
   const currentAudioUrlRef = useRef<string | null>(null)
   const synthRef = useRef<SpeechSynthesis | null>(null)
+  const audioContextRef = useRef<AudioContext | null>(null)
+  const analyserRef = useRef<AnalyserNode | null>(null)
+  const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null)
+  const analyserFrameRef = useRef<number | null>(null)
+  const browserLevelTimerRef = useRef<NodeJS.Timeout | null>(null)
 
   useEffect(() => {
     synthRef.current = window.speechSynthesis
@@ -300,8 +309,87 @@ function useSpeech() {
       if (currentAudioUrlRef.current) {
         URL.revokeObjectURL(currentAudioUrlRef.current)
       }
+      if (analyserFrameRef.current) {
+        cancelAnimationFrame(analyserFrameRef.current)
+      }
+      if (browserLevelTimerRef.current) {
+        clearInterval(browserLevelTimerRef.current)
+      }
+      sourceNodeRef.current?.disconnect()
+      analyserRef.current?.disconnect()
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+        void audioContextRef.current.close()
+      }
       synthRef.current?.cancel()
     }
+  }, [])
+
+  const stopAudioLevelTracking = useCallback(() => {
+    if (analyserFrameRef.current) {
+      cancelAnimationFrame(analyserFrameRef.current)
+      analyserFrameRef.current = null
+    }
+    if (browserLevelTimerRef.current) {
+      clearInterval(browserLevelTimerRef.current)
+      browserLevelTimerRef.current = null
+    }
+    setSpeechLevel(0)
+  }, [])
+
+  const startServerAudioTracking = useCallback((audio: HTMLAudioElement) => {
+    try {
+      if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
+        audioContextRef.current = new AudioContext()
+      }
+      const ctx = audioContextRef.current
+      if (ctx.state === 'suspended') {
+        void ctx.resume()
+      }
+
+      sourceNodeRef.current?.disconnect()
+      analyserRef.current?.disconnect()
+
+      const source = ctx.createMediaElementSource(audio)
+      const analyser = ctx.createAnalyser()
+      analyser.fftSize = 256
+      analyser.smoothingTimeConstant = 0.75
+
+      source.connect(analyser)
+      analyser.connect(ctx.destination)
+
+      sourceNodeRef.current = source
+      analyserRef.current = analyser
+
+      const data = new Uint8Array(analyser.frequencyBinCount)
+      const tick = () => {
+        if (!analyserRef.current) return
+        analyserRef.current.getByteTimeDomainData(data)
+        let sum = 0
+        for (let i = 0; i < data.length; i++) {
+          const normalized = (data[i] - 128) / 128
+          sum += normalized * normalized
+        }
+        const rms = Math.sqrt(sum / data.length)
+        const level = Math.max(0, Math.min(1, (rms - 0.01) * 8))
+        setSpeechLevel(level)
+        analyserFrameRef.current = requestAnimationFrame(tick)
+      }
+      if (analyserFrameRef.current) cancelAnimationFrame(analyserFrameRef.current)
+      analyserFrameRef.current = requestAnimationFrame(tick)
+    } catch (err) {
+      console.warn('Unable to attach analyser to TTS audio:', err)
+      setSpeechLevel(0.35)
+    }
+  }, [])
+
+  const startBrowserSpeechTracking = useCallback(() => {
+    if (browserLevelTimerRef.current) clearInterval(browserLevelTimerRef.current)
+    let t = 0
+    browserLevelTimerRef.current = setInterval(() => {
+      t += 0.2
+      const level = 0.2 + Math.max(0, Math.sin(t)) * 0.55 + Math.random() * 0.1
+      setSpeechLevel(Math.min(1, level))
+    }, 70)
   }, [])
 
   const speak = useCallback((text: string, voiceConfig?: { voice: string; instructions: string }) => {
@@ -316,6 +404,7 @@ function useSpeech() {
         currentAudioUrlRef.current = null
       }
       synthRef.current?.cancel()
+      stopAudioLevelTracking()
 
       setSpeaking(true)
 
@@ -339,8 +428,10 @@ function useSpeech() {
             currentAudioRef.current = audio
             currentAudioUrlRef.current = url
             setVoiceEngine('server')
+            startServerAudioTracking(audio)
             audio.onended = () => {
               setSpeaking(false)
+              stopAudioLevelTracking()
               currentAudioRef.current = null
               if (currentAudioUrlRef.current) {
                 URL.revokeObjectURL(currentAudioUrlRef.current)
@@ -350,6 +441,7 @@ function useSpeech() {
             }
             audio.onerror = () => {
               setSpeaking(false)
+              stopAudioLevelTracking()
               currentAudioRef.current = null
               if (currentAudioUrlRef.current) {
                 URL.revokeObjectURL(currentAudioUrlRef.current)
@@ -368,6 +460,7 @@ function useSpeech() {
       // Fallback: Web Speech API — pick the most natural-sounding voice available
       if (!synthRef.current) { setSpeaking(false); resolve(); return }
       setVoiceEngine('browser')
+      startBrowserSpeechTracking()
 
       const utterance = new SpeechSynthesisUtterance(text)
       const archetype = Object.entries(VOICE_CONFIG).find(([, v]) => v.voice === voiceConfig?.voice)?.[0]
@@ -387,11 +480,11 @@ function useSpeech() {
       const preferred = naturalVoice || microsoftVoice || googleVoice || voices[0]
       if (preferred) utterance.voice = preferred
 
-      utterance.onend = () => { setSpeaking(false); resolve() }
-      utterance.onerror = () => { setSpeaking(false); resolve() }
+      utterance.onend = () => { setSpeaking(false); stopAudioLevelTracking(); resolve() }
+      utterance.onerror = () => { setSpeaking(false); stopAudioLevelTracking(); resolve() }
       synthRef.current.speak(utterance)
     })
-  }, [])
+  }, [startBrowserSpeechTracking, startServerAudioTracking, stopAudioLevelTracking])
 
   const stop = useCallback(() => {
     if (currentAudioRef.current) {
@@ -403,10 +496,11 @@ function useSpeech() {
       currentAudioUrlRef.current = null
     }
     synthRef.current?.cancel()
+    stopAudioLevelTracking()
     setSpeaking(false)
-  }, [])
+  }, [stopAudioLevelTracking])
 
-  return { speak, stop, speaking, voiceEngine }
+  return { speak, stop, speaking, voiceEngine, speechLevel }
 }
 
 // ---------------------------------------------------------------------------
@@ -438,7 +532,7 @@ export default function InterviewRoomPage() {
   const [characterLookingAway, setCharacterLookingAway] = useState<Record<string, boolean>>({})
 
   // Voice I/O
-  const { speak, stop: stopSpeech, speaking: isTTSSpeaking, voiceEngine } = useSpeech()
+  const { speak, stop: stopSpeech, speaking: isTTSSpeaking, voiceEngine, speechLevel } = useSpeech()
   const [isListening, setIsListening] = useState(false)
   const [isMicOn, setIsMicOn] = useState(true)
   const [isSpeakerOn, setIsSpeakerOn] = useState(true)
@@ -1302,6 +1396,7 @@ export default function InterviewRoomPage() {
               <CharacterFace
                 character={char}
                 isSpeaking={speakingCharacterId === char.id}
+                speechLevel={speakingCharacterId === char.id ? speechLevel : 0}
                 expression={(characterExpressions[char.id] || 'neutral') as 'neutral' | 'interested' | 'skeptical' | 'nodding' | 'writing'}
                 isLookingAway={characterLookingAway[char.id] || false}
               />
