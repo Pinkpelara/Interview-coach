@@ -7,6 +7,9 @@ import { aiConfig } from '@/lib/ai/config'
 
 export async function GET() {
   const started = Date.now()
+  const dedicatedTTSConfigured = Boolean(
+    process.env.KOKORO_TTS_URL || process.env.TTS_SERVICE_URL || process.env.TTS_URL
+  )
 
   let dbOk = false
   try {
@@ -40,6 +43,7 @@ export async function GET() {
       checks: {
         db: dbOk ? 'ok' : 'fail',
         ai: ai.ok ? 'ok' : isAIServiceConfigured() ? 'fail' : 'not_configured',
+        tts: dedicatedTTSConfigured ? 'dedicated_service_configured' : 'ai_provider_or_browser_fallback',
       },
       ai_source_mode: aiConfig.sourceMode,
       metrics_60s: {
