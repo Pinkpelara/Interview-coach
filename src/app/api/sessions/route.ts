@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { pickPersonaForArchetype, type InterviewArchetype } from '@/lib/interviewerPersonas'
 
 interface Character {
   id: string
@@ -9,19 +10,8 @@ interface Character {
   title: string
   archetype: string
   silenceDuration: number
+  avatarKey: string
 }
-
-const FIRST_NAMES = [
-  'Sarah', 'Michael', 'Jennifer', 'David', 'Rachel', 'James',
-  'Emily', 'Robert', 'Amanda', 'Christopher', 'Lisa', 'Daniel',
-  'Karen', 'Andrew', 'Michelle', 'Thomas', 'Jessica', 'Brian',
-]
-
-const LAST_NAMES = [
-  'Chen', 'Patel', 'Williams', 'Garcia', 'Kim', 'Johnson',
-  'Martinez', 'Thompson', 'Anderson', 'Lee', 'Taylor', 'Brown',
-  'Nakamura', 'O\'Brien', 'Vasquez', 'Singh', 'Weber', 'Rossi',
-]
 
 const TITLE_TEMPLATES: Record<string, string[]> = {
   skeptic: ['VP of Engineering', 'Director of Product', 'Senior Engineering Manager', 'CTO'],
@@ -38,15 +28,6 @@ function randomFrom<T>(arr: T[]): T {
 
 function generateCharacterId(): string {
   return `char_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-}
-
-function generateName(usedNames: Set<string>): string {
-  let name: string
-  do {
-    name = `${randomFrom(FIRST_NAMES)} ${randomFrom(LAST_NAMES)}`
-  } while (usedNames.has(name))
-  usedNames.add(name)
-  return name
 }
 
 function generateTitle(archetype: string, companyName: string): string {
@@ -68,16 +49,21 @@ function silenceDurationForArchetype(archetype: string): number {
 }
 
 function generatePanel(stage: string, companyName: string): Character[] {
-  const usedNames = new Set<string>()
+  const usedPersonaIds = new Set<string>()
   const characters: Character[] = []
 
-  const createChar = (archetype: string): Character => ({
-    id: generateCharacterId(),
-    name: generateName(usedNames),
-    title: generateTitle(archetype, companyName),
-    archetype,
-    silenceDuration: silenceDurationForArchetype(archetype),
-  })
+  const createChar = (archetype: InterviewArchetype): Character => {
+    const seed = `${companyName}:${stage}:${characters.length}`
+    const persona = pickPersonaForArchetype(archetype, usedPersonaIds, seed)
+    return {
+      id: generateCharacterId(),
+      name: persona.name,
+      title: generateTitle(archetype, companyName),
+      archetype,
+      silenceDuration: silenceDurationForArchetype(archetype),
+      avatarKey: `${persona.portraitGender}-${persona.portraitIndex}`,
+    }
+  }
 
   switch (stage) {
     case 'Phone Screen':

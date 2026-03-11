@@ -10,6 +10,7 @@ interface Character {
   title: string
   archetype: string
   silenceDuration: number
+  avatarKey?: string
 }
 
 interface ApplicationContext {
@@ -406,6 +407,7 @@ export async function POST(
         name: respondingCharacter.name,
         title: respondingCharacter.title,
         archetype: respondingCharacter.archetype,
+        avatarKey: respondingCharacter.avatarKey,
       },
     })
   } catch (error) {

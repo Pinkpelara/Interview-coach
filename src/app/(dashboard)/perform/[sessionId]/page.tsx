@@ -4,7 +4,6 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { useSession } from 'next-auth/react'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import {
@@ -20,7 +19,6 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react'
-import Script from 'next/script'
 import AnimatedAvatar from '@/components/perform/AnimatedAvatar'
 
 // ---------------------------------------------------------------------------
@@ -33,6 +31,7 @@ interface Character {
   title: string
   archetype: string
   silenceDuration: number
+  avatarKey?: string
 }
 
 interface Exchange {
@@ -178,6 +177,7 @@ function CharacterFace({
       <div className="absolute inset-0">
         <AnimatedAvatar
           seed={character.name}
+          avatarKey={character.avatarKey}
           isSpeaking={isSpeaking}
           expression={expression}
           isLookingAway={isLookingAway}
@@ -234,7 +234,7 @@ function CharacterFace({
 }
 
 // ---------------------------------------------------------------------------
-// Voice config per archetype — OpenAI TTS voices via Puter.js
+// Voice config per archetype — OpenAI-compatible TTS voices
 // ---------------------------------------------------------------------------
 // OpenAI voices: alloy (neutral), ash (warm male), ballad (expressive),
 // coral (warm female), echo (calm male), fable (storyteller), onyx (deep male),
@@ -267,7 +267,7 @@ const VOICE_CONFIG: Record<string, { voice: string; instructions: string }> = {
   },
 }
 
-// Fallback Web Speech API config for when Puter.js is unavailable
+// Fallback Web Speech API config when server TTS is unavailable
 const FALLBACK_VOICE_CONFIG: Record<string, { pitch: number; rate: number }> = {
   skeptic: { pitch: 0.85, rate: 0.88 },
   friendly_champion: { pitch: 1.08, rate: 1.0 },
@@ -278,18 +278,23 @@ const FALLBACK_VOICE_CONFIG: Record<string, { pitch: number; rate: number }> = {
 }
 
 // ---------------------------------------------------------------------------
-// Speech synthesis hook — uses Puter.js OpenAI TTS, falls back to Web Speech
+// Speech synthesis hook — server TTS first, browser fallback
 // ---------------------------------------------------------------------------
 
 function useSpeech() {
   const [speaking, setSpeaking] = useState(false)
+  const [voiceEngine, setVoiceEngine] = useState<'server' | 'browser'>('browser')
   const currentAudioRef = useRef<HTMLAudioElement | null>(null)
+  const currentAudioUrlRef = useRef<string | null>(null)
   const synthRef = useRef<SpeechSynthesis | null>(null)
 
   useEffect(() => {
     synthRef.current = window.speechSynthesis
     return () => {
       currentAudioRef.current?.pause()
+      if (currentAudioUrlRef.current) {
+        URL.revokeObjectURL(currentAudioUrlRef.current)
+      }
       synthRef.current?.cancel()
     }
   }, [])
@@ -301,50 +306,63 @@ function useSpeech() {
         currentAudioRef.current.pause()
         currentAudioRef.current = null
       }
+      if (currentAudioUrlRef.current) {
+        URL.revokeObjectURL(currentAudioUrlRef.current)
+        currentAudioUrlRef.current = null
+      }
       synthRef.current?.cancel()
 
       setSpeaking(true)
 
-      // Try Puter.js OpenAI TTS first (human-quality voices)
+      // Primary path: server-generated TTS (stable and deterministic)
       try {
-        const puter = (window as any).puter
-        if (puter?.ai?.txt2speech && voiceConfig) {
-          const audio: HTMLAudioElement = await puter.ai.txt2speech(text, {
-            provider: 'openai',
-            model: 'gpt-4o-mini-tts',
-            voice: voiceConfig.voice || 'alloy',
-            instructions: voiceConfig.instructions || '',
-            response_format: 'mp3',
+        if (voiceConfig) {
+          const response = await fetch('/api/tts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              text,
+              voice: voiceConfig.voice,
+              instructions: voiceConfig.instructions,
+            }),
           })
-          currentAudioRef.current = audio
-          audio.onended = () => { setSpeaking(false); currentAudioRef.current = null; resolve() }
-          audio.onerror = () => { setSpeaking(false); currentAudioRef.current = null; resolve() }
-          await audio.play()
-          return
+
+          if (response.ok) {
+            const blob = await response.blob()
+            const url = URL.createObjectURL(blob)
+            const audio = new Audio(url)
+            currentAudioRef.current = audio
+            currentAudioUrlRef.current = url
+            setVoiceEngine('server')
+            audio.onended = () => {
+              setSpeaking(false)
+              currentAudioRef.current = null
+              if (currentAudioUrlRef.current) {
+                URL.revokeObjectURL(currentAudioUrlRef.current)
+                currentAudioUrlRef.current = null
+              }
+              resolve()
+            }
+            audio.onerror = () => {
+              setSpeaking(false)
+              currentAudioRef.current = null
+              if (currentAudioUrlRef.current) {
+                URL.revokeObjectURL(currentAudioUrlRef.current)
+                currentAudioUrlRef.current = null
+              }
+              resolve()
+            }
+            await audio.play()
+            return
+          }
         }
       } catch (e) {
-        console.warn('Puter TTS failed, falling back to Web Speech:', e)
-      }
-
-      // Second attempt: try Puter.js with simpler config
-      try {
-        const puter = (window as any).puter
-        if (puter?.ai?.txt2speech && voiceConfig) {
-          const audio: HTMLAudioElement = await puter.ai.txt2speech(text, {
-            voice: voiceConfig.voice || 'alloy',
-          })
-          currentAudioRef.current = audio
-          audio.onended = () => { setSpeaking(false); currentAudioRef.current = null; resolve() }
-          audio.onerror = () => { setSpeaking(false); currentAudioRef.current = null; resolve() }
-          await audio.play()
-          return
-        }
-      } catch {
-        // Fall through to Web Speech
+        console.warn('Server TTS failed, falling back to browser voice:', e)
       }
 
       // Fallback: Web Speech API — pick the most natural-sounding voice available
       if (!synthRef.current) { setSpeaking(false); resolve(); return }
+      setVoiceEngine('browser')
 
       const utterance = new SpeechSynthesisUtterance(text)
       const archetype = Object.entries(VOICE_CONFIG).find(([, v]) => v.voice === voiceConfig?.voice)?.[0]
@@ -375,11 +393,15 @@ function useSpeech() {
       currentAudioRef.current.pause()
       currentAudioRef.current = null
     }
+    if (currentAudioUrlRef.current) {
+      URL.revokeObjectURL(currentAudioUrlRef.current)
+      currentAudioUrlRef.current = null
+    }
     synthRef.current?.cancel()
     setSpeaking(false)
   }, [])
 
-  return { speak, stop, speaking }
+  return { speak, stop, speaking, voiceEngine }
 }
 
 // ---------------------------------------------------------------------------
@@ -387,7 +409,6 @@ function useSpeech() {
 // ---------------------------------------------------------------------------
 
 export default function InterviewRoomPage() {
-  const { data: authSession } = useSession()
   const params = useParams()
   const router = useRouter()
   const sessionId = params.sessionId as string
@@ -410,7 +431,7 @@ export default function InterviewRoomPage() {
   const [characterLookingAway, setCharacterLookingAway] = useState<Record<string, boolean>>({})
 
   // Voice I/O
-  const { speak, stop: stopSpeech, speaking: isTTSSpeaking } = useSpeech()
+  const { speak, stop: stopSpeech, speaking: isTTSSpeaking, voiceEngine } = useSpeech()
   const [isListening, setIsListening] = useState(false)
   const [isMicOn, setIsMicOn] = useState(true)
   const [isSpeakerOn, setIsSpeakerOn] = useState(true)
@@ -889,15 +910,6 @@ export default function InterviewRoomPage() {
   }
 
   // -------------------------------------------
-  // Get character by ID
-  // -------------------------------------------
-
-  const getCharacter = (charId: string | null): Character | undefined => {
-    if (!charId || !sessionData) return undefined
-    return sessionData.characters.find(c => c.id === charId)
-  }
-
-  // -------------------------------------------
   // RENDER: Loading
   // -------------------------------------------
 
@@ -1225,123 +1237,86 @@ export default function InterviewRoomPage() {
           <p className="text-white text-sm font-medium">{application.companyName}</p>
           <p className="text-gray-500 text-xs">{application.jobTitle} · {sessionData.stage}</p>
         </div>
-        <div className="flex items-center gap-2 text-gray-300">
+        <div className="flex items-center gap-3 text-gray-300">
+          {isSpeakerOn && (
+            <span className={`text-[10px] px-2 py-0.5 rounded-full border ${
+              voiceEngine === 'server'
+                ? 'text-emerald-300 border-emerald-500/30 bg-emerald-500/10'
+                : 'text-amber-300 border-amber-500/30 bg-amber-500/10'
+            }`}>
+              {voiceEngine === 'server' ? 'Human voice' : 'Fallback voice'}
+            </span>
+          )}
+          {isTTSSpeaking && (
+            <span className="text-[10px] text-blue-300">Speaking...</span>
+          )}
           <Clock className="w-4 h-4" />
           <span className="font-mono text-sm tabular-nums">{formatTime(elapsedSeconds)}</span>
         </div>
       </div>
 
-      {/* Main content: video grid + chat side by side */}
+      {/* Main content: full-screen video grid */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
-        {/* Left: Video call grid — takes most of the space */}
         <div className="flex-1 flex flex-col min-h-0">
           {renderCharacterGrid()}
         </div>
-
-        {/* Right: Chat / Transcript sidebar */}
-        <div className="w-80 lg:w-96 flex flex-col min-h-0 border-l border-[#1a1a35] bg-[#060610]">
-          <div className="px-3 py-2 border-b border-[#1a1a35] flex items-center gap-2">
-            <MessageSquare className="w-4 h-4 text-gray-400" />
-            <span className="text-gray-300 text-xs font-medium">Transcript</span>
-          </div>
-          <div className="flex-1 overflow-y-auto space-y-2 p-3 min-h-0">
-            {exchanges.map(exchange => {
-              const isCandidate = exchange.speaker === 'candidate'
-              const char = getCharacter(exchange.characterId)
-              const color = char ? ARCHETYPE_COLORS[char.archetype] || '#6b7280' : '#3b82f6'
-
-              return (
-                <div key={exchange.id} className={`flex ${isCandidate ? 'justify-end' : 'justify-start'}`}>
-                  {!isCandidate && char && (
-                    <div
-                      className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[9px] font-bold shrink-0 mr-1.5 mt-1"
-                      style={{ backgroundColor: color }}
-                    >
-                      {getInitials(char.name)}
-                    </div>
-                  )}
-                  <div className={`max-w-[85%] rounded-xl px-3 py-2 ${
-                    isCandidate
-                      ? 'bg-blue-600 text-white rounded-br-sm'
-                      : 'bg-[#111127] text-gray-200 rounded-bl-sm'
-                  }`}>
-                    {!isCandidate && char && (
-                      <p className="text-[10px] font-medium mb-0.5" style={{ color }}>
-                        {char.name}
-                      </p>
-                    )}
-                    <p className="text-xs leading-relaxed">{exchange.messageText}</p>
-                  </div>
-                </div>
-              )
-            })}
-
-            {/* Thinking indicator */}
-            {isSending && speakingCharacterId && (
-              <div className="flex justify-start">
-                <div className="bg-[#111127] rounded-xl rounded-bl-sm px-3 py-2">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] text-gray-400 mr-1">thinking</span>
-                    <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                    <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                    <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div ref={chatEndRef} />
-          </div>
-
-          {/* Listening indicator */}
-          {isListening && (
-            <div className="mx-3 mb-2 flex items-center justify-center gap-2 py-1.5">
-              <div className="flex items-center gap-1">
-                {[0, 1, 2, 3, 4].map(i => (
-                  <div
-                    key={i}
-                    className="w-1 bg-red-500 rounded-full animate-pulse"
-                    style={{
-                      height: `${12 + Math.random() * 16}px`,
-                      animationDelay: `${i * 100}ms`,
-                      animationDuration: '0.5s',
-                    }}
-                  />
-                ))}
-              </div>
-              <span className="text-red-400 text-xs font-medium">Listening...</span>
-            </div>
-          )}
-
-          {/* Error banner */}
-          {error && (
-            <div className="mx-3 mb-2 px-3 py-2 bg-red-900/40 border border-red-700/50 rounded-lg flex items-center gap-2">
-              <p className="text-red-300 text-xs flex-1">{error}</p>
-              <button onClick={() => setError(null)} className="text-red-400 hover:text-red-300 text-xs">Dismiss</button>
-            </div>
-          )}
-
-          {/* Text input */}
-          <div className="flex items-center gap-2 px-3 pb-3">
-            <input
-              type="text"
-              value={inputText}
-              onChange={e => setInputText(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={textMode ? 'Type your response...' : 'Type or speak...'}
-              disabled={isSending}
-              className="flex-1 bg-[#111127] text-white placeholder-gray-500 border border-[#1e1e3a] rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
-            />
-            <button
-              onClick={handleSend}
-              disabled={isSending || !inputText.trim()}
-              className="w-9 h-9 rounded-lg bg-blue-600 text-white flex items-center justify-center hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
-            >
-              <Send className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
       </div>
+
+      {/* Minimal status overlays (video-call style) */}
+      <div className="absolute left-4 bottom-24 z-20 space-y-2 max-w-sm">
+        {isListening && (
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-500/15 border border-red-500/30">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
+            </span>
+            <span className="text-red-300 text-xs font-medium">Listening...</span>
+          </div>
+        )}
+
+        {isSending && speakingCharacterId && (
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 border border-white/20">
+            <span className="text-gray-200 text-xs">Interviewer is thinking</span>
+            <div className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+            <div className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce" style={{ animationDelay: '120ms' }} />
+            <div className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce" style={{ animationDelay: '240ms' }} />
+          </div>
+        )}
+
+        {error && (
+          <div className="px-3 py-2 bg-red-900/50 border border-red-700/50 rounded-lg">
+            <p className="text-red-200 text-xs">{error}</p>
+          </div>
+        )}
+
+        {textMode && (
+          <div className="w-full bg-[#060610]/95 border border-[#1a1a35] rounded-xl p-2 space-y-2">
+            <p className="text-[10px] text-gray-400">
+              Speech recognition is unavailable in this browser. Compatibility text input is enabled.
+            </p>
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={inputText}
+                onChange={e => setInputText(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder="Type your response..."
+                disabled={isSending}
+                className="flex-1 bg-[#111127] text-white placeholder-gray-500 border border-[#1e1e3a] rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
+              />
+              <button
+                onClick={handleSend}
+                disabled={isSending || !inputText.trim()}
+                className="w-9 h-9 rounded-lg bg-blue-600 text-white flex items-center justify-center hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div ref={chatEndRef} className="hidden" />
 
       {/* Bottom controls bar */}
       <div className="flex items-center justify-center gap-3 px-4 py-3 bg-[#060610] border-t border-[#1a1a35]">
@@ -1389,9 +1364,6 @@ export default function InterviewRoomPage() {
           End Interview
         </button>
       </div>
-
-      {/* Puter.js for OpenAI TTS */}
-      <Script src="https://js.puter.com/v2/" strategy="afterInteractive" />
 
       {/* Hidden video element for camera stream (used by selfViewRef in grid) */}
       {cameraActive && (

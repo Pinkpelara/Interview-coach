@@ -10,6 +10,7 @@ export type AvatarExpression = 'neutral' | 'interested' | 'skeptical' | 'nodding
 
 export interface AnimatedAvatarProps {
   seed: string
+  avatarKey?: string
   isSpeaking: boolean
   expression: AvatarExpression
   isLookingAway: boolean
@@ -48,6 +49,7 @@ const SPEECH_ORDER: (keyof typeof VISEMES)[] = ['aa', 'ee', 'oo', 'ch', 'ff', 'm
 
 export default function AnimatedAvatar({
   seed,
+  avatarKey,
   isSpeaking,
   expression,
   isLookingAway,
@@ -73,7 +75,7 @@ export default function AnimatedAvatar({
   const targetRef = useRef({ x: 0, y: 0, rot: 0, scale: 1.08 })
   const currentRef = useRef({ x: 0, y: 0, rot: 0, scale: 1.08 })
 
-  const avatarUrl = `/api/avatar?seed=${encodeURIComponent(seed)}`
+  const avatarUrl = `/api/avatar?key=${encodeURIComponent(avatarKey || seed)}&seed=${encodeURIComponent(seed)}`
 
   // --- NATURAL BLINKING ---
   useEffect(() => {
