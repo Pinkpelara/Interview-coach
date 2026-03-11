@@ -17,6 +17,8 @@ import {
   XCircle,
   Eye,
   ChevronRight,
+  Download,
+  Share2,
 } from 'lucide-react'
 import {
   LineChart,
@@ -133,6 +135,8 @@ export default function DebriefPage() {
   const [audioPlaying, setAudioPlaying] = useState(false)
   const [audioLoading, setAudioLoading] = useState(false)
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
+  const [generatingCard, setGeneratingCard] = useState(false)
+  const [hideRoleOnCard, setHideRoleOnCard] = useState(false)
   const audioRef = useRef<HTMLAudioElement | null>(null)
 
   useEffect(() => {
@@ -196,6 +200,7 @@ export default function DebriefPage() {
   }
 
   const { analysis } = data
+  const sessionData = data.session
 
   const scores = [
     { key: 'answerQuality', name: 'Answer Quality', score: analysis.answerQuality },
@@ -223,6 +228,135 @@ export default function DebriefPage() {
     session: p.label,
     probability: p.probability,
   }))
+
+  async function handleDownloadDebriefCard() {
+    try {
+      setGeneratingCard(true)
+      const canvas = document.createElement('canvas')
+      canvas.width = 1080
+      canvas.height = 1080
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return
+
+      // Background
+      const grad = ctx.createLinearGradient(0, 0, 1080, 1080)
+      grad.addColorStop(0, '#0b1020')
+      grad.addColorStop(1, '#1f1040')
+      ctx.fillStyle = grad
+      ctx.fillRect(0, 0, 1080, 1080)
+
+      const pad = 72
+      // Card panel
+      ctx.fillStyle = 'rgba(255,255,255,0.06)'
+      ctx.fillRect(pad, pad, 1080 - pad * 2, 1080 - pad * 2)
+      ctx.strokeStyle = 'rgba(255,255,255,0.15)'
+      ctx.lineWidth = 2
+      ctx.strokeRect(pad, pad, 1080 - pad * 2, 1080 - pad * 2)
+
+      // Title
+      ctx.fillStyle = '#e5e7eb'
+      ctx.font = '700 42px Inter, Arial, sans-serif'
+      ctx.fillText('Seatvio', pad + 28, pad + 64)
+      ctx.font = '500 22px Inter, Arial, sans-serif'
+      ctx.fillStyle = '#93c5fd'
+      ctx.fillText('Debrief Card', pad + 28, pad + 98)
+
+      const roleText = hideRoleOnCard
+        ? 'Role hidden'
+        : `${sessionData.application.companyName} — ${sessionData.application.jobTitle}`
+      ctx.fillStyle = '#cbd5e1'
+      ctx.font = '500 24px Inter, Arial, sans-serif'
+      ctx.fillText(roleText, pad + 28, pad + 142)
+
+      // Hiring probability
+      ctx.fillStyle = '#ffffff'
+      ctx.font = '800 112px Inter, Arial, sans-serif'
+      ctx.fillText(`${hiringProb}`, pad + 24, pad + 294)
+      ctx.font = '600 30px Inter, Arial, sans-serif'
+      ctx.fillStyle = '#a7f3d0'
+      ctx.fillText('Hiring Probability', pad + 34, pad + 336)
+
+      // Three compact dimensions
+      const compact = scores.slice(0, 3)
+      compact.forEach((item, idx) => {
+        const x = pad + 34
+        const y = pad + 406 + idx * 96
+        ctx.fillStyle = '#d1d5db'
+        ctx.font = '600 24px Inter, Arial, sans-serif'
+        ctx.fillText(item.name, x, y)
+        ctx.fillStyle = '#60a5fa'
+        ctx.font = '700 28px Inter, Arial, sans-serif'
+        ctx.fillText(`${item.score}/100`, x + 420, y)
+      })
+
+      // Top target
+      const topTarget = analysis.nextTargets[0]
+      ctx.fillStyle = '#fef3c7'
+      ctx.font = '700 28px Inter, Arial, sans-serif'
+      ctx.fillText('Top Next Target', pad + 32, pad + 730)
+      ctx.fillStyle = '#f9fafb'
+      ctx.font = '600 30px Inter, Arial, sans-serif'
+      ctx.fillText(topTarget?.title || 'Keep practicing with focused drills', pad + 32, pad + 772)
+
+      const drawWrappedText = (
+        text: string,
+        x: number,
+        y: number,
+        maxWidth: number,
+        lineHeight: number,
+        maxLines: number
+      ) => {
+        const words = text.split(/\s+/)
+        let line = ''
+        let lineCount = 0
+        for (let i = 0; i < words.length; i++) {
+          const test = line ? `${line} ${words[i]}` : words[i]
+          const width = ctx.measureText(test).width
+          if (width > maxWidth && line) {
+            ctx.fillText(line, x, y + lineCount * lineHeight)
+            line = words[i]
+            lineCount += 1
+            if (lineCount >= maxLines) break
+          } else {
+            line = test
+          }
+        }
+        if (lineCount < maxLines && line) {
+          ctx.fillText(line, x, y + lineCount * lineHeight)
+        }
+      }
+
+      ctx.fillStyle = '#cbd5e1'
+      ctx.font = '500 22px Inter, Arial, sans-serif'
+      drawWrappedText(topTarget?.action || 'Run one focused session and measure improvement.', pad + 32, pad + 812, 820, 32, 3)
+
+      // Footer
+      ctx.fillStyle = '#94a3b8'
+      ctx.font = '500 20px Inter, Arial, sans-serif'
+      ctx.fillText('practiced on seatvio.app', pad + 32, 1080 - pad - 24)
+
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
+      if (!blob) return
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `seatvio-debrief-${sessionId}.png`
+      a.click()
+      URL.revokeObjectURL(url)
+    } finally {
+      setGeneratingCard(false)
+    }
+  }
+
+  function shareToLinkedIn() {
+    const topTarget = analysis.nextTargets[0]?.title || 'Focused interview improvements'
+    const rolePart = hideRoleOnCard
+      ? ''
+      : ` for ${sessionData.application.jobTitle} at ${sessionData.application.companyName}`
+    const text = `Just completed a Seatvio interview simulation${rolePart}. Hiring Probability: ${hiringProb}/100. Next focus: ${topTarget}. practiced on seatvio.app`
+    const url = `https://www.linkedin.com/feed/?shareActive=true&text=${encodeURIComponent(text)}`
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
 
   async function handlePlayAudio(autoplay = false) {
     if (audioRef.current && audioPlaying) {
@@ -549,7 +683,7 @@ export default function DebriefPage() {
       </Card>
 
       {/* Section G: Actions */}
-      <div className="flex items-center justify-center gap-4">
+      <div className="flex flex-wrap items-center justify-center gap-4">
         <Link href="/perform">
           <Button variant="primary" size="lg">
             Practice Again
@@ -562,6 +696,26 @@ export default function DebriefPage() {
             View Observe
           </Button>
         </Link>
+        <Button variant="outline" size="lg" onClick={() => void handleDownloadDebriefCard()} disabled={generatingCard}>
+          <Download className="h-4 w-4 mr-2" />
+          {generatingCard ? 'Generating Card...' : 'Download Debrief Card'}
+        </Button>
+        <Button variant="ghost" size="lg" onClick={shareToLinkedIn}>
+          <Share2 className="h-4 w-4 mr-2" />
+          Share to LinkedIn
+        </Button>
+      </div>
+
+      <div className="flex justify-center">
+        <label className="inline-flex items-center gap-2 text-xs text-gray-500">
+          <input
+            type="checkbox"
+            checked={hideRoleOnCard}
+            onChange={(e) => setHideRoleOnCard(e.target.checked)}
+            className="rounded border-gray-300"
+          />
+          Hide company/role details on share card
+        </label>
       </div>
     </div>
   )
