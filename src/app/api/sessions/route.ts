@@ -38,11 +38,11 @@ function generateTitle(archetype: string, companyName: string): string {
 
 function silenceDurationForArchetype(archetype: string): number {
   switch (archetype) {
-    case 'skeptic': return 3000
+    case 'skeptic': return 3500
     case 'friendly_champion': return 1500
-    case 'technical_griller': return 2500
-    case 'distracted_senior': return 4000
-    case 'culture_fit': return 2000
+    case 'technical_griller': return 4500
+    case 'distracted_senior': return 2000
+    case 'culture_fit': return 2500
     case 'silent_observer': return 5000
     default: return 2000
   }
@@ -155,6 +155,16 @@ export async function POST(request: Request) {
     }
 
     const userId = (session.user as { id: string }).id
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { onboarded: true },
+    })
+    if (!user?.onboarded) {
+      return NextResponse.json(
+        { error: 'Complete onboarding before starting interview sessions.' },
+        { status: 403 }
+      )
+    }
     const body = await request.json()
     const { applicationId, stage, intensity, durationMinutes } = body
 

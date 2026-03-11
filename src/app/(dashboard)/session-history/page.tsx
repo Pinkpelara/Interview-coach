@@ -127,7 +127,7 @@ export default async function SessionHistoryPage() {
                     variant={
                       s.status === 'completed'
                         ? 'success'
-                        : s.status === 'in_progress'
+                          : s.status === 'active'
                         ? 'warning'
                         : 'default'
                     }

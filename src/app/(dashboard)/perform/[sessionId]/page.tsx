@@ -9,11 +9,9 @@ import { Badge } from '@/components/ui/Badge'
 import {
   Mic,
   MicOff,
-  PhoneOff,
   Clock,
   Video,
   VideoOff,
-  Send,
   User,
   MessageSquare,
   Volume2,
@@ -151,6 +149,13 @@ function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60)
   const s = seconds % 60
   return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
+}
+
+function resolveSilenceDuration(character: Character): number {
+  if (character.archetype === 'distracted_senior') {
+    return Math.random() > 0.5 ? 1500 : 7000
+  }
+  return character.silenceDuration
 }
 
 // ---------------------------------------------------------------------------
@@ -417,10 +422,10 @@ export default function InterviewRoomPage() {
   const [phase, setPhase] = useState<Phase>('loading')
   const [sessionData, setSessionData] = useState<SessionData | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const endingRef = useRef(false)
 
   // Briefing countdown
   const [countdown, setCountdown] = useState(120) // 2 minutes in seconds
-  const [briefingReady, setBriefingReady] = useState(false)
 
   // Interview state
   const [exchanges, setExchanges] = useState<Exchange[]>([])
@@ -454,7 +459,7 @@ export default function InterviewRoomPage() {
   const nextCharacterIndexRef = useRef(0)
 
   // Text mode fallback (if no speech recognition support)
-  const [textMode, setTextMode] = useState(false)
+  const [speechSupported, setSpeechSupported] = useState(true)
 
   // -------------------------------------------
   // Fetch session data
@@ -503,8 +508,10 @@ export default function InterviewRoomPage() {
 
   useEffect(() => {
     const w = window as any
-    if (!w.SpeechRecognition && !w.webkitSpeechRecognition) {
-      setTextMode(true)
+    const supported = !!(w.SpeechRecognition || w.webkitSpeechRecognition)
+    setSpeechSupported(supported)
+    if (!supported) {
+      setError('This browser does not support live speech transcription. Please use Chrome or Edge for spoken interviews.')
     }
   }, [])
 
@@ -512,17 +519,35 @@ export default function InterviewRoomPage() {
   // Camera setup
   // -------------------------------------------
 
-  const startCamera = async () => {
+  const startCamera = async (): Promise<boolean> => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+      const isPhoneScreen = sessionData?.stage === 'Phone Screen'
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: !isPhoneScreen,
+        audio: true,
+      })
       streamRef.current = stream
-      if (videoRef.current) videoRef.current.srcObject = stream
-      if (selfViewRef.current) selfViewRef.current.srcObject = stream
+      if (!isPhoneScreen) {
+        if (videoRef.current) videoRef.current.srcObject = stream
+        if (selfViewRef.current) selfViewRef.current.srcObject = stream
+      }
+      const hasAudio = stream.getAudioTracks().length > 0
+      const hasVideo = isPhoneScreen ? true : stream.getVideoTracks().length > 0
+      if (!hasAudio || !hasVideo) {
+        stream.getTracks().forEach((t) => t.stop())
+        streamRef.current = null
+        setCameraActive(false)
+        setIsCameraOn(false)
+        setError(isPhoneScreen ? 'Microphone check failed. Please reconnect your microphone.' : 'Camera or microphone check failed. Please reconnect both and try again.')
+        return false
+      }
       setCameraActive(true)
-      setIsCameraOn(true)
+      setIsCameraOn(!isPhoneScreen)
+      return true
     } catch {
-      console.warn('Camera not available')
       setCameraActive(false)
+      setError('Unable to access your camera/microphone. Please grant permissions and retry.')
+      return false
     }
   }
 
@@ -556,11 +581,11 @@ export default function InterviewRoomPage() {
   // -------------------------------------------
 
   const startListening = useCallback(() => {
-    if (textMode) return
+    if (!speechSupported) return
 
     const w = window as any
     const SpeechRecognitionCtor = w.SpeechRecognition || w.webkitSpeechRecognition
-    if (!SpeechRecognitionCtor) { setTextMode(true); return }
+    if (!SpeechRecognitionCtor) return
 
     const recognition = new SpeechRecognitionCtor()
     recognition.continuous = true
@@ -597,9 +622,9 @@ export default function InterviewRoomPage() {
       recognitionRef.current = recognition
       setIsListening(true)
     } catch {
-      setTextMode(true)
+      setIsListening(false)
     }
-  }, [textMode])
+  }, [speechSupported])
 
   const stopListening = useCallback(() => {
     recognitionRef.current?.stop()
@@ -632,6 +657,15 @@ export default function InterviewRoomPage() {
     }
     return () => { if (timerRef.current) clearInterval(timerRef.current) }
   }, [phase])
+
+  useEffect(() => {
+    if (phase !== 'interview' || !sessionData) return
+    const maxSeconds = sessionData.durationMinutes * 60
+    if (elapsedSeconds >= maxSeconds) {
+      void handleEndInterview()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [elapsedSeconds, phase, sessionData])
 
   // -------------------------------------------
   // Auto-scroll chat
@@ -723,7 +757,7 @@ export default function InterviewRoomPage() {
       }
 
       // Start listening for candidate
-      if (!textMode) startListening()
+      if (speechSupported && isMicOn) startListening()
       nextCharacterIndexRef.current = 0
     } catch {
       setError('Failed to start interview')
@@ -766,7 +800,7 @@ export default function InterviewRoomPage() {
 
     try {
       // Character-specific silence before responding
-      const silenceDuration = respondingChar.silenceDuration
+      const silenceDuration = resolveSilenceDuration(respondingChar)
       await new Promise(resolve => setTimeout(resolve, silenceDuration))
 
       const res = await fetch(`/api/sessions/${sessionId}/exchange`, {
@@ -810,10 +844,10 @@ export default function InterviewRoomPage() {
       }, 2000)
 
       // Resume listening
-      if (!textMode && isMicOn) startListening()
+      if (speechSupported && isMicOn) startListening()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send message')
-      if (!textMode && isMicOn) startListening()
+      if (speechSupported && isMicOn) startListening()
     } finally {
       setSpeakingCharacterId(null)
       setIsSending(false)
@@ -833,7 +867,8 @@ export default function InterviewRoomPage() {
   // -------------------------------------------
 
   const handleEndInterview = async () => {
-    if (!sessionData) return
+    if (!sessionData || endingRef.current) return
+    endingRef.current = true
     stopListening()
     stopSpeech()
 
@@ -884,7 +919,7 @@ export default function InterviewRoomPage() {
       if (streamRef.current) {
         streamRef.current.getAudioTracks().forEach(t => { t.enabled = true })
       }
-      if (!textMode) startListening()
+      if (speechSupported) startListening()
     }
     setIsMicOn(!isMicOn)
   }
@@ -896,17 +931,6 @@ export default function InterviewRoomPage() {
   const toggleSpeaker = () => {
     if (isSpeakerOn) stopSpeech()
     setIsSpeakerOn(!isSpeakerOn)
-  }
-
-  // -------------------------------------------
-  // Key handler
-  // -------------------------------------------
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSend()
-    }
   }
 
   // -------------------------------------------
@@ -941,6 +965,7 @@ export default function InterviewRoomPage() {
 
   if (!sessionData) return null
   const { characters, application } = sessionData
+  const isPhoneScreen = sessionData.stage === 'Phone Screen'
 
   // -------------------------------------------
   // RENDER: Briefing (Pre-Interview)
@@ -1014,18 +1039,34 @@ export default function InterviewRoomPage() {
           {/* Camera/Mic Setup */}
           {!cameraActive ? (
             <div className="bg-[#111127] border border-[#1e1e3a] rounded-xl p-6 text-center space-y-3">
-              <Video className="w-8 h-8 text-blue-400 mx-auto" />
-              <p className="text-white text-sm font-medium">Camera & Microphone Required</p>
-              <p className="text-gray-400 text-xs">Your camera and microphone will be active during the interview.</p>
+              {isPhoneScreen ? <Mic className="w-8 h-8 text-blue-400 mx-auto" /> : <Video className="w-8 h-8 text-blue-400 mx-auto" />}
+              <p className="text-white text-sm font-medium">
+                {isPhoneScreen ? 'Microphone Required' : 'Camera & Microphone Required'}
+              </p>
+              <p className="text-gray-400 text-xs">
+                {isPhoneScreen
+                  ? 'Phone Screen mode is audio-only. Your microphone must be active.'
+                  : 'Your camera and microphone will be active during the interview.'}
+              </p>
               <Button onClick={startCamera} className="!bg-blue-600 hover:!bg-blue-700">
-                <Video className="w-4 h-4 mr-2" />
-                Enable Camera & Mic
+                {isPhoneScreen ? <Mic className="w-4 h-4 mr-2" /> : <Video className="w-4 h-4 mr-2" />}
+                {isPhoneScreen ? 'Enable Microphone' : 'Enable Camera & Mic'}
               </Button>
             </div>
           ) : (
             <div className="bg-green-900/20 border border-green-700/30 rounded-xl p-4 flex items-center gap-3">
               <Mic className="w-5 h-5 text-green-400" />
-              <p className="text-green-300 text-sm">Camera and microphone connected</p>
+              <p className="text-green-300 text-sm">
+                {isPhoneScreen ? 'Microphone connected' : 'Camera and microphone connected'}
+              </p>
+            </div>
+          )}
+
+          {!speechSupported && (
+            <div className="bg-red-900/20 border border-red-700/30 rounded-xl p-4">
+              <p className="text-red-300 text-sm">
+                This browser does not support live speech transcription. Use Chrome or Edge to run spoken interviews.
+              </p>
             </div>
           )}
 
@@ -1033,19 +1074,14 @@ export default function InterviewRoomPage() {
           <div className="text-center pt-2">
             <Button
               size="lg"
-              onClick={() => {
-                if (!cameraActive) {
-                  startCamera().then(() => {
-                    setBriefingReady(true)
-                    setCountdown(5)
-                    setPhase('countdown')
-                  })
-                } else {
-                  setBriefingReady(true)
-                  setCountdown(5)
-                  setPhase('countdown')
-                }
+              onClick={async () => {
+                if (!speechSupported) return
+                const ready = cameraActive || await startCamera()
+                if (!ready) return
+                setCountdown(120)
+                setPhase('countdown')
               }}
+              disabled={!speechSupported}
               className="!bg-blue-600 hover:!bg-blue-700 !px-12"
             >
               Enter Interview Room
@@ -1195,9 +1231,23 @@ export default function InterviewRoomPage() {
   )
 
   const renderCharacterGrid = () => {
-    const totalTiles = characters.length + 1 // +1 for self-view
-    // Determine grid layout for video-call style
-    const cols = totalTiles <= 2 ? 2 : totalTiles <= 4 ? 2 : 3
+    if (isPhoneScreen) {
+      const active = characters[0]
+      return (
+        <div className="flex-1 min-h-0 p-4 flex items-center justify-center">
+          <div className="w-full max-w-xl rounded-2xl border border-[#1a1a35] bg-[#060610] p-10 text-center">
+            <div className="mx-auto w-24 h-24 rounded-full bg-blue-600/20 border border-blue-500/30 flex items-center justify-center">
+              <Mic className="w-10 h-10 text-blue-300" />
+            </div>
+            <p className="mt-4 text-white text-lg font-medium">{active?.name || 'Interviewer'}</p>
+            <p className="text-gray-400 text-sm">{active?.title || 'Phone Screen'}</p>
+            <p className="mt-6 text-gray-500 text-xs">Audio-only interview in progress</p>
+          </div>
+        </div>
+      )
+    }
+
+    const cols = characters.length <= 2 ? 2 : 3
 
     return (
       <div className="flex-1 min-h-0 p-2">
@@ -1220,10 +1270,6 @@ export default function InterviewRoomPage() {
               />
             </div>
           ))}
-          {/* Self-view webcam tile */}
-          <div className="min-h-0">
-            {renderSelfView()}
-          </div>
         </div>
       </div>
     )
@@ -1262,6 +1308,12 @@ export default function InterviewRoomPage() {
         </div>
       </div>
 
+      {!isPhoneScreen && (
+        <div className="absolute right-4 bottom-24 z-20 w-64 h-40 rounded-xl overflow-hidden border border-[#1e1e3a] shadow-2xl">
+          {renderSelfView()}
+        </div>
+      )}
+
       {/* Minimal status overlays (video-call style) */}
       <div className="absolute left-4 bottom-24 z-20 space-y-2 max-w-sm">
         {isListening && (
@@ -1289,31 +1341,6 @@ export default function InterviewRoomPage() {
           </div>
         )}
 
-        {textMode && (
-          <div className="w-full bg-[#060610]/95 border border-[#1a1a35] rounded-xl p-2 space-y-2">
-            <p className="text-[10px] text-gray-400">
-              Speech recognition is unavailable in this browser. Compatibility text input is enabled.
-            </p>
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                value={inputText}
-                onChange={e => setInputText(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Type your response..."
-                disabled={isSending}
-                className="flex-1 bg-[#111127] text-white placeholder-gray-500 border border-[#1e1e3a] rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
-              />
-              <button
-                onClick={handleSend}
-                disabled={isSending || !inputText.trim()}
-                className="w-9 h-9 rounded-lg bg-blue-600 text-white flex items-center justify-center hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
-              >
-                <Send className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        )}
       </div>
 
       <div ref={chatEndRef} className="hidden" />
@@ -1332,17 +1359,19 @@ export default function InterviewRoomPage() {
           {isMicOn ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
         </button>
 
-        <button
-          onClick={toggleCamera}
-          className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${
-            isCameraOn
-              ? 'bg-[#1e1e3a] text-white hover:bg-[#2a2a4a]'
-              : 'bg-red-600 text-white hover:bg-red-700'
-          }`}
-          title={isCameraOn ? 'Turn off camera' : 'Turn on camera'}
-        >
-          {isCameraOn ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
-        </button>
+        {!isPhoneScreen && (
+          <button
+            onClick={toggleCamera}
+            className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${
+              isCameraOn
+                ? 'bg-[#1e1e3a] text-white hover:bg-[#2a2a4a]'
+                : 'bg-red-600 text-white hover:bg-red-700'
+            }`}
+            title={isCameraOn ? 'Turn off camera' : 'Turn on camera'}
+          >
+            {isCameraOn ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
+          </button>
+        )}
 
         <button
           onClick={toggleSpeaker}
@@ -1356,13 +1385,6 @@ export default function InterviewRoomPage() {
           {isSpeakerOn ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
         </button>
 
-        <button
-          onClick={handleEndInterview}
-          className="h-12 px-6 rounded-full bg-red-600 text-white flex items-center justify-center gap-2 hover:bg-red-700 transition-colors font-medium text-sm"
-        >
-          <PhoneOff className="w-5 h-5" />
-          End Interview
-        </button>
       </div>
 
       {/* Hidden video element for camera stream (used by selfViewRef in grid) */}

@@ -28,6 +28,7 @@ export const authOptions: NextAuthOptions = {
           id: user.id,
           email: user.email,
           name: user.fullName,
+          onboarded: user.onboarded,
         }
       },
     }),
@@ -39,12 +40,20 @@ export const authOptions: NextAuthOptions = {
     async jwt({ token, user }) {
       if (user) {
         token.id = user.id
+        token.onboarded = (user as { onboarded?: boolean }).onboarded ?? false
+      } else if (token.id && token.onboarded === undefined) {
+        const dbUser = await prisma.user.findUnique({
+          where: { id: token.id as string },
+          select: { onboarded: true },
+        })
+        token.onboarded = dbUser?.onboarded ?? false
       }
       return token
     },
     async session({ session, token }) {
       if (session.user) {
-        (session.user as { id: string }).id = token.id as string
+        (session.user as { id: string; onboarded?: boolean }).id = token.id as string
+        ;(session.user as { id: string; onboarded?: boolean }).onboarded = Boolean(token.onboarded)
       }
       return session
     },

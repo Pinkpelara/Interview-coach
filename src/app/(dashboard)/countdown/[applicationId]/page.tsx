@@ -76,23 +76,12 @@ function generatePlan(daysLeft: number, sessionCount: number): DayPlan[] {
     { focus: 'Rest & Light Review', activity: 'Light review of your best answers. No intense practice today.', type: 'rest' as const, icon: Moon },
   ]
 
-  for (let i = 0; i < daysLeft; i++) {
+  for (let i = 0; i <= daysLeft; i++) {
     const date = new Date(today)
     date.setDate(date.getDate() + i)
     const dateStr = date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
 
-    if (i === daysLeft - 1) {
-      // Day before interview
-      plan.push({
-        day: i + 1,
-        date: dateStr,
-        focus: 'Light Warmup & Confidence Boost',
-        activity: 'Quick warmup session with your opening question and two strongest answers. Review company values one more time. Get a good night\'s sleep.',
-        type: 'warmup',
-        icon: Sun,
-        done: false,
-      })
-    } else if (i === daysLeft) {
+    if (i === daysLeft) {
       // Interview day
       plan.push({
         day: i + 1,
@@ -101,6 +90,17 @@ function generatePlan(daysLeft: number, sessionCount: number): DayPlan[] {
         activity: '5-minute audio warmup with your coach. Quick review of your three targets. You\'ve got this.',
         type: 'review',
         icon: Target,
+        done: false,
+      })
+    } else if (i === daysLeft - 1) {
+      // Day before interview
+      plan.push({
+        day: i + 1,
+        date: dateStr,
+        focus: 'Light Warmup & Confidence Boost',
+        activity: 'Quick warmup session with your opening question and two strongest answers. Review company values one more time. Get a good night\'s sleep.',
+        type: 'warmup',
+        icon: Sun,
         done: false,
       })
     } else {
@@ -129,8 +129,31 @@ export default function CountdownPage() {
 
   const [application, setApplication] = useState<Application | null>(null)
   const [loading, setLoading] = useState(true)
+  const [savingDate, setSavingDate] = useState(false)
   const [interviewDate, setInterviewDate] = useState('')
   const [showDatePicker, setShowDatePicker] = useState(false)
+
+  const persistInterviewDate = async (dateValue: string) => {
+    if (!dateValue) return
+    setSavingDate(true)
+    try {
+      const res = await fetch(`/api/applications/${applicationId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ realInterviewDate: dateValue }),
+      })
+      if (!res.ok) throw new Error('Failed to save date')
+      const updated = await res.json()
+      setApplication(updated)
+      if (updated.realInterviewDate) {
+        setInterviewDate(updated.realInterviewDate.split('T')[0])
+      }
+    } catch {
+      // Keep UI stable; user can retry.
+    } finally {
+      setSavingDate(false)
+    }
+  }
 
   useEffect(() => {
     async function fetchApp() {
@@ -164,8 +187,8 @@ export default function CountdownPage() {
     return (
       <div className="text-center py-16">
         <p className="text-gray-500">Application not found.</p>
-        <Link href="/applications">
-          <Button className="mt-4">Back to Applications</Button>
+        <Link href="/dashboard">
+          <Button className="mt-4">Back to Dashboard</Button>
         </Link>
       </div>
     )
@@ -196,7 +219,7 @@ export default function CountdownPage() {
               min={new Date().toISOString().split('T')[0]}
               className="border border-gray-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
             />
-            <Button onClick={() => setInterviewDate(interviewDate)} disabled={!interviewDate}>
+            <Button onClick={() => persistInterviewDate(interviewDate)} disabled={!interviewDate || savingDate}>
               Set Date
             </Button>
           </div>
@@ -329,7 +352,16 @@ export default function CountdownPage() {
                   min={new Date().toISOString().split('T')[0]}
                   className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
                 />
-                <Button size="sm" onClick={() => setShowDatePicker(false)}>Save</Button>
+                <Button
+                  size="sm"
+                  onClick={async () => {
+                    await persistInterviewDate(interviewDate)
+                    setShowDatePicker(false)
+                  }}
+                  disabled={savingDate}
+                >
+                  Save
+                </Button>
               </>
             ) : (
               <Button size="sm" variant="outline" onClick={() => setShowDatePicker(true)}>

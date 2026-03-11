@@ -87,11 +87,11 @@ export default async function ApplicationDetailPage({
   })
 
   if (!application) {
-    redirect('/applications')
+    redirect('/dashboard')
   }
 
   if (application.userId !== userId) {
-    redirect('/applications')
+    redirect('/dashboard')
   }
 
   const skillGaps = safeParseJSON(application.skillGaps)
@@ -99,13 +99,15 @@ export default async function ApplicationDetailPage({
   const missingKeywords = safeParseJSON(application.missingKeywords)
   const probeAreas = safeParseJSON(application.probeAreas)
   const hasQuestions = application._count.questions > 0
+  const latestObserveSession =
+    application.sessions.find((s) => s.status === 'completed') || null
 
   return (
     <div className="space-y-8">
       {/* Back link + Header */}
       <div>
         <Link
-          href="/applications"
+          href="/dashboard"
           className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 mb-4"
         >
           <ArrowLeft className="h-4 w-4" />
@@ -306,6 +308,59 @@ export default async function ApplicationDetailPage({
         </CardContent>
       </Card>
 
+      {/* Parsed Resume + Job Description */}
+      {(application.parsedResume || application.parsedJD) && (
+        <div className="grid gap-6 md:grid-cols-2">
+          {application.parsedResume && (
+            <Card>
+              <CardHeader>
+                <h3 className="text-base font-semibold text-gray-900">Parsed Resume Snapshot</h3>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm text-gray-700">
+                <div>
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Top Skills</p>
+                  <p>{application.parsedResume.topSkills || 'Not available'}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Career Timeline</p>
+                  <p>{application.parsedResume.careerTimeline || 'Not available'}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Education</p>
+                  <p>{application.parsedResume.education || 'Not available'}</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {application.parsedJD && (
+            <Card>
+              <CardHeader>
+                <h3 className="text-base font-semibold text-gray-900">Parsed Job Description Snapshot</h3>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm text-gray-700">
+                <div>
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Seniority Level</p>
+                  <p>{application.parsedJD.seniorityLevel || 'Not available'}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Interview Format Prediction</p>
+                  <p>{application.parsedJD.interviewFormatPrediction || 'Not available'}</p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Values Language</p>
+                  <div className="flex flex-wrap gap-2">
+                    {safeParseJSON(application.parsedJD.valuesLanguage).map((value, idx) => (
+                      <Badge key={idx} variant="info">{value}</Badge>
+                    ))}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+
       {/* Session History */}
       {application.sessions.length > 0 && (
         <Card>
@@ -344,7 +399,7 @@ export default async function ApplicationDetailPage({
                     variant={
                       s.status === 'completed'
                         ? 'success'
-                        : s.status === 'in_progress'
+                        : s.status === 'active'
                         ? 'warning'
                         : 'default'
                     }
@@ -382,12 +437,19 @@ export default async function ApplicationDetailPage({
                 Start Interview
               </Button>
             </Link>
-            <Link href={`/observe/${application.id}`}>
-              <Button variant="outline">
+            {latestObserveSession ? (
+              <Link href={`/observe/${latestObserveSession.id}`}>
+                <Button variant="outline">
+                  <Eye className="mr-2 h-4 w-4" />
+                  View Observe
+                </Button>
+              </Link>
+            ) : (
+              <Button variant="outline" disabled>
                 <Eye className="mr-2 h-4 w-4" />
-                View Observe
+                View Observe (after first session)
               </Button>
-            </Link>
+            )}
             <Link href={`/countdown/${application.id}`}>
               <Button variant="outline">
                 <CalendarDays className="mr-2 h-4 w-4" />

@@ -45,6 +45,16 @@ export async function POST(request: Request) {
     }
 
     const userId = (session.user as { id: string }).id
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { onboarded: true },
+    })
+    if (!user?.onboarded) {
+      return NextResponse.json(
+        { error: 'Complete onboarding before creating applications.' },
+        { status: 403 }
+      )
+    }
     const body = await request.json()
 
     const { companyName, jobTitle, jdText, resumeText, interviewStage } = body

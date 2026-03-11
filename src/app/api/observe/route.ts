@@ -156,6 +156,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Source session not found' }, { status: 404 })
     }
 
+    if (sourceSession.status !== 'completed') {
+      return NextResponse.json(
+        { error: 'Observe is available after completing at least one session.' },
+        { status: 400 }
+      )
+    }
+
     const observeSessions = await prisma.observeSession.findMany({
       where: { sourceSessionId },
       orderBy: { createdAt: 'desc' },
@@ -208,6 +215,13 @@ export async function POST(request: NextRequest) {
 
     if (!sourceSession) {
       return NextResponse.json({ error: 'Source session not found' }, { status: 404 })
+    }
+
+    if (sourceSession.status !== 'completed') {
+      return NextResponse.json(
+        { error: 'Observe is available after completing at least one session.' },
+        { status: 400 }
+      )
     }
 
     // Generate mock exchanges and annotations
