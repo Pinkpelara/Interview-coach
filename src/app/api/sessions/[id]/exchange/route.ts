@@ -28,12 +28,12 @@ interface ConversationTurn {
 }
 
 const ARCHETYPE_DESCRIPTIONS: Record<string, string> = {
-  skeptic: 'You are a skeptical interviewer who challenges every claim. You demand specifics, metrics, and evidence. You push back on vague answers and ask pointed follow-ups.',
-  friendly_champion: 'You are a warm, enthusiastic interviewer who builds rapport. You encourage the candidate while still probing for depth. You show genuine interest.',
-  technical_griller: 'You are a technical interviewer who digs into implementation details, system design, architecture decisions, and edge cases. You want to understand how things actually work.',
-  distracted_senior: 'You are a senior executive who is somewhat distracted. You occasionally check your phone, ask about big-picture strategy, and sometimes change topics abruptly. You care about business impact.',
-  culture_fit: 'You are focused on team dynamics, values, and cultural alignment. You ask about collaboration, conflict resolution, and working styles.',
-  silent_observer: 'You are quiet and observant. You give minimal responses — short phrases, nods, or silence. You make the candidate uncomfortable with pauses. Respond in 1-10 words max.',
+  skeptic: 'You are a skeptical interviewer who challenges every claim. You NEVER say "great answer" or give praise. You demand specifics, metrics, and evidence. You push back on vague answers. If the candidate gives a short or vague answer, ask the EXACT same question again with "I need more detail on that." Always push for numbers, timelines, and measurable outcomes.',
+  friendly_champion: 'You are a warm, enthusiastic interviewer who builds rapport. You are warm but strategic — you use warmth to get the candidate to share more than they intended. You encourage while probing for depth. You show genuine interest but always steer back to substance.',
+  technical_griller: 'You are a technical interviewer with zero tolerance for hand-waving. No pleasantries — get straight to technical substance. If the answer is vague, ask the EXACT same question again. You want implementation details, system design, architecture decisions, edge cases, and failure scenarios. You test depth, not breadth.',
+  distracted_senior: 'You are a senior executive who is somewhat distracted. You occasionally check your phone, ask about big-picture strategy, and sometimes change topics abruptly. You care about business impact and ROI. Sometimes you ask tangential questions that seem random but reveal strategic thinking.',
+  culture_fit: 'You are focused on team dynamics, values, and cultural alignment. You ask about collaboration, conflict resolution, and working styles. You listen for red flags about ego, blame, and inability to adapt. You use scenario-based questions.',
+  silent_observer: 'You are quiet and observant. You give minimal responses — short phrases, nods, or silence. You make the candidate uncomfortable with pauses. Respond in 1-10 words max. Your silence is deliberate and evaluative.',
 }
 
 const ARCHETYPE_FALLBACK_RESPONSES: Record<string, (ctx: ApplicationContext | null) => string[]> = {
@@ -398,9 +398,26 @@ export async function POST(
       },
     })
 
+    // Determine expression hint based on archetype and response content
+    let expressionHint: string = 'neutral'
+    if (respondingCharacter.archetype === 'skeptic') {
+      expressionHint = responseText.includes('?') ? 'skeptical' : 'thinking'
+    } else if (respondingCharacter.archetype === 'friendly_champion') {
+      expressionHint = 'nodding'
+    } else if (respondingCharacter.archetype === 'technical_griller') {
+      expressionHint = 'neutral'
+    } else if (respondingCharacter.archetype === 'distracted_senior') {
+      expressionHint = Math.random() > 0.3 ? 'listening' : 'distracted'
+    } else if (respondingCharacter.archetype === 'culture_fit') {
+      expressionHint = 'listening'
+    } else if (respondingCharacter.archetype === 'silent_observer') {
+      expressionHint = 'writing_notes'
+    }
+
     return NextResponse.json({
       candidateExchange,
       interviewerExchange,
+      expressionHint,
       character: {
         id: respondingCharacter.id,
         name: respondingCharacter.name,

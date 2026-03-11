@@ -21,7 +21,8 @@ import {
   VolumeX,
 } from 'lucide-react'
 import Script from 'next/script'
-import AnimatedAvatar from '@/components/perform/AnimatedAvatar'
+import CharacterVideo, { type ExpressionState } from '@/components/perform/CharacterVideo'
+import { AudioAnalyser } from '@/components/perform/AudioAnalyser'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -90,6 +91,31 @@ const ARCHETYPE_LABELS: Record<string, string> = {
 }
 
 // ---------------------------------------------------------------------------
+// V4 Silence Config per archetype (Section 5.4)
+// ---------------------------------------------------------------------------
+
+const SILENCE_CONFIG: Record<string, { min: number; max: number; expression: ExpressionState }> = {
+  skeptic:            { min: 3, max: 4, expression: 'thinking' },
+  friendly_champion:  { min: 1, max: 2, expression: 'nodding' },
+  technical_griller:  { min: 4, max: 5, expression: 'neutral' },
+  distracted_senior:  { min: 1, max: 8, expression: 'distracted' },
+  culture_fit:        { min: 2, max: 3, expression: 'thinking' },
+  silent_observer:    { min: 0, max: 0, expression: 'writing_notes' },
+}
+
+function getSilenceDuration(archetype: string, intensity: string): number {
+  const config = SILENCE_CONFIG[archetype] || { min: 2, max: 3 }
+  const base = config.min + Math.random() * (config.max - config.min)
+  if (intensity === 'warmup') return Math.max(0, base - 1)
+  if (intensity === 'high-pressure') return base + 1
+  return base
+}
+
+function getSilenceExpression(archetype: string): ExpressionState {
+  return SILENCE_CONFIG[archetype]?.expression || 'thinking'
+}
+
+// ---------------------------------------------------------------------------
 // Opening / Closing lines
 // ---------------------------------------------------------------------------
 
@@ -155,90 +181,8 @@ function formatTime(seconds: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Character Face Component — Real-Time Animated Video Avatar
-// Uses Canvas-based face renderer with lip sync, blinking, expressions
-// ---------------------------------------------------------------------------
-
-function CharacterFace({
-  character,
-  isSpeaking,
-  expression,
-  isLookingAway,
-}: {
-  character: Character
-  isSpeaking: boolean
-  expression: 'neutral' | 'interested' | 'skeptical' | 'nodding' | 'writing'
-  isLookingAway: boolean
-}) {
-  const color = ARCHETYPE_COLORS[character.archetype] || '#6b7280'
-
-  return (
-    <div className="relative w-full h-full rounded-xl overflow-hidden bg-[#0a0e14] group">
-      {/* Animated Canvas Avatar — real-time rendered face */}
-      <div className="absolute inset-0">
-        <AnimatedAvatar
-          seed={character.name}
-          isSpeaking={isSpeaking}
-          expression={expression}
-          isLookingAway={isLookingAway}
-          accentColor={color}
-          width={480}
-          height={480}
-        />
-      </div>
-
-      {/* Speaking border glow */}
-      {isSpeaking && (
-        <div
-          className="absolute inset-0 rounded-xl pointer-events-none"
-          style={{
-            border: `2px solid ${color}`,
-            boxShadow: `0 0 20px ${color}40, inset 0 0 10px ${color}10`,
-          }}
-        />
-      )}
-
-      {/* Name label — video call style */}
-      <div className="absolute bottom-0 left-0 right-0 p-2.5 bg-gradient-to-t from-black/80 via-black/40 to-transparent">
-        <div className="flex items-center gap-2">
-          <p className="text-white text-sm font-medium truncate">{character.name}</p>
-          {isSpeaking && (
-            <span className="relative flex h-2 w-2 shrink-0">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
-            </span>
-          )}
-        </div>
-        <p className="text-gray-400 text-xs truncate">{character.title}</p>
-      </div>
-
-      {/* Expression overlay indicators */}
-      {expression === 'writing' && (
-        <div className="absolute top-2 right-2 bg-black/50 backdrop-blur-sm rounded-full px-2 py-0.5 flex items-center gap-1.5">
-          <span className="text-yellow-400 text-[10px]">Taking notes</span>
-          <span className="text-yellow-400 text-[10px] animate-pulse">...</span>
-        </div>
-      )}
-
-      {/* Archetype label on hover */}
-      <div className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity">
-        <span
-          className="text-[10px] font-medium px-2 py-0.5 rounded-full backdrop-blur-sm"
-          style={{ backgroundColor: color + '30', color: color }}
-        >
-          {ARCHETYPE_LABELS[character.archetype] || character.archetype}
-        </span>
-      </div>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
 // Voice config per archetype — OpenAI TTS voices via Puter.js
 // ---------------------------------------------------------------------------
-// OpenAI voices: alloy (neutral), ash (warm male), ballad (expressive),
-// coral (warm female), echo (calm male), fable (storyteller), onyx (deep male),
-// nova (bright female), sage (thoughtful), shimmer (upbeat female), verse (versatile)
 
 const VOICE_CONFIG: Record<string, { voice: string; instructions: string }> = {
   skeptic: {
@@ -278,12 +222,11 @@ const FALLBACK_VOICE_CONFIG: Record<string, { pitch: number; rate: number }> = {
 }
 
 // ---------------------------------------------------------------------------
-// Speech synthesis hook — Puter.js TTS (free, no API key needed)
+// Speech synthesis hook — Puter.js TTS with AudioContext routing for lip sync
 // Cascade: OpenAI TTS → AWS Polly (default) → Web Speech API
 // ---------------------------------------------------------------------------
 
-// Wait for Puter.js to be fully loaded
-function waitForPuter(timeoutMs = 10000): Promise<any> {
+function waitForPuter(timeoutMs = 15000): Promise<any> {
   return new Promise((resolve) => {
     const start = Date.now()
     const check = () => {
@@ -307,12 +250,11 @@ function useSpeech() {
   const currentAudioRef = useRef<HTMLAudioElement | null>(null)
   const synthRef = useRef<SpeechSynthesis | null>(null)
   const puterReadyRef = useRef<any>(null)
+  const audioAnalyserRef = useRef<AudioAnalyser>(new AudioAnalyser())
 
   useEffect(() => {
     synthRef.current = window.speechSynthesis
-    // Pre-load voices (some browsers need this)
     synthRef.current.getVoices()
-    // Start waiting for Puter.js immediately
     waitForPuter().then(p => {
       puterReadyRef.current = p
       if (p) console.log('Puter.js TTS ready')
@@ -321,6 +263,7 @@ function useSpeech() {
     return () => {
       currentAudioRef.current?.pause()
       synthRef.current?.cancel()
+      audioAnalyserRef.current.disconnect()
     }
   }, [])
 
@@ -335,26 +278,43 @@ function useSpeech() {
 
       setSpeaking(true)
 
-      // Helper to play audio from Puter TTS
+      // Ensure AudioContext is resumed (browser autoplay policy)
+      await AudioAnalyser.ensureResumed()
+
+      // Helper to play audio from Puter TTS with AudioContext routing
       const playPuterAudio = (audio: HTMLAudioElement): Promise<void> => {
         return new Promise((res, rej) => {
           currentAudioRef.current = audio
-          audio.onended = () => { setSpeaking(false); currentAudioRef.current = null; res() }
-          audio.onerror = () => { currentAudioRef.current = null; rej(new Error('audio playback failed')) }
+
+          // Route through AudioAnalyser for lip sync
+          try {
+            audioAnalyserRef.current.connect(audio)
+          } catch (e) {
+            console.warn('AudioAnalyser connect failed:', e)
+          }
+
+          audio.onended = () => {
+            setSpeaking(false)
+            currentAudioRef.current = null
+            res()
+          }
+          audio.onerror = () => {
+            currentAudioRef.current = null
+            rej(new Error('audio playback failed'))
+          }
           audio.play().catch(rej)
         })
       }
 
-      // Check if Puter.js is available (may still be loading)
+      // Check if Puter.js is available
       let puter = puterReadyRef.current
       if (!puter) {
-        // One more quick check
         puter = (window as any).puter
         if (puter?.ai?.txt2speech) puterReadyRef.current = puter
       }
 
       if (puter?.ai?.txt2speech) {
-        // Attempt 1: OpenAI TTS via Puter (best quality, human-like voices)
+        // Attempt 1: OpenAI TTS via Puter (best quality)
         if (voiceConfig) {
           try {
             const audio = await puter.ai.txt2speech(text, {
@@ -372,7 +332,7 @@ function useSpeech() {
           }
         }
 
-        // Attempt 2: AWS Polly via Puter (default provider, neural engine)
+        // Attempt 2: AWS Polly via Puter
         try {
           const audio = await puter.ai.txt2speech(text, {
             provider: 'aws',
@@ -385,7 +345,7 @@ function useSpeech() {
           console.warn('Puter AWS TTS failed:', e)
         }
 
-        // Attempt 3: Puter default (simplest call — no options)
+        // Attempt 3: Puter default
         try {
           const audio = await puter.ai.txt2speech(text)
           await playPuterAudio(audio)
@@ -396,7 +356,7 @@ function useSpeech() {
         }
       }
 
-      // Last resort: Web Speech API
+      // Last resort: Web Speech API (no AudioAnalyser routing possible)
       if (!synthRef.current) { setSpeaking(false); resolve(); return }
 
       const utterance = new SpeechSynthesisUtterance(text)
@@ -406,7 +366,6 @@ function useSpeech() {
       utterance.rate = fallback.rate
       utterance.volume = 1
 
-      // Pick the most natural-sounding voice available
       const voices = synthRef.current.getVoices().filter(v => v.lang.startsWith('en'))
       const naturalVoice = voices.find(v =>
         v.name.includes('Natural') || v.name.includes('Neural') ||
@@ -429,10 +388,11 @@ function useSpeech() {
       currentAudioRef.current = null
     }
     synthRef.current?.cancel()
+    audioAnalyserRef.current.disconnect()
     setSpeaking(false)
   }, [])
 
-  return { speak, stop, speaking }
+  return { speak, stop, speaking, audioAnalyser: audioAnalyserRef.current }
 }
 
 // ---------------------------------------------------------------------------
@@ -451,7 +411,7 @@ export default function InterviewRoomPage() {
   const [error, setError] = useState<string | null>(null)
 
   // Briefing countdown
-  const [countdown, setCountdown] = useState(120) // 2 minutes in seconds
+  const [countdown, setCountdown] = useState(120)
   const [briefingReady, setBriefingReady] = useState(false)
 
   // Interview state
@@ -459,11 +419,10 @@ export default function InterviewRoomPage() {
   const [inputText, setInputText] = useState('')
   const [isSending, setIsSending] = useState(false)
   const [speakingCharacterId, setSpeakingCharacterId] = useState<string | null>(null)
-  const [characterExpressions, setCharacterExpressions] = useState<Record<string, string>>({})
-  const [characterLookingAway, setCharacterLookingAway] = useState<Record<string, boolean>>({})
+  const [characterExpressions, setCharacterExpressions] = useState<Record<string, ExpressionState>>({})
 
   // Voice I/O
-  const { speak, stop: stopSpeech, speaking: isTTSSpeaking } = useSpeech()
+  const { speak, stop: stopSpeech, speaking: isTTSSpeaking, audioAnalyser } = useSpeech()
   const [isListening, setIsListening] = useState(false)
   const [isMicOn, setIsMicOn] = useState(true)
   const [isSpeakerOn, setIsSpeakerOn] = useState(true)
@@ -485,7 +444,7 @@ export default function InterviewRoomPage() {
   const chatEndRef = useRef<HTMLDivElement>(null)
   const nextCharacterIndexRef = useRef(0)
 
-  // Text mode fallback (if no speech recognition support)
+  // Text mode fallback
   const [textMode, setTextMode] = useState(false)
 
   // -------------------------------------------
@@ -506,14 +465,11 @@ export default function InterviewRoomPage() {
         setExchanges(data.exchanges || [])
 
         // Initialize character expressions
-        const expressions: Record<string, string> = {}
-        const looking: Record<string, boolean> = {}
+        const expressions: Record<string, ExpressionState> = {}
         for (const char of data.characters) {
           expressions[char.id] = 'neutral'
-          looking[char.id] = char.archetype === 'distracted_senior'
         }
         setCharacterExpressions(expressions)
-        setCharacterLookingAway(looking)
 
         if (data.status === 'completed') {
           setPhase('complete')
@@ -572,7 +528,6 @@ export default function InterviewRoomPage() {
     setIsCameraOn(prev => !prev)
   }
 
-  // Sync selfViewRef when stream changes
   useEffect(() => {
     if (selfViewRef.current && streamRef.current) {
       selfViewRef.current.srcObject = streamRef.current
@@ -606,10 +561,8 @@ export default function InterviewRoomPage() {
       }
       setInputText(transcript)
 
-      // Reset silence timeout
       if (silenceTimeoutRef.current) clearTimeout(silenceTimeoutRef.current)
       silenceTimeoutRef.current = setTimeout(() => {
-        // Auto-send after 1.5s silence
         if (transcript.trim().length > 0) {
           recognition.stop()
         }
@@ -674,7 +627,7 @@ export default function InterviewRoomPage() {
   }, [exchanges])
 
   // -------------------------------------------
-  // Random character behavior
+  // V4 Random character behavior (archetype-driven)
   // -------------------------------------------
 
   useEffect(() => {
@@ -682,22 +635,45 @@ export default function InterviewRoomPage() {
 
     const interval = setInterval(() => {
       for (const char of sessionData.characters) {
-        // Distracted senior looks away randomly
+        // Skip the currently speaking character
+        if (char.id === speakingCharacterId) continue
+
         if (char.archetype === 'distracted_senior') {
-          setCharacterLookingAway(prev => ({ ...prev, [char.id]: Math.random() > 0.4 }))
-        }
-        // Silent observer takes notes periodically
-        if (char.archetype === 'silent_observer') {
+          // Distracted senior occasionally looks away → expression: distracted
+          if (Math.random() > 0.4) {
+            setCharacterExpressions(prev => ({ ...prev, [char.id]: 'distracted' }))
+          } else {
+            setCharacterExpressions(prev => ({ ...prev, [char.id]: 'listening' }))
+          }
+        } else if (char.archetype === 'silent_observer') {
+          // Silent observer takes notes periodically
           setCharacterExpressions(prev => ({
             ...prev,
-            [char.id]: Math.random() > 0.5 ? 'writing' : 'neutral',
+            [char.id]: Math.random() > 0.5 ? 'writing_notes' : 'listening',
           }))
+        } else {
+          // Other non-speaking characters: listening, occasional nodding
+          if (Math.random() > 0.8) {
+            setCharacterExpressions(prev => ({ ...prev, [char.id]: 'nodding' }))
+            // Reset after nod animation
+            setTimeout(() => {
+              setCharacterExpressions(prev => ({
+                ...prev,
+                [char.id]: prev[char.id] === 'nodding' ? 'listening' : prev[char.id],
+              }))
+            }, 2000)
+          } else {
+            setCharacterExpressions(prev => ({
+              ...prev,
+              [char.id]: prev[char.id] === 'nodding' ? prev[char.id] : 'listening',
+            }))
+          }
         }
       }
     }, 4000)
 
     return () => clearInterval(interval)
-  }, [phase, sessionData])
+  }, [phase, sessionData, speakingCharacterId])
 
   // -------------------------------------------
   // Start interview
@@ -726,15 +702,22 @@ export default function InterviewRoomPage() {
         const lines = getOpeningLines(char.archetype, sessionData.application?.companyName, sessionData.application?.jobTitle)
         const line = randomFrom(lines)
 
+        // Character speaks → expression: speaking
         setSpeakingCharacterId(char.id)
-        setCharacterExpressions(prev => ({ ...prev, [char.id]: 'neutral' }))
+        setCharacterExpressions(prev => ({ ...prev, [char.id]: 'speaking' }))
 
-        // Speak the line
+        // Set non-speaking characters to listening
+        for (const otherChar of characters) {
+          if (otherChar.id !== char.id) {
+            setCharacterExpressions(prev => ({ ...prev, [otherChar.id]: 'listening' }))
+          }
+        }
+
         if (isSpeakerOn) {
           const voiceConfig = VOICE_CONFIG[char.archetype]
           await speak(line, voiceConfig)
         } else {
-          await new Promise(resolve => setTimeout(resolve, char.silenceDuration))
+          await new Promise(resolve => setTimeout(resolve, 2000))
         }
 
         const openingExchange: Exchange = {
@@ -746,6 +729,8 @@ export default function InterviewRoomPage() {
           timestampMs: i * 2000,
         }
         setExchanges(prev => [...prev, openingExchange])
+
+        // After speaking → expression: neutral
         setSpeakingCharacterId(null)
         setCharacterExpressions(prev => ({ ...prev, [char.id]: 'neutral' }))
 
@@ -754,7 +739,10 @@ export default function InterviewRoomPage() {
         }
       }
 
-      // Start listening for candidate
+      // Start listening for candidate — all characters set to listening
+      for (const char of characters) {
+        setCharacterExpressions(prev => ({ ...prev, [char.id]: 'listening' }))
+      }
       if (!textMode) startListening()
       nextCharacterIndexRef.current = 0
     } catch {
@@ -763,7 +751,7 @@ export default function InterviewRoomPage() {
   }
 
   // -------------------------------------------
-  // Send message
+  // Send message — V4 expression state flow
   // -------------------------------------------
 
   const handleSend = async () => {
@@ -792,14 +780,18 @@ export default function InterviewRoomPage() {
     }
     setExchanges(prev => [...prev, tempCandidateExchange])
 
-    // Character thinking
+    // V4 Step 3: Candidate finishes → archetype silence expression
+    const silenceExpression = getSilenceExpression(respondingChar.archetype)
+    setCharacterExpressions(prev => ({ ...prev, [respondingChar.id]: silenceExpression }))
     setSpeakingCharacterId(respondingChar.id)
-    setCharacterExpressions(prev => ({ ...prev, [respondingChar.id]: 'writing' }))
 
     try {
-      // Character-specific silence before responding
-      const silenceDuration = respondingChar.silenceDuration
-      await new Promise(resolve => setTimeout(resolve, silenceDuration))
+      // V4: Archetype-specific silence before responding
+      const silenceDuration = getSilenceDuration(respondingChar.archetype, sessionData.intensity)
+      await new Promise(resolve => setTimeout(resolve, silenceDuration * 1000))
+
+      // V4 Step 4: After silence → thinking
+      setCharacterExpressions(prev => ({ ...prev, [respondingChar.id]: 'thinking' }))
 
       const res = await fetch(`/api/sessions/${sessionId}/exchange`, {
         method: 'POST',
@@ -814,14 +806,18 @@ export default function InterviewRoomPage() {
 
       const data = await res.json()
 
-      // Update expression based on response
-      const isShortAnswer = userText.split(' ').length < 15
-      if (respondingChar.archetype === 'skeptic' && isShortAnswer) {
-        setCharacterExpressions(prev => ({ ...prev, [respondingChar.id]: 'skeptical' }))
-      } else if (respondingChar.archetype === 'friendly_champion') {
-        setCharacterExpressions(prev => ({ ...prev, [respondingChar.id]: 'nodding' }))
-      } else {
-        setCharacterExpressions(prev => ({ ...prev, [respondingChar.id]: 'interested' }))
+      // V4 Step 1: Character speaks → expression: speaking + TTS + lip sync
+      setCharacterExpressions(prev => ({ ...prev, [respondingChar.id]: 'speaking' }))
+
+      // Set non-speaking characters to listening/writing_notes
+      for (const otherChar of characters) {
+        if (otherChar.id !== respondingChar.id) {
+          if (otherChar.archetype === 'silent_observer') {
+            setCharacterExpressions(prev => ({ ...prev, [otherChar.id]: 'writing_notes' }))
+          } else {
+            setCharacterExpressions(prev => ({ ...prev, [otherChar.id]: 'listening' }))
+          }
+        }
       }
 
       // Speak the response
@@ -836,10 +832,10 @@ export default function InterviewRoomPage() {
         return [...withoutTemp, data.candidateExchange, data.interviewerExchange]
       })
 
-      // Reset expression after a moment
-      setTimeout(() => {
-        setCharacterExpressions(prev => ({ ...prev, [respondingChar.id]: 'neutral' }))
-      }, 2000)
+      // V4 Step 2: TTS ends → expression: listening for all
+      for (const char of characters) {
+        setCharacterExpressions(prev => ({ ...prev, [char.id]: 'listening' }))
+      }
 
       // Resume listening
       if (!textMode && isMicOn) startListening()
@@ -874,6 +870,7 @@ export default function InterviewRoomPage() {
     if (leadChar) {
       const closingLine = CLOSING_LINES[leadChar.archetype] || CLOSING_LINES.friendly_champion
       setSpeakingCharacterId(leadChar.id)
+      setCharacterExpressions(prev => ({ ...prev, [leadChar.id]: 'speaking' }))
       if (isSpeakerOn) {
         await speak(closingLine, VOICE_CONFIG[leadChar.archetype])
       }
@@ -991,7 +988,6 @@ export default function InterviewRoomPage() {
     return (
       <div className="fixed inset-0 bg-[#0a0a1a] flex items-center justify-center p-4 overflow-y-auto z-50">
         <div className="max-w-2xl w-full space-y-6">
-          {/* Meeting-style header */}
           <div className="text-center">
             <div className="inline-flex items-center gap-2 bg-blue-500/10 border border-blue-500/20 rounded-full px-4 py-1.5 mb-4">
               <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
@@ -1003,7 +999,6 @@ export default function InterviewRoomPage() {
             <p className="text-gray-400">{application.jobTitle}</p>
           </div>
 
-          {/* Interview details card */}
           <div className="bg-[#111127] border border-[#1e1e3a] rounded-xl p-6 space-y-4">
             <div className="grid grid-cols-3 gap-4 text-center">
               <div>
@@ -1026,7 +1021,6 @@ export default function InterviewRoomPage() {
             </div>
           </div>
 
-          {/* Interview panel */}
           <div>
             <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">
               Your Interview Panel
@@ -1052,7 +1046,6 @@ export default function InterviewRoomPage() {
             </div>
           </div>
 
-          {/* Camera/Mic Setup */}
           {!cameraActive ? (
             <div className="bg-[#111127] border border-[#1e1e3a] rounded-xl p-6 text-center space-y-3">
               <Video className="w-8 h-8 text-blue-400 mx-auto" />
@@ -1070,7 +1063,6 @@ export default function InterviewRoomPage() {
             </div>
           )}
 
-          {/* Start button */}
           <div className="text-center pt-2">
             <Button
               size="lg"
@@ -1105,7 +1097,6 @@ export default function InterviewRoomPage() {
     return (
       <div className="fixed inset-0 bg-[#0a0a1a] flex items-center justify-center z-50">
         <div className="text-center space-y-6">
-          {/* Calendar-style notification */}
           <div className="bg-[#111127] border border-blue-500/30 rounded-2xl p-6 max-w-sm mx-auto">
             <div className="flex items-center gap-3 mb-3">
               <div className="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center">
@@ -1191,7 +1182,6 @@ export default function InterviewRoomPage() {
   // RENDER: Interview Room (Main Phase)
   // -------------------------------------------
 
-  // Webcam tile component for the video grid
   const renderSelfView = () => (
     <div className="relative w-full h-full rounded-xl overflow-hidden bg-[#0d0d20]">
       {cameraActive && isCameraOn ? (
@@ -1211,11 +1201,9 @@ export default function InterviewRoomPage() {
           {!cameraActive && <p className="text-gray-500 text-xs">Camera off</p>}
         </div>
       )}
-      {/* Name label */}
       <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/60 to-transparent">
         <p className="text-white text-sm font-medium">You</p>
       </div>
-      {/* Mic active indicator */}
       {isMicOn && isListening && (
         <div className="absolute top-2 right-2 flex items-center gap-1 bg-green-500/20 rounded-full px-2 py-0.5">
           <span className="relative flex h-2 w-2">
@@ -1224,7 +1212,6 @@ export default function InterviewRoomPage() {
           </span>
         </div>
       )}
-      {/* Camera off overlay */}
       {cameraActive && !isCameraOn && (
         <div className="absolute inset-0 bg-[#0d0d20] flex flex-col items-center justify-center gap-2">
           <div className="w-16 h-16 rounded-full bg-blue-600/30 flex items-center justify-center">
@@ -1236,8 +1223,7 @@ export default function InterviewRoomPage() {
   )
 
   const renderCharacterGrid = () => {
-    const totalTiles = characters.length + 1 // +1 for self-view
-    // Determine grid layout for video-call style
+    const totalTiles = characters.length + 1
     const cols = totalTiles <= 2 ? 2 : totalTiles <= 4 ? 2 : 3
 
     return (
@@ -1250,18 +1236,33 @@ export default function InterviewRoomPage() {
             gridAutoRows: '1fr',
           }}
         >
-          {/* Interviewer character tiles */}
-          {characters.map(char => (
-            <div key={char.id} className="min-h-0">
-              <CharacterFace
-                character={char}
-                isSpeaking={speakingCharacterId === char.id}
-                expression={(characterExpressions[char.id] || 'neutral') as 'neutral' | 'interested' | 'skeptical' | 'nodding' | 'writing'}
-                isLookingAway={characterLookingAway[char.id] || false}
-              />
-            </div>
-          ))}
-          {/* Self-view webcam tile */}
+          {characters.map(char => {
+            const color = ARCHETYPE_COLORS[char.archetype] || '#6b7280'
+            const isCharSpeaking = speakingCharacterId === char.id
+            const expression = characterExpressions[char.id] || 'neutral'
+
+            return (
+              <div key={char.id} className="min-h-0 relative group">
+                <CharacterVideo
+                  name={char.name}
+                  title={char.title}
+                  expression={expression}
+                  audioAnalyser={isCharSpeaking ? audioAnalyser : null}
+                  isSpeaking={isCharSpeaking}
+                  accentColor={color}
+                />
+                {/* Archetype label on hover */}
+                <div className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                  <span
+                    className="text-[10px] font-medium px-2 py-0.5 rounded-full backdrop-blur-sm"
+                    style={{ backgroundColor: color + '30', color: color }}
+                  >
+                    {ARCHETYPE_LABELS[char.archetype] || char.archetype}
+                  </span>
+                </div>
+              </div>
+            )
+          })}
           <div className="min-h-0">
             {renderSelfView()}
           </div>
@@ -1272,7 +1273,7 @@ export default function InterviewRoomPage() {
 
   return (
     <div className="fixed inset-0 bg-[#0a0a1a] flex flex-col z-50">
-      {/* Top bar — minimal, like a real video call */}
+      {/* Top bar */}
       <div className="flex items-center justify-between px-4 py-2 bg-[#060610] border-b border-[#1a1a35]">
         <div>
           <p className="text-white text-sm font-medium">{application.companyName}</p>
@@ -1284,14 +1285,13 @@ export default function InterviewRoomPage() {
         </div>
       </div>
 
-      {/* Main content: video grid + chat side by side */}
+      {/* Main content: video grid + chat */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
-        {/* Left: Video call grid — takes most of the space */}
         <div className="flex-1 flex flex-col min-h-0">
           {renderCharacterGrid()}
         </div>
 
-        {/* Right: Chat / Transcript sidebar */}
+        {/* Chat / Transcript sidebar */}
         <div className="w-80 lg:w-96 flex flex-col min-h-0 border-l border-[#1a1a35] bg-[#060610]">
           <div className="px-3 py-2 border-b border-[#1a1a35] flex items-center gap-2">
             <MessageSquare className="w-4 h-4 text-gray-400" />
@@ -1329,7 +1329,6 @@ export default function InterviewRoomPage() {
               )
             })}
 
-            {/* Thinking indicator */}
             {isSending && speakingCharacterId && (
               <div className="flex justify-start">
                 <div className="bg-[#111127] rounded-xl rounded-bl-sm px-3 py-2">
@@ -1346,7 +1345,6 @@ export default function InterviewRoomPage() {
             <div ref={chatEndRef} />
           </div>
 
-          {/* Listening indicator */}
           {isListening && (
             <div className="mx-3 mb-2 flex items-center justify-center gap-2 py-1.5">
               <div className="flex items-center gap-1">
@@ -1366,7 +1364,6 @@ export default function InterviewRoomPage() {
             </div>
           )}
 
-          {/* Error banner */}
           {error && (
             <div className="mx-3 mb-2 px-3 py-2 bg-red-900/40 border border-red-700/50 rounded-lg flex items-center gap-2">
               <p className="text-red-300 text-xs flex-1">{error}</p>
@@ -1374,7 +1371,6 @@ export default function InterviewRoomPage() {
             </div>
           )}
 
-          {/* Text input */}
           <div className="flex items-center gap-2 px-3 pb-3">
             <input
               type="text"
@@ -1443,10 +1439,10 @@ export default function InterviewRoomPage() {
         </button>
       </div>
 
-      {/* Puter.js for OpenAI TTS — load eagerly so it's ready when interview starts */}
+      {/* Puter.js for OpenAI TTS */}
       <Script src="https://js.puter.com/v2/" strategy="beforeInteractive" />
 
-      {/* Hidden video element for camera stream (used by selfViewRef in grid) */}
+      {/* Hidden video element for camera stream */}
       {cameraActive && (
         <video
           ref={videoRef}
@@ -1456,7 +1452,6 @@ export default function InterviewRoomPage() {
           className="hidden"
         />
       )}
-
     </div>
   )
 }
