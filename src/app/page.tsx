@@ -41,8 +41,8 @@ function Hero() {
             </span>
           </h1>
           <p className="mt-6 max-w-xl text-lg leading-relaxed text-gray-600 sm:text-xl lg:mx-0 mx-auto">
-            Practice with AI interviewers who speak and react like real people.
-            Hold pressure in a live audio interview room before the stakes are real.
+            Practice with AI interviewers who look, sound, and behave like real
+            people in a live video-call simulation before the stakes are real.
           </p>
 
           <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row lg:justify-start justify-center">
@@ -86,7 +86,7 @@ function MockVideoCall() {
           <span className="h-3 w-3 rounded-full bg-yellow-500" />
           <span className="h-3 w-3 rounded-full bg-green-500" />
           <span className="ml-4 text-xs font-medium text-gray-400">
-            Seatvio Interview Room (Audio)
+            Seatvio Interview Room
           </span>
           <span className="ml-auto flex items-center gap-1 rounded bg-red-600/90 px-2 py-0.5 text-[10px] font-bold tracking-wider text-white">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
@@ -133,7 +133,7 @@ function MockVideoCall() {
               <div className="flex h-16 w-16 items-center justify-center rounded-full border-2 border-dashed border-gray-500 text-sm font-medium text-gray-400">
                 YOU
               </div>
-              <span className="text-xs text-gray-500">Microphone live</span>
+              <span className="text-xs text-gray-500">Camera preview</span>
             </div>
             <span className="absolute bottom-2 left-2 rounded bg-black/50 px-2 py-0.5 text-[10px] font-medium text-white">
               You — Candidate
@@ -175,7 +175,7 @@ const modules = [
     title: 'PERFORM',
     subtitle: 'Live Simulation',
     description:
-      'Face AI interviewers in a realistic live audio room. Experience pressure mechanics, follow-ups, silence, and panel dynamics.',
+      'Face AI interviewers in a realistic video-call environment. Experience pressure mechanics, follow-ups, and panel dynamics.',
     icon: Mic,
     gradient: 'from-accent-500 to-accent-600',
     bg: 'bg-accent-50',
@@ -255,7 +255,7 @@ const steps = [
     num: '03',
     title: 'Practice with AI Interviewers',
     description:
-      'Step into a live simulation with distinct AI interviewer voices, archetype behaviors, and realistic pressure.',
+      'Step into a live simulation with animated AI interviewers. Face follow-ups, panel dynamics, and realistic pressure.',
     icon: Users,
   },
   {
@@ -311,9 +311,9 @@ function HowItWorks() {
 
 const features = [
   {
-    title: 'Real-Time AI Voices',
+    title: 'Real-Time Animated AI Interviewers',
     description:
-      'Each interviewer has a distinct voice, cadence, and archetype behavior that adapts in real time.',
+      'Each interviewer has a distinct visual presence, voice cadence, and personality that adapts in real time.',
     icon: Mic,
   },
   {

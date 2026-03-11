@@ -122,7 +122,7 @@ const COACHING_SECTIONS = [
     title: 'Body Language Guide',
     content:
       'Your non-verbal communication matters as much as your words:\n\n' +
-      'Voice Presence: Keep your tone clear and steady. Let pauses breathe instead of filling silence.\n' +
+      'Eye Contact: Maintain steady (not staring) eye contact. In video calls, look at the camera.\n' +
       'Posture: Sit upright, lean slightly forward to show engagement.\n' +
       'Hands: Use natural gestures. Avoid crossing arms or fidgeting.\n' +
       'Smile: A genuine smile at the start and end creates warmth.\n' +
