@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { aiHealthCheck, isAIServiceConfigured } from '@/lib/ai'
 import { metricSnapshot } from '@/lib/monitoring'
 import { sendAlert } from '@/lib/alerts'
+import { aiConfig } from '@/lib/ai/config'
 
 export async function GET() {
   const started = Date.now()
@@ -40,6 +41,7 @@ export async function GET() {
         db: dbOk ? 'ok' : 'fail',
         ai: ai.ok ? 'ok' : isAIServiceConfigured() ? 'fail' : 'not_configured',
       },
+      ai_source_mode: aiConfig.sourceMode,
       metrics_60s: {
         ai_chat_count: chatLatency.count,
         ai_chat_avg_latency_ms: Math.round(chatLatency.avg),
