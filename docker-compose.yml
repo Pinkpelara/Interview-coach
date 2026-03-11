@@ -40,6 +40,8 @@ services:
       MEDIA_RELAY_HEALTH_URL: http://media-relay:8787/healthz
       INTERVIEW_CONDUCTOR_HEALTH_URL: http://interview-conductor:8091/healthz
       GPU_WORKERS_HEALTH_URL: http://gpu-workers:8092/healthz
+      AI_ENGINE_HEALTH_URL: http://ai-engine:8093/healthz
+      API_SERVER_HEALTH_URL: http://api-server:8094/healthz
     depends_on:
       postgres:
         condition: service_healthy
@@ -48,6 +50,10 @@ services:
       interview-conductor:
         condition: service_started
       gpu-workers:
+        condition: service_started
+      ai-engine:
+        condition: service_started
+      api-server:
         condition: service_started
 
   media-relay:
@@ -88,6 +94,26 @@ services:
     restart: unless-stopped
     ports:
       - "8092:8092"
+
+  ai-engine:
+    build:
+      context: ./services/ai-engine
+      dockerfile: Dockerfile
+    container_name: seatvio-ai-engine
+    restart: unless-stopped
+    ports:
+      - "8093:8093"
+
+  api-server:
+    build:
+      context: ./services/api-server
+      dockerfile: Dockerfile
+    container_name: seatvio-api-server
+    restart: unless-stopped
+    ports:
+      - "8094:8094"
+    environment:
+      PORT: 8094
 
 volumes:
   postgres_data:

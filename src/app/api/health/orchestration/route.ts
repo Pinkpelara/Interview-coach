@@ -10,6 +10,10 @@ type CheckResult = {
   detail?: string
 }
 
+function optionalServiceReady(check: CheckResult, configured: boolean): boolean {
+  return configured ? check.ok : true
+}
+
 async function httpHealthCheck(url: string, timeoutMs = 3000): Promise<CheckResult> {
   const controller = new AbortController()
   const started = Date.now()
@@ -53,16 +57,23 @@ export async function GET() {
       ? `${process.env.INTERVIEW_CONDUCTOR_URL.replace(/\/$/, '')}/healthz`
       : '')
   const gpuHealthUrl = process.env.GPU_WORKERS_HEALTH_URL
+  const aiEngineHealthUrl = process.env.AI_ENGINE_HEALTH_URL
+  const apiServerHealthUrl = process.env.API_SERVER_HEALTH_URL
 
-  const [relay, conductor, gpuWorkers] = await Promise.all([
+  const [relay, conductor, gpuWorkers, aiEngine, apiServer] = await Promise.all([
     relayHealthUrl ? httpHealthCheck(relayHealthUrl) : Promise.resolve({ ok: false, detail: 'not_configured' }),
     conductorHealthUrl ? httpHealthCheck(conductorHealthUrl) : Promise.resolve({ ok: false, detail: 'not_configured' }),
     gpuHealthUrl ? httpHealthCheck(gpuHealthUrl) : Promise.resolve({ ok: false, detail: 'not_configured' }),
+    aiEngineHealthUrl ? httpHealthCheck(aiEngineHealthUrl) : Promise.resolve({ ok: false, detail: 'not_configured' }),
+    apiServerHealthUrl ? httpHealthCheck(apiServerHealthUrl) : Promise.resolve({ ok: false, detail: 'not_configured' }),
   ])
 
   const phases = {
-    phaseA_foundation: dbOk,
-    phaseB_async_ai: dbOk && (ai.ok || !isAIServiceConfigured()),
+    phaseA_foundation: dbOk && optionalServiceReady(apiServer, Boolean(apiServerHealthUrl)),
+    phaseB_async_ai:
+      dbOk &&
+      (ai.ok || !isAIServiceConfigured()) &&
+      optionalServiceReady(aiEngine, Boolean(aiEngineHealthUrl)),
     phaseC_audio_conversation: dbOk && conductor.ok && relay.ok,
     phaseD_level1_animation: dbOk && conductor.ok && relay.ok,
     phaseE_full_product_surface: dbOk && conductor.ok && relay.ok,
@@ -82,6 +93,8 @@ export async function GET() {
       service_checks: {
         db: { ok: dbOk },
         ai_service: ai,
+        ai_engine: aiEngine,
+        api_server: apiServer,
         media_relay: relay,
         interview_conductor: conductor,
         gpu_workers: gpuWorkers,
@@ -92,6 +105,8 @@ export async function GET() {
         relay_health_url_configured: Boolean(relayHealthUrl),
         conductor_health_url_configured: Boolean(conductorHealthUrl),
         gpu_health_url_configured: Boolean(gpuHealthUrl),
+        ai_engine_health_url_configured: Boolean(aiEngineHealthUrl),
+        api_server_health_url_configured: Boolean(apiServerHealthUrl),
       },
     },
     { status: overall ? 200 : 503 }

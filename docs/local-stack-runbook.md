@@ -4,6 +4,8 @@ This runbook launches the current multi-service development stack:
 
 - `web-app` (Next.js app + API routes)
 - `postgres`
+- `api-server` (service-oriented backend scaffold)
+- `ai-engine` (async AI task scaffold)
 - `media-relay` (WebSocket-first interview transport)
 - `interview-conductor` (turn orchestrator scaffold)
 - `gpu-workers` (mock interface-compatible workers)
@@ -20,6 +22,8 @@ Open:
 - Media relay health: `http://localhost:8787/healthz`
 - Conductor health: `http://localhost:8091/healthz`
 - GPU workers health: `http://localhost:8092/healthz`
+- AI engine health: `http://localhost:8093/healthz`
+- API server health: `http://localhost:8094/healthz`
 - Orchestration health: `http://localhost:3000/api/health/orchestration`
 
 ## GPU override
