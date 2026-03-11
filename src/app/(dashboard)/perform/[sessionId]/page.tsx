@@ -10,10 +10,14 @@ import {
   Mic,
   MicOff,
   Clock,
+  Video,
+  VideoOff,
+  User,
   MessageSquare,
   Volume2,
   VolumeX,
 } from 'lucide-react'
+import AnimatedAvatar from '@/components/perform/AnimatedAvatar'
 import { useInterviewExchangeTransport } from '@/lib/interview/useInterviewExchangeTransport'
 
 // ---------------------------------------------------------------------------
@@ -147,36 +151,41 @@ function resolveSilenceDuration(character: Character): number {
 }
 
 // ---------------------------------------------------------------------------
-// Character Tile Component — Audio-first static headshot
+// Character Face Component — Real-Time Animated Video Avatar
+// Uses Canvas-based face renderer with lip sync, blinking, expressions
 // ---------------------------------------------------------------------------
 
-function CharacterTile({
+function CharacterFace({
   character,
   isSpeaking,
+  speechLevel,
   expression,
   isLookingAway,
 }: {
   character: Character
   isSpeaking: boolean
+  speechLevel: number
   expression: 'neutral' | 'interested' | 'skeptical' | 'nodding' | 'writing'
   isLookingAway: boolean
 }) {
   const color = ARCHETYPE_COLORS[character.archetype] || '#6b7280'
-  const avatarUrl = `/api/avatar?key=${encodeURIComponent(character.avatarKey || character.name)}&seed=${encodeURIComponent(character.name)}`
-
-  const stageDirection = (() => {
-    if (isSpeaking) return `[${character.name} is speaking]`
-    if (expression === 'writing') return `[${character.name} takes notes]`
-    if (isLookingAway) return `[${character.name} glances away briefly]`
-    if (expression === 'skeptical') return `[${character.name} pauses, skeptical]`
-    if (expression === 'nodding') return `[${character.name} gives a short nod]`
-    return `[${character.name} listens in silence]`
-  })()
 
   return (
     <div className="relative w-full h-full rounded-xl overflow-hidden bg-[#0a0e14] group">
-      <img src={avatarUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
-      <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
+      {/* Animated Canvas Avatar — real-time rendered face */}
+      <div className="absolute inset-0">
+        <AnimatedAvatar
+          seed={character.name}
+          avatarKey={character.avatarKey}
+          isSpeaking={isSpeaking}
+          audioLevel={speechLevel}
+          expression={expression}
+          isLookingAway={isLookingAway}
+          accentColor={color}
+          width={480}
+          height={480}
+        />
+      </div>
 
       {/* Speaking border glow */}
       {isSpeaking && (
@@ -189,7 +198,7 @@ function CharacterTile({
         />
       )}
 
-      {/* Name label — interview room style */}
+      {/* Name label — video call style */}
       <div className="absolute bottom-0 left-0 right-0 p-2.5 bg-gradient-to-t from-black/80 via-black/40 to-transparent">
         <div className="flex items-center gap-2">
           <p className="text-white text-sm font-medium truncate">{character.name}</p>
@@ -201,25 +210,17 @@ function CharacterTile({
           )}
         </div>
         <p className="text-gray-400 text-xs truncate">{character.title}</p>
-        <p className="text-gray-300 text-[11px] italic mt-1 truncate">{stageDirection}</p>
       </div>
 
-      {/* Audio waveform pulse while speaking */}
-      <div className="absolute left-2 top-2 bg-black/45 backdrop-blur-sm rounded-full px-2 py-1 flex items-end gap-0.5">
-        {[0, 1, 2, 3, 4].map((i) => (
-          <span
-            key={i}
-            className={`${isSpeaking ? 'animate-pulse' : ''} inline-block w-0.5 rounded-full`}
-            style={{
-              height: isSpeaking ? `${6 + (i % 3) * 4}px` : '4px',
-              animationDelay: `${i * 90}ms`,
-              backgroundColor: isSpeaking ? '#22c55e' : '#94a3b8',
-            }}
-          />
-        ))}
-      </div>
+      {/* Expression overlay indicators */}
+      {expression === 'writing' && (
+        <div className="absolute top-2 right-2 bg-black/50 backdrop-blur-sm rounded-full px-2 py-0.5 flex items-center gap-1.5">
+          <span className="text-yellow-400 text-[10px]">Taking notes</span>
+          <span className="text-yellow-400 text-[10px] animate-pulse">...</span>
+        </div>
+      )}
 
-      {/* Archetype intentionally hidden per briefing realism rules */}
+      {/* Archetype intentionally hidden per realism rules */}
     </div>
   )
 }
@@ -268,7 +269,7 @@ const FALLBACK_VOICE_CONFIG: Record<string, { pitch: number; rate: number }> = {
   silent_observer: { pitch: 0.85, rate: 0.82 },
 }
 
-const ALLOW_BROWSER_TTS_FALLBACK = process.env.NEXT_PUBLIC_ALLOW_BROWSER_TTS_FALLBACK !== 'false'
+const ALLOW_BROWSER_TTS_FALLBACK = process.env.NEXT_PUBLIC_ALLOW_BROWSER_TTS_FALLBACK === 'true'
 
 // ---------------------------------------------------------------------------
 // Speech synthesis hook — server TTS first, browser fallback
@@ -539,7 +540,7 @@ export default function InterviewRoomPage() {
   const [characterLookingAway, setCharacterLookingAway] = useState<Record<string, boolean>>({})
 
   // Voice I/O
-  const { speak, stop: stopSpeech, speaking: isTTSSpeaking, voiceEngine, speechError } = useSpeech()
+  const { speak, stop: stopSpeech, speechLevel } = useSpeech()
   const [isListening, setIsListening] = useState(false)
   const [isMicOn, setIsMicOn] = useState(true)
   const [isSpeakerOn, setIsSpeakerOn] = useState(true)
@@ -550,9 +551,12 @@ export default function InterviewRoomPage() {
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
 
-  // Microphone stream
+  // Camera
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const selfViewRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
-  const [micReady, setMicReady] = useState(false)
+  const [cameraActive, setCameraActive] = useState(false)
+  const [isCameraOn, setIsCameraOn] = useState(true)
 
   // Chat scroll
   const chatEndRef = useRef<HTMLDivElement>(null)
@@ -577,7 +581,7 @@ export default function InterviewRoomPage() {
     [sessionId]
   )
 
-  const { sendExchange, transportStatus } = useInterviewExchangeTransport(sessionId, sendExchangeHttp)
+  const { sendExchange } = useInterviewExchangeTransport(sessionId, sendExchangeHttp)
 
   // -------------------------------------------
   // Fetch session data
@@ -634,40 +638,64 @@ export default function InterviewRoomPage() {
   }, [])
 
   // -------------------------------------------
-  // Microphone setup (audio-only by design)
+  // Camera setup
   // -------------------------------------------
 
-  const startMicrophone = async (): Promise<boolean> => {
+  const startCamera = async (): Promise<boolean> => {
     try {
+      const isPhoneScreen = sessionData?.stage === 'Phone Screen'
       const stream = await navigator.mediaDevices.getUserMedia({
+        video: !isPhoneScreen,
         audio: true,
       })
       streamRef.current = stream
+      if (!isPhoneScreen) {
+        if (videoRef.current) videoRef.current.srcObject = stream
+        if (selfViewRef.current) selfViewRef.current.srcObject = stream
+      }
       const hasAudio = stream.getAudioTracks().length > 0
-      if (!hasAudio) {
+      const hasVideo = isPhoneScreen ? true : stream.getVideoTracks().length > 0
+      if (!hasAudio || !hasVideo) {
         stream.getTracks().forEach((t) => t.stop())
         streamRef.current = null
-        setMicReady(false)
-        setError('Microphone check failed. Please reconnect your microphone.')
+        setCameraActive(false)
+        setIsCameraOn(false)
+        setError(isPhoneScreen ? 'Microphone check failed. Please reconnect your microphone.' : 'Camera or microphone check failed. Please reconnect both and try again.')
         return false
       }
-      setMicReady(true)
+      setCameraActive(true)
+      setIsCameraOn(!isPhoneScreen)
       return true
     } catch {
-      setMicReady(false)
-      setError('Unable to access your microphone. Please grant permissions and retry.')
+      setCameraActive(false)
+      setError('Unable to access your camera/microphone. Please grant permissions and retry.')
       return false
     }
   }
 
-  const stopMicrophone = () => {
+  const stopCamera = () => {
     streamRef.current?.getTracks().forEach(t => t.stop())
     streamRef.current = null
-    setMicReady(false)
+    setCameraActive(false)
+    setIsCameraOn(false)
   }
 
+  const toggleCamera = () => {
+    if (!streamRef.current) return
+    const videoTracks = streamRef.current.getVideoTracks()
+    videoTracks.forEach(t => { t.enabled = !t.enabled })
+    setIsCameraOn(prev => !prev)
+  }
+
+  // Sync selfViewRef when stream changes
   useEffect(() => {
-    return () => { stopMicrophone(); stopSpeech() }
+    if (selfViewRef.current && streamRef.current) {
+      selfViewRef.current.srcObject = streamRef.current
+    }
+  })
+
+  useEffect(() => {
+    return () => { stopCamera(); stopSpeech() }
   }, [stopSpeech])
 
   // -------------------------------------------
@@ -1022,7 +1050,7 @@ export default function InterviewRoomPage() {
       })
     } catch { /* proceed anyway */ }
 
-    stopMicrophone()
+    stopCamera()
     setPhase('complete')
   }
 
@@ -1157,25 +1185,29 @@ export default function InterviewRoomPage() {
             </div>
           </div>
 
-          {/* Microphone setup */}
-          {!micReady ? (
+          {/* Camera/Mic Setup */}
+          {!cameraActive ? (
             <div className="bg-[#111127] border border-[#1e1e3a] rounded-xl p-6 text-center space-y-3">
-              <Mic className="w-8 h-8 text-blue-400 mx-auto" />
+              {isPhoneScreen ? <Mic className="w-8 h-8 text-blue-400 mx-auto" /> : <Video className="w-8 h-8 text-blue-400 mx-auto" />}
               <p className="text-white text-sm font-medium">
-                Microphone Required
+                {isPhoneScreen ? 'Microphone Required' : 'Camera & Microphone Required'}
               </p>
               <p className="text-gray-400 text-xs">
-                This simulation is audio-first. Enable your microphone to continue.
+                {isPhoneScreen
+                  ? 'Phone Screen mode is audio-only. Your microphone must be active.'
+                  : 'Your camera and microphone will be active during the interview.'}
               </p>
-              <Button onClick={startMicrophone} className="!bg-blue-600 hover:!bg-blue-700">
-                <Mic className="w-4 h-4 mr-2" />
-                Enable Microphone
+              <Button onClick={startCamera} className="!bg-blue-600 hover:!bg-blue-700">
+                {isPhoneScreen ? <Mic className="w-4 h-4 mr-2" /> : <Video className="w-4 h-4 mr-2" />}
+                {isPhoneScreen ? 'Enable Microphone' : 'Enable Camera & Mic'}
               </Button>
             </div>
           ) : (
             <div className="bg-green-900/20 border border-green-700/30 rounded-xl p-4 flex items-center gap-3">
               <Mic className="w-5 h-5 text-green-400" />
-              <p className="text-green-300 text-sm">Microphone connected</p>
+              <p className="text-green-300 text-sm">
+                {isPhoneScreen ? 'Microphone connected' : 'Camera and microphone connected'}
+              </p>
             </div>
           )}
 
@@ -1193,7 +1225,7 @@ export default function InterviewRoomPage() {
               size="lg"
               onClick={async () => {
                 if (!speechSupported) return
-                const ready = micReady || await startMicrophone()
+                const ready = cameraActive || await startCamera()
                 if (!ready) return
                 setCountdown(120)
                 setPhase('countdown')
@@ -1221,7 +1253,7 @@ export default function InterviewRoomPage() {
           <div className="bg-[#111127] border border-blue-500/30 rounded-2xl p-6 max-w-sm mx-auto">
             <div className="flex items-center gap-3 mb-3">
               <div className="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center">
-                <Mic className="w-5 h-5 text-white" />
+                <Video className="w-5 h-5 text-white" />
               </div>
               <div className="text-left">
                 <p className="text-white text-sm font-medium">Interview Starting</p>
@@ -1303,6 +1335,50 @@ export default function InterviewRoomPage() {
   // RENDER: Interview Room (Main Phase)
   // -------------------------------------------
 
+  // Webcam tile component for the video grid
+  const renderSelfView = () => (
+    <div className="relative w-full h-full rounded-xl overflow-hidden bg-[#0d0d20]">
+      {cameraActive && isCameraOn ? (
+        <video
+          ref={selfViewRef}
+          autoPlay
+          muted
+          playsInline
+          className="w-full h-full object-cover"
+          style={{ transform: 'scaleX(-1)' }}
+        />
+      ) : (
+        <div className="w-full h-full flex flex-col items-center justify-center gap-2" style={{ background: 'linear-gradient(135deg, #0d1b2a 0%, #1b263b 100%)' }}>
+          <div className="w-16 h-16 rounded-full bg-blue-600/30 flex items-center justify-center">
+            <User className="w-8 h-8 text-blue-300" />
+          </div>
+          {!cameraActive && <p className="text-gray-500 text-xs">Camera off</p>}
+        </div>
+      )}
+      {/* Name label */}
+      <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/60 to-transparent">
+        <p className="text-white text-sm font-medium">You</p>
+      </div>
+      {/* Mic active indicator */}
+      {isMicOn && isListening && (
+        <div className="absolute top-2 right-2 flex items-center gap-1 bg-green-500/20 rounded-full px-2 py-0.5">
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+          </span>
+        </div>
+      )}
+      {/* Camera off overlay */}
+      {cameraActive && !isCameraOn && (
+        <div className="absolute inset-0 bg-[#0d0d20] flex flex-col items-center justify-center gap-2">
+          <div className="w-16 h-16 rounded-full bg-blue-600/30 flex items-center justify-center">
+            <User className="w-8 h-8 text-blue-300" />
+          </div>
+        </div>
+      )}
+    </div>
+  )
+
   const renderCharacterGrid = () => {
     if (isPhoneScreen) {
       const active = characters[0]
@@ -1314,7 +1390,7 @@ export default function InterviewRoomPage() {
             </div>
             <p className="mt-4 text-white text-lg font-medium">{active?.name || 'Interviewer'}</p>
             <p className="text-gray-400 text-sm">{active?.title || 'Phone Screen'}</p>
-            <p className="mt-6 text-gray-500 text-xs italic">[Audio-only interview in progress]</p>
+            <p className="mt-6 text-gray-500 text-xs">Audio-only interview in progress</p>
           </div>
         </div>
       )
@@ -1335,9 +1411,10 @@ export default function InterviewRoomPage() {
           {/* Interviewer character tiles */}
           {characters.map(char => (
             <div key={char.id} className="min-h-0">
-              <CharacterTile
+              <CharacterFace
                 character={char}
                 isSpeaking={speakingCharacterId === char.id}
+                speechLevel={speakingCharacterId === char.id ? speechLevel : 0}
                 expression={(characterExpressions[char.id] || 'neutral') as 'neutral' | 'interested' | 'skeptical' | 'nodding' | 'writing'}
                 isLookingAway={characterLookingAway[char.id] || false}
               />
@@ -1350,47 +1427,32 @@ export default function InterviewRoomPage() {
 
   return (
     <div className="fixed inset-0 bg-[#0a0a1a] flex flex-col z-50">
-      {/* Top bar — minimal, call-room style */}
+      {/* Top bar — minimal, like a real video call */}
       <div className="flex items-center justify-between px-4 py-2 bg-[#060610] border-b border-[#1a1a35]">
         <div>
           <p className="text-white text-sm font-medium">{application.companyName}</p>
           <p className="text-gray-500 text-xs">{application.jobTitle} · {sessionData.stage}</p>
         </div>
         <div className="flex items-center gap-3 text-gray-300">
-          <span className={`text-[10px] px-2 py-0.5 rounded-full border ${
-            transportStatus === 'websocket'
-              ? 'text-cyan-300 border-cyan-500/30 bg-cyan-500/10'
-              : transportStatus === 'connecting'
-              ? 'text-yellow-300 border-yellow-500/30 bg-yellow-500/10'
-              : 'text-gray-300 border-gray-500/30 bg-gray-500/10'
-          }`}>
-            {transportStatus === 'websocket' ? 'WebSocket' : transportStatus === 'connecting' ? 'Connecting' : 'HTTP'}
-          </span>
-          {isSpeakerOn && (
-            <span className={`text-[10px] px-2 py-0.5 rounded-full border ${
-              voiceEngine === 'server'
-                ? 'text-emerald-300 border-emerald-500/30 bg-emerald-500/10'
-                : 'text-amber-300 border-amber-500/30 bg-amber-500/10'
-            }`}>
-              {voiceEngine === 'server' ? 'Human voice' : 'Browser fallback'}
-            </span>
-          )}
-          {isTTSSpeaking && (
-            <span className="text-[10px] text-blue-300">Speaking...</span>
-          )}
           <Clock className="w-4 h-4" />
           <span className="font-mono text-sm tabular-nums">{formatTime(elapsedSeconds)}</span>
         </div>
       </div>
 
-      {/* Main content: interviewer tiles */}
+      {/* Main content: full-screen video grid */}
       <div className="flex-1 flex min-h-0 overflow-hidden">
         <div className="flex-1 flex flex-col min-h-0">
           {renderCharacterGrid()}
         </div>
       </div>
 
-      {/* Minimal status overlays */}
+      {!isPhoneScreen && (
+        <div className="absolute right-4 bottom-24 z-20 w-64 h-40 rounded-xl overflow-hidden border border-[#1e1e3a] shadow-2xl">
+          {renderSelfView()}
+        </div>
+      )}
+
+      {/* Minimal status overlays (video-call style) */}
       <div className="absolute left-4 bottom-24 z-20 space-y-2 max-w-sm">
         {isListening && (
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-500/15 border border-red-500/30">
@@ -1426,12 +1488,6 @@ export default function InterviewRoomPage() {
           </div>
         )}
 
-        {speechError && (
-          <div className="px-3 py-2 bg-amber-900/45 border border-amber-700/50 rounded-lg">
-            <p className="text-amber-200 text-xs">{speechError}</p>
-          </div>
-        )}
-
         {!isConnectionHealthy && (
           <div className="px-3 py-2 bg-amber-900/40 border border-amber-700/50 rounded-lg">
             <p className="text-amber-200 text-xs">
@@ -1458,6 +1514,20 @@ export default function InterviewRoomPage() {
           {isMicOn ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
         </button>
 
+        {!isPhoneScreen && (
+          <button
+            onClick={toggleCamera}
+            className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${
+              isCameraOn
+                ? 'bg-[#1e1e3a] text-white hover:bg-[#2a2a4a]'
+                : 'bg-red-600 text-white hover:bg-red-700'
+            }`}
+            title={isCameraOn ? 'Turn off camera' : 'Turn on camera'}
+          >
+            {isCameraOn ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
+          </button>
+        )}
+
         <button
           onClick={toggleSpeaker}
           className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${
@@ -1471,6 +1541,17 @@ export default function InterviewRoomPage() {
         </button>
 
       </div>
+
+      {/* Hidden video element for camera stream (used by selfViewRef in grid) */}
+      {cameraActive && (
+        <video
+          ref={videoRef}
+          autoPlay
+          muted
+          playsInline
+          className="hidden"
+        />
+      )}
 
     </div>
   )
