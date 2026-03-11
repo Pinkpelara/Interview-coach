@@ -49,7 +49,11 @@ function silenceDurationForArchetype(archetype: string): number {
   }
 }
 
-function generatePanel(stage: string, companyName: string): Character[] {
+function generatePanel(
+  stage: string,
+  companyName: string,
+  forcedArchetypes?: InterviewArchetype[]
+): Character[] {
   const usedPersonaIds = new Set<string>()
   const characters: Character[] = []
 
@@ -64,6 +68,13 @@ function generatePanel(stage: string, companyName: string): Character[] {
       silenceDuration: silenceDurationForArchetype(archetype),
       avatarKey: `${persona.portraitGender}-${persona.portraitIndex}`,
     }
+  }
+
+  if (forcedArchetypes && forcedArchetypes.length > 0) {
+    forcedArchetypes.forEach((archetype) => {
+      characters.push(createChar(archetype))
+    })
+    return characters
   }
 
   switch (stage) {
@@ -120,6 +131,14 @@ const VALID_STAGES = [
 ]
 
 const VALID_INTENSITIES = ['warmup', 'standard', 'high-pressure']
+const VALID_ARCHETYPES: InterviewArchetype[] = [
+  'skeptic',
+  'friendly_champion',
+  'technical_griller',
+  'distracted_senior',
+  'culture_fit',
+  'silent_observer',
+]
 
 export async function GET() {
   try {
@@ -174,7 +193,7 @@ export async function POST(request: Request) {
       )
     }
     const body = await request.json()
-    const { applicationId, stage, intensity, durationMinutes } = body
+    const { applicationId, stage, intensity, durationMinutes, forcedArchetypes } = body
 
     if (!applicationId?.trim()) {
       return NextResponse.json({ error: 'Application ID is required' }, { status: 400 })
@@ -191,6 +210,19 @@ export async function POST(request: Request) {
         { status: 400 }
       )
     }
+    if (forcedArchetypes !== undefined) {
+      if (
+        !Array.isArray(forcedArchetypes) ||
+        forcedArchetypes.length === 0 ||
+        forcedArchetypes.length > 3 ||
+        forcedArchetypes.some((a) => !VALID_ARCHETYPES.includes(a))
+      ) {
+        return NextResponse.json(
+          { error: `forcedArchetypes must be 1-3 values from: ${VALID_ARCHETYPES.join(', ')}` },
+          { status: 400 }
+        )
+      }
+    }
 
     const application = await prisma.application.findFirst({
       where: { id: applicationId, userId },
@@ -200,7 +232,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Application not found' }, { status: 404 })
     }
 
-    const characters = generatePanel(stage, application.companyName)
+    const characters = generatePanel(
+      stage,
+      application.companyName,
+      Array.isArray(forcedArchetypes) ? (forcedArchetypes as InterviewArchetype[]) : undefined
+    )
 
     const interviewSession = await prisma.interviewSession.create({
       data: {

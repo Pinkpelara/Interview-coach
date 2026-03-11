@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma'
 import { chatCompletionJSONValidated, isAIServiceConfigured } from '@/lib/ai'
 import { ApplicationAlignmentSchema } from '@/lib/ai/validation'
 import { checkRateLimit } from '@/lib/rate-limit'
+import { buildDeterministicApplicationAnalysis } from '@/lib/application-analysis'
 
 export async function GET() {
   try {
@@ -83,12 +84,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Resume text is required' }, { status: 400 })
     }
 
-    // Analyze resume vs JD — use AI if configured, otherwise fallback
-    let alignmentScore: number
-    let skillGaps: string
-    let strengths: string
-    let missingKeywords: string
-    let probeAreas: string
+    // Deterministic baseline analysis for reliability (no random placeholders).
+    const deterministic = buildDeterministicApplicationAnalysis({
+      companyName: companyName.trim(),
+      jobTitle: jobTitle.trim(),
+      resumeText: resumeText.trim(),
+      jdText: jdText.trim(),
+    })
+
+    let alignmentScore = deterministic.alignmentScore
+    let skillGaps = JSON.stringify(deterministic.skillGaps)
+    let strengths = JSON.stringify(deterministic.strengths)
+    let missingKeywords = JSON.stringify(deterministic.missingKeywords)
+    let probeAreas = JSON.stringify(deterministic.probeAreas)
 
     if (isAIServiceConfigured()) {
       try {
@@ -116,19 +124,8 @@ Return:
         missingKeywords = JSON.stringify(analysis.missingKeywords)
         probeAreas = JSON.stringify(analysis.probeAreas)
       } catch (aiError) {
-        console.error('AI analysis failed, using fallback:', aiError)
-        alignmentScore = Math.floor(Math.random() * 26) + 60
-        skillGaps = JSON.stringify(['System Design', 'Cloud Architecture', 'CI/CD Pipeline Management'])
-        strengths = JSON.stringify(['Problem Solving', 'Team Leadership', 'Agile Methodology'])
-        missingKeywords = JSON.stringify(['Kubernetes', 'Terraform', 'GraphQL'])
-        probeAreas = JSON.stringify(['Experience scaling distributed systems', 'Handling production incidents'])
+        console.error('AI analysis failed, using deterministic baseline:', aiError)
       }
-    } else {
-      alignmentScore = Math.floor(Math.random() * 26) + 60
-      skillGaps = JSON.stringify(['System Design', 'Cloud Architecture', 'CI/CD Pipeline Management'])
-      strengths = JSON.stringify(['Problem Solving', 'Team Leadership', 'Agile Methodology', 'Technical Communication'])
-      missingKeywords = JSON.stringify(['Kubernetes', 'Terraform', 'GraphQL', 'Event-Driven Architecture', 'SLA Management'])
-      probeAreas = JSON.stringify(['Experience scaling distributed systems', 'Handling production incidents', 'Cross-team collaboration', 'Technical debt prioritization'])
     }
 
     // Create application with parsed data in a transaction
@@ -146,55 +143,31 @@ Return:
           strengths,
           missingKeywords,
           probeAreas,
-          readinessScore: Math.floor(Math.random() * 20) + 10,
+          readinessScore: deterministic.readinessScore,
         },
       })
 
-      // Create ParsedResume with placeholder data extracted from resumeText
       await tx.parsedResume.create({
         data: {
           applicationId: app.id,
-          topSkills: 'Extracted from resume',
-          careerTimeline: 'Parsed career history',
-          experienceGaps: JSON.stringify(['Potential gap between 2019-2020']),
-          achievements: JSON.stringify([
-            'Led team of 8 engineers',
-            'Improved system performance by 40%',
-          ]),
-          education: 'Extracted education background',
+          topSkills: deterministic.parsedResume.topSkills.join(', '),
+          careerTimeline: deterministic.parsedResume.careerTimeline,
+          experienceGaps: JSON.stringify(deterministic.parsedResume.experienceGaps),
+          achievements: JSON.stringify(deterministic.parsedResume.achievements),
+          education: deterministic.parsedResume.education,
         },
       })
 
-      // Create ParsedJD with placeholder data extracted from jdText
       await tx.parsedJD.create({
         data: {
           applicationId: app.id,
-          requiredSkills: JSON.stringify([
-            'JavaScript',
-            'TypeScript',
-            'React',
-            'Node.js',
-          ]),
-          preferredSkills: JSON.stringify([
-            'AWS',
-            'Docker',
-            'Kubernetes',
-          ]),
-          responsibilities: JSON.stringify([
-            'Design and implement scalable solutions',
-            'Mentor junior developers',
-            'Participate in architecture reviews',
-          ]),
-          seniorityLevel: 'mid',
-          valuesLanguage: JSON.stringify([
-            'Innovation',
-            'Collaboration',
-            'Growth mindset',
-          ]),
-          redFlagAreas: JSON.stringify([
-            'Limited experience with their tech stack',
-          ]),
-          interviewFormatPrediction: 'Technical screen + System design + Behavioral',
+          requiredSkills: JSON.stringify(deterministic.parsedJD.requiredSkills),
+          preferredSkills: JSON.stringify(deterministic.parsedJD.preferredSkills),
+          responsibilities: JSON.stringify(deterministic.parsedJD.responsibilities),
+          seniorityLevel: deterministic.parsedJD.seniorityLevel,
+          valuesLanguage: JSON.stringify(deterministic.parsedJD.valuesLanguage),
+          redFlagAreas: JSON.stringify(deterministic.parsedJD.redFlagAreas),
+          interviewFormatPrediction: deterministic.parsedJD.interviewFormatPrediction,
         },
       })
 

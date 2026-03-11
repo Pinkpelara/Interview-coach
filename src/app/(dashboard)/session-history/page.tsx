@@ -29,6 +29,16 @@ function formatDuration(minutes: number): string {
   return m > 0 ? `${h}h ${m}m` : `${h}h`
 }
 
+function parseMomentMap(value?: string | null): Array<{ type?: string }> {
+  if (!value) return []
+  try {
+    const parsed = JSON.parse(value)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
 export default async function SessionHistoryPage() {
   const session = await getServerSession(authOptions)
 
@@ -45,7 +55,7 @@ export default async function SessionHistoryPage() {
         select: { companyName: true, jobTitle: true },
       },
       analysis: {
-        select: { hiringProbability: true },
+        select: { hiringProbability: true, momentMap: true },
       },
     },
     orderBy: { createdAt: 'desc' },
@@ -108,6 +118,24 @@ export default async function SessionHistoryPage() {
                     <span>&middot;</span>
                     <span>{s.stage}</span>
                   </div>
+                  {(() => {
+                    const momentMap = parseMomentMap(s.analysis?.momentMap)
+                    if (!momentMap.length) return null
+                    return (
+                      <div className="mt-2 flex h-2 overflow-hidden rounded-full bg-gray-100 ring-1 ring-inset ring-gray-200 max-w-xs">
+                        {momentMap.slice(0, 40).map((segment, idx) => {
+                          const type = segment?.type || 'recoverable'
+                          const bg =
+                            type === 'strong'
+                              ? 'bg-emerald-500'
+                              : type === 'dropped'
+                              ? 'bg-rose-500'
+                              : 'bg-amber-400'
+                          return <span key={`${s.id}-seg-${idx}`} className={`h-full flex-1 ${bg}`} />
+                        })}
+                      </div>
+                    )
+                  })()}
                 </div>
 
                 <div className="flex items-center gap-3">
