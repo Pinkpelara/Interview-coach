@@ -14,6 +14,7 @@ export default function SignupPage() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
+  const [verificationPath, setVerificationPath] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -31,6 +32,7 @@ export default function SignupPage() {
     }
 
     setIsLoading(true);
+    setVerificationPath("");
 
     try {
       const response = await fetch("/api/auth/signup", {
@@ -43,6 +45,11 @@ export default function SignupPage() {
 
       if (!response.ok) {
         setError(data.error || "Something went wrong.");
+        return;
+      }
+
+      if (data.verificationPath) {
+        setVerificationPath(data.verificationPath);
         return;
       }
 
@@ -66,6 +73,19 @@ export default function SignupPage() {
           </p>
         </div>
 
+        {verificationPath ? (
+          <div className="space-y-4 rounded-md border border-green-200 bg-green-50 p-4">
+            <p className="text-sm text-green-800">
+              Account created. Verify your email before signing in.
+            </p>
+            <Link href={verificationPath}>
+              <Button className="w-full">Verify email now</Button>
+            </Link>
+            <p className="text-xs text-green-700">
+              If your email provider is not configured yet, use this verification link directly.
+            </p>
+          </div>
+        ) : (
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && (
             <div className="rounded-md bg-red-50 p-3 text-sm text-red-600">
@@ -148,6 +168,7 @@ export default function SignupPage() {
             {isLoading ? "Creating account..." : "Create account"}
           </Button>
         </form>
+        )}
 
         <p className="mt-6 text-center text-sm text-gray-500">
           Already have an account?{" "}
