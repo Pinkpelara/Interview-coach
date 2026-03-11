@@ -30,6 +30,8 @@ interface ConversationTurn {
   characterId: string | null
 }
 
+const INTERVIEW_CONDUCTOR_URL = (process.env.INTERVIEW_CONDUCTOR_URL || '').replace(/\/$/, '')
+
 const ARCHETYPE_FALLBACK_RESPONSES: Record<string, (ctx: ApplicationContext | null) => string[]> = {
   skeptic: (ctx) => {
     const company = ctx?.companyName || 'this company'
@@ -155,6 +157,78 @@ Rules:
 - Build on previous answers — don't repeat topics already covered
 - Never break character or mention you are an AI
 - Never say things like "let's have a relaxed conversation" — act like a real interviewer`
+}
+
+function mapConversationForConductor(conversationHistory: ConversationTurn[]) {
+  return conversationHistory.map((turn) => ({
+    role: turn.speaker === 'candidate' ? 'user' : 'assistant',
+    content: turn.text,
+  }))
+}
+
+function voiceForArchetype(archetype: string): string {
+  switch (archetype) {
+    case 'skeptic': return 'onyx'
+    case 'friendly_champion': return 'nova'
+    case 'technical_griller': return 'ash'
+    case 'distracted_senior': return 'echo'
+    case 'culture_fit': return 'shimmer'
+    case 'silent_observer': return 'sage'
+    default: return 'alloy'
+  }
+}
+
+async function generateResponseWithConductor(
+  sessionId: string,
+  respondingCharacter: Character,
+  transcriptText: string,
+  exchangeCount: number,
+  appCtx: ApplicationContext | null,
+  conversationHistory: ConversationTurn[]
+): Promise<string> {
+  if (!INTERVIEW_CONDUCTOR_URL) {
+    throw new Error('INTERVIEW_CONDUCTOR_URL is not configured')
+  }
+
+  const systemPrompt = buildSystemPrompt(
+    respondingCharacter.archetype,
+    respondingCharacter.name,
+    respondingCharacter.title,
+    exchangeCount,
+    appCtx,
+    conversationHistory
+  )
+
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 9_000)
+  try {
+    const response = await fetch(`${INTERVIEW_CONDUCTOR_URL}/turn`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        session_id: sessionId,
+        character_id: respondingCharacter.id,
+        user_text: transcriptText,
+        conversation: mapConversationForConductor(conversationHistory),
+        system_prompt: systemPrompt,
+        voice_id: voiceForArchetype(respondingCharacter.archetype),
+      }),
+      signal: controller.signal,
+    })
+
+    const data = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      throw new Error(data.error || `Conductor request failed with status ${response.status}`)
+    }
+
+    const responseText = typeof data.response_text === 'string' ? data.response_text.trim() : ''
+    if (!responseText) {
+      throw new Error('Conductor returned empty response_text')
+    }
+    return responseText
+  } finally {
+    clearTimeout(timeout)
+  }
 }
 
 function getPhaseGuidance(exchangeCount: number, appCtx: ApplicationContext | null): string {
@@ -356,9 +430,24 @@ export async function POST(
       },
     })
 
-    // Generate AI response with full context
-    let responseText: string
-    if (isAIServiceConfigured()) {
+    // Generate interviewer response: conductor -> direct AI -> fallback
+    let responseText = ''
+    if (INTERVIEW_CONDUCTOR_URL) {
+      try {
+        responseText = await generateResponseWithConductor(
+          id,
+          respondingCharacter,
+          messageText.trim(),
+          exchangeCount,
+          appCtx,
+          conversationHistory
+        )
+      } catch (conductorError) {
+        console.error('Conductor turn generation failed, falling back:', conductorError)
+      }
+    }
+
+    if (!responseText && isAIServiceConfigured()) {
       try {
         responseText = await generateResponseWithAI(
           respondingCharacter.archetype,
@@ -371,14 +460,10 @@ export async function POST(
         )
       } catch (aiError) {
         console.error('AI response generation failed, using fallback:', aiError)
-        responseText = generateResponseFallback(
-          respondingCharacter.archetype,
-          messageText,
-          exchangeCount,
-          appCtx
-        )
       }
-    } else {
+    }
+
+    if (!responseText) {
       responseText = generateResponseFallback(
         respondingCharacter.archetype,
         messageText,
