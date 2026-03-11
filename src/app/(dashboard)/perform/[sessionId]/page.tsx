@@ -74,15 +74,6 @@ const ARCHETYPE_COLORS: Record<string, string> = {
   silent_observer: '#6b7280',
 }
 
-const ARCHETYPE_LABELS: Record<string, string> = {
-  skeptic: 'Skeptic',
-  friendly_champion: 'Friendly Champion',
-  technical_griller: 'Technical Griller',
-  distracted_senior: 'Distracted Senior',
-  culture_fit: 'Culture Fit Assessor',
-  silent_observer: 'Silent Observer',
-}
-
 // ---------------------------------------------------------------------------
 // Opening / Closing lines
 // ---------------------------------------------------------------------------
@@ -228,15 +219,7 @@ function CharacterTile({
         ))}
       </div>
 
-      {/* Archetype label on hover */}
-      <div className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity">
-        <span
-          className="text-[10px] font-medium px-2 py-0.5 rounded-full backdrop-blur-sm"
-          style={{ backgroundColor: color + '30', color: color }}
-        >
-          {ARCHETYPE_LABELS[character.archetype] || character.archetype}
-        </span>
-      </div>
+      {/* Archetype intentionally hidden per briefing realism rules */}
     </div>
   )
 }
