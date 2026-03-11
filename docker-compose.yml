@@ -69,8 +69,9 @@ services:
       - "8787:8787"
     environment:
       PORT: 8787
-      WS_PATH: /ws/interview
-      API_BASE_URL: http://web-app:3000
+      WS_PATH: /ws/audio
+      API_BASE_URL: http://api-server:8094
+      CONDUCTOR_WS_BASE: ws://interview-conductor:8091/ws/interview
 
   interview-conductor:
     build:

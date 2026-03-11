@@ -1,52 +1,23 @@
-# Seatvio Media Relay (WebSocket-first)
+# Seatvio Media Relay (Unified v4)
 
-This service provides a WebSocket transport for interview turn exchange.
+WebSocket relay between browser clients and interview-conductor.
 
-It forwards `exchange` messages to the existing API endpoint:
+## Paths
 
-- `POST /api/sessions/:id/exchange`
+- Primary v4 path: `/ws/audio/:session_id`
+- Legacy compatibility path: `/ws/interview?sessionId=:id`
+- Health: `/healthz`
 
-and sends the response back over the socket.
+## Behavior
 
-## Protocol
-
-Client -> Relay:
-
-```json
-{ "type": "exchange", "requestId": "abc", "sessionId": "sess_1", "messageText": "answer", "characterId": "char_1" }
-```
-
-Relay -> Client success:
-
-```json
-{ "type": "exchange_result", "requestId": "abc", "data": { "...": "same shape as /exchange API" } }
-```
-
-Relay -> Client error:
-
-```json
-{ "type": "exchange_error", "requestId": "abc", "error": "message" }
-```
-
-Optional auth bootstrap:
-
-```json
-{ "type": "auth", "bearerToken": "..." }
-```
-
-The relay also forwards the original WebSocket `Cookie` header to the API call, so same-domain session-cookie auth works.
+- Opens upstream WebSocket to conductor: `CONDUCTOR_WS_BASE/:session_id`
+- Forwards binary and JSON frames both directions
+- Supports legacy `exchange` message contract for older frontend transport
 
 ## Local run
 
 ```bash
 cd services/media-relay
 npm install
-cp .env.example .env
 npm run dev
-```
-
-Then configure the frontend with:
-
-```bash
-NEXT_PUBLIC_INTERVIEW_WS_URL=ws://localhost:8787/ws/interview
 ```

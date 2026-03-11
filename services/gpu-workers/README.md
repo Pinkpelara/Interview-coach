@@ -1,20 +1,22 @@
-# Seatvio GPU Workers
+# Seatvio GPU Workers (Unified v4)
 
-Mock GPU worker service with interface-compatible endpoints:
+Inference contract service.
 
-- `POST /transcribe`
-- `POST /generate`
-- `POST /synthesize`
-- `POST /animate`
+## Endpoints
 
-These are placeholder endpoints for development and contract testing.
-Replace TODO blocks with real model inference on GPU infrastructure.
+- `POST /transcribe` (multipart `audio` file) -> `{ text, segments }`
+- `POST /generate` (SSE stream) -> `{ token }` events + final `{ done, full_text }`
+- `POST /synthesize` (`{ text, voice_id, format }`) -> `audio/wav` bytes
+- `POST /animate` (mock frame response in dev mode)
+- `GET /healthz`
+
+Development mode returns contract-compatible mock outputs.
 
 ## Local run
 
 ```bash
 cd services/gpu-workers
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn src.main:app --reload --port 8092

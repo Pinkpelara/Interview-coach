@@ -1,8 +1,6 @@
-# Seatvio AI Engine
+# Seatvio AI Engine (Unified v4)
 
-Async/offline AI task service scaffold.
-
-Endpoints included:
+Async AI task service endpoints:
 
 - `POST /parse/resume`
 - `POST /parse/jd`
@@ -10,15 +8,18 @@ Endpoints included:
 - `POST /questions/generate`
 - `POST /answers/analyze`
 - `POST /debrief/generate`
+- `POST /coach/audio`
 - `POST /observe/generate`
+- `POST /countdown/generate`
 
-All endpoints currently return interface-compatible mock payloads for phased integration.
+This service is designed to run behind an LLM substitution interface (`LLM_URL`).
+In development it returns schema-compatible mock outputs.
 
 ## Local run
 
 ```bash
 cd services/ai-engine
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn src.main:app --reload --port 8093

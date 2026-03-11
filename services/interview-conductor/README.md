@@ -1,28 +1,30 @@
-# Seatvio Interview Conductor
+# Seatvio Interview Conductor (Unified v4)
 
-Real-time turn orchestrator service.
+Real-time interview orchestrator.
 
-This service coordinates:
-- STT (`/transcribe`)
-- LLM (`/generate`)
-- TTS (`/synthesize`)
+## Interfaces
 
-and exposes one higher-level endpoint:
-- `POST /turn`
+- WebSocket: `GET /ws/interview/:session_id`
+- HTTP compatibility: `POST /turn`
+- Health: `GET /healthz`
+
+The conductor coordinates:
+- STT upstream (`STT_URL`)
+- LLM streaming upstream (`LLM_URL`)
+- TTS upstream (`TTS_URL`)
+
+and emits real-time messages:
+- `session_start`
+- `interviewer_speaking`
+- `expression_update`
+- `session_end`
 
 ## Local run
 
 ```bash
 cd services/interview-conductor
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn src.main:app --reload --port 8091
 ```
-
-## Environment
-
-- `STT_URL` - base URL of STT worker
-- `LLM_URL` - base URL of LLM worker
-- `TTS_URL` - base URL of TTS worker
-- `REQUEST_TIMEOUT_S` - upstream request timeout
