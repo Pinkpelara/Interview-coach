@@ -119,13 +119,23 @@ export default async function ApplicationDetailPage({
             </h2>
             <p className="mt-1 text-lg text-gray-500">{application.jobTitle}</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Badge variant={stageBadgeVariant(application.interviewStage)}>
               {application.interviewStage || 'No stage set'}
             </Badge>
             <Badge variant={application.status === 'active' ? 'success' : 'default'}>
               {application.status}
             </Badge>
+            {application.realInterviewDate && (() => {
+              const days = Math.ceil((new Date(application.realInterviewDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+              if (days < 0) return <Badge variant="default">Interview passed</Badge>
+              return (
+                <Badge variant={days <= 3 ? 'danger' : days <= 7 ? 'warning' : 'info'}>
+                  <CalendarDays className="h-3 w-3 mr-1" />
+                  {days === 0 ? 'Interview today!' : days === 1 ? 'Interview tomorrow' : `${days} days until interview`}
+                </Badge>
+              )
+            })()}
           </div>
         </div>
       </div>
@@ -189,18 +199,36 @@ export default async function ApplicationDetailPage({
               label="Overall Readiness"
               showPercent
             />
-            <div className="grid grid-cols-2 gap-4 text-center">
+            <div className="grid grid-cols-3 gap-4 text-center">
               <div>
                 <p className="text-2xl font-bold text-gray-900">
                   {application._count.questions}
                 </p>
-                <p className="text-xs text-gray-500">Questions Generated</p>
+                <p className="text-xs text-gray-500">Questions</p>
               </div>
               <div>
                 <p className="text-2xl font-bold text-gray-900">
                   {application._count.sessions}
                 </p>
-                <p className="text-xs text-gray-500">Practice Sessions</p>
+                <p className="text-xs text-gray-500">Sessions</p>
+              </div>
+              <div>
+                {(() => {
+                  const latestWithAnalysis = application.sessions.find(s => s.analysis?.hiringProbability != null)
+                  const prob = latestWithAnalysis?.analysis?.hiringProbability
+                  return (
+                    <>
+                      <p className={`text-2xl font-bold ${
+                        prob == null ? 'text-gray-400' :
+                        prob >= 70 ? 'text-green-600' :
+                        prob >= 40 ? 'text-yellow-600' : 'text-red-600'
+                      }`}>
+                        {prob != null ? `${prob}%` : '---'}
+                      </p>
+                      <p className="text-xs text-gray-500">Hire Probability</p>
+                    </>
+                  )
+                })()}
               </div>
             </div>
           </CardContent>

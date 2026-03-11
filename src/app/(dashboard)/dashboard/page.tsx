@@ -28,6 +28,12 @@ export default async function DashboardPage() {
       where: { userId },
       include: {
         _count: { select: { sessions: true } },
+        sessions: {
+          where: { status: 'completed' },
+          include: { analysis: { select: { hiringProbability: true } } },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
       },
       orderBy: { updatedAt: 'desc' },
     }),
@@ -136,11 +142,35 @@ export default async function DashboardPage() {
                     </div>
                   </div>
 
+                  {/* Hiring probability from latest session */}
+                  {app.sessions[0]?.analysis?.hiringProbability != null && (
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-gray-500">Hiring Probability</span>
+                      <span className={`font-semibold ${
+                        app.sessions[0].analysis.hiringProbability >= 70 ? 'text-green-600' :
+                        app.sessions[0].analysis.hiringProbability >= 40 ? 'text-yellow-600' : 'text-red-600'
+                      }`}>
+                        {app.sessions[0].analysis.hiringProbability}%
+                      </span>
+                    </div>
+                  )}
+
                   <div className="flex items-center justify-between text-sm text-gray-500">
-                    <span className="flex items-center gap-1">
-                      <Clock className="h-4 w-4" />
-                      {app._count.sessions} session{app._count.sessions !== 1 ? 's' : ''}
-                    </span>
+                    <div className="flex items-center gap-3">
+                      <span className="flex items-center gap-1">
+                        <Clock className="h-4 w-4" />
+                        {app._count.sessions} session{app._count.sessions !== 1 ? 's' : ''}
+                      </span>
+                      {app.realInterviewDate && (() => {
+                        const days = Math.ceil((new Date(app.realInterviewDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+                        if (days < 0) return null
+                        return (
+                          <Badge variant={days <= 3 ? 'danger' : days <= 7 ? 'warning' : 'info'}>
+                            {days === 0 ? 'Today' : days === 1 ? 'Tomorrow' : `${days}d left`}
+                          </Badge>
+                        )
+                      })()}
+                    </div>
                     <Link
                       href={`/applications/${app.id}`}
                       className="inline-flex items-center gap-1 font-medium text-brand-700 hover:text-brand-800"
