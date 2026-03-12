@@ -1,34 +1,33 @@
 'use client'
 
 import { useState } from 'react'
-import { useSession } from 'next-auth/react'
-import { useRouter } from 'next/navigation'
 
 export default function AdminPage() {
-  const { data: session } = useSession()
-  const router = useRouter()
+  const [token, setToken] = useState('')
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
   const [message, setMessage] = useState('')
 
-  if (!session?.user) {
-    return (
-      <div className="min-h-screen bg-[#1b1b1b] flex items-center justify-center">
-        <p className="text-gray-400">Please sign in first.</p>
-      </div>
-    )
-  }
-
   const handleDbPush = async () => {
+    if (!token.trim()) {
+      setStatus('error')
+      setMessage('Please enter your admin token (your NEXTAUTH_SECRET or AUTH_SECRET value from Vercel env vars)')
+      return
+    }
+
     setStatus('loading')
-    setMessage('Updating database schema... this may take a moment.')
+    setMessage('Updating database schema... this may take up to 60 seconds.')
 
     try {
-      const res = await fetch('/api/admin/db-push', { method: 'POST' })
+      const res = await fetch('/api/admin/db-push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: token.trim() }),
+      })
       const data = await res.json()
 
       if (data.success) {
         setStatus('success')
-        setMessage('Database schema updated successfully!')
+        setMessage('Database schema updated successfully! You can now go to the dashboard.')
       } else {
         setStatus('error')
         setMessage(`Failed: ${data.error || 'Unknown error'}`)
@@ -51,8 +50,17 @@ export default function AdminPage() {
           <div className="bg-[#1b1b1b] rounded-xl p-4">
             <h2 className="text-white text-sm font-medium mb-2">Update Database Schema</h2>
             <p className="text-gray-500 text-xs mb-4">
-              Click this button after deploying new code to sync the database with the latest schema changes.
+              Enter your admin token (the value of NEXTAUTH_SECRET or AUTH_SECRET from your Vercel environment variables) and click Update.
             </p>
+
+            <input
+              type="password"
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              placeholder="Paste your secret token here"
+              className="w-full px-3 py-2.5 rounded-lg bg-[#292929] border border-gray-700 text-white text-sm mb-3 focus:outline-none focus:border-[#5b5fc7]"
+            />
+
             <button
               onClick={handleDbPush}
               disabled={status === 'loading'}
@@ -79,12 +87,12 @@ export default function AdminPage() {
           )}
         </div>
 
-        <button
-          onClick={() => router.push('/dashboard')}
-          className="w-full py-2 text-gray-400 text-sm hover:text-white transition-colors"
+        <a
+          href="/dashboard"
+          className="block w-full py-2 text-gray-400 text-sm hover:text-white transition-colors text-center"
         >
           Back to Dashboard
-        </button>
+        </a>
       </div>
     </div>
   )
