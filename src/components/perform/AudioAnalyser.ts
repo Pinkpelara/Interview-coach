@@ -9,7 +9,7 @@ export class AudioAnalyser {
   private static audioCtx: AudioContext | null = null
   private analyser: AnalyserNode | null = null
   private source: MediaElementAudioSourceNode | null = null
-  private dataArray: Uint8Array<ArrayBuffer> | null = null
+  private dataArray: Uint8Array | null = null
   private connectedElement: HTMLAudioElement | null = null
 
   /** Get or create the shared AudioContext (singleton) */
@@ -46,7 +46,7 @@ export class AudioAnalyser {
     this.analyser = ctx.createAnalyser()
     this.analyser.fftSize = 256
     this.analyser.smoothingTimeConstant = 0.6
-    this.dataArray = new Uint8Array(this.analyser.frequencyBinCount) as Uint8Array<ArrayBuffer>
+    this.dataArray = new Uint8Array(this.analyser.frequencyBinCount)
 
     try {
       this.source = ctx.createMediaElementSource(audioElement)
@@ -68,7 +68,7 @@ export class AudioAnalyser {
   getAmplitude(): number {
     if (!this.analyser || !this.dataArray) return 0
 
-    this.analyser.getByteFrequencyData(this.dataArray)
+    this.analyser.getByteFrequencyData(this.dataArray as Uint8Array<ArrayBuffer>)
 
     // Calculate RMS (root mean square) of frequency data
     let sum = 0
