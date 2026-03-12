@@ -16,7 +16,7 @@ model User {
   fullName        String    @db.VarChar(255)
   emailVerified   Boolean   @default(false)
   verifyToken     String?
-  onboardingDone  Boolean   @default(false)
+  onboardingDone  Boolean   @default(false) @map("onboarded")
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @default(now()) @updatedAt
 
@@ -81,8 +81,8 @@ model ParsedResume {
   applicationId     String      @unique
   application       Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
-  careerTimeline    Json
-  topSkills         Json
+  careerTimeline    Json?
+  topSkills         Json?
   experienceGaps    Json?
   achievements      Json?
   education         Json?
@@ -97,9 +97,9 @@ model ParsedJD {
   applicationId             String      @unique
   application               Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
-  requiredSkills            Json
+  requiredSkills            Json?
   preferredSkills           Json?
-  responsibilities          Json
+  responsibilities          Json?
   seniorityLevel            String?     @db.VarChar(50)
   valuesLanguage            Json?
   redFlagAreas              Json?
@@ -131,13 +131,13 @@ model Question {
 
   questionText    String
   questionType    String      @db.VarChar(30)
-  whyAsked        String
+  whyAsked        String?
   framework       String?     @db.VarChar(20)
-  modelAnswer     String
-  whatNotToSay    String
-  timeGuidanceSec Int?
-  likelyFollowup  String?
-  difficulty      Int
+  modelAnswer     String?
+  whatNotToSay    String?
+  timeGuidanceSec Int?     @map("timeGuidance")
+  likelyFollowup  String?  @map("likelyFollowUp")
+  difficulty      Int         @default(3)
   sortOrder       Int?
 
   userAnswers     UserAnswer[]
@@ -175,11 +175,11 @@ model AnswerFeedback {
   strengths        Json?
   issues           Json?
   missingElements  Json?
-  scoreStructure   Int?
-  scoreSpecificity Int?
-  scoreConfidence  Int?
-  scoreOverall     Int?
-  verdict          String
+  scoreStructure   Int?  @map("structureScore")
+  scoreSpecificity Int?  @map("specificityScore")
+  scoreConfidence  Int?  @map("confidenceScore")
+  scoreOverall     Int?  @map("overallScore")
+  verdict          String?
 
   createdAt        DateTime   @default(now())
 }
@@ -193,11 +193,11 @@ model InterviewSession {
   application       Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
   stage             String    @db.VarChar(30)
-  intensity         String    @db.VarChar(20)
-  targetDurationMin Int
+  intensity         String    @default("standard") @db.VarChar(20)
+  targetDurationMin Int       @default(45) @map("durationMinutes")
   actualDurationMs  BigInt?
   status            String    @default("pending") @db.VarChar(20)
-  characters        Json
+  characters        Json?
   unexpectedEvents  Json?
 
   startedAt         DateTime?
@@ -233,18 +233,18 @@ model SessionAnalysis {
   sessionId             String           @unique
   session               InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
-  momentMap             Json
-  scoreAnswerQuality    Int
-  scoreDelivery         Int
-  scorePressure         Int
-  scoreCompanyFit       Int
-  scoreListening        Int
-  hiringProbability     Int
-  wouldAdvance          Boolean
+  momentMap             Json?
+  scoreAnswerQuality    Int?  @map("answerQuality")
+  scoreDelivery         Int?  @map("deliveryConfidence")
+  scorePressure         Int?  @map("pressureRecovery")
+  scoreCompanyFit       Int?  @map("companyFitLanguage")
+  scoreListening        Int?  @map("listeningAccuracy")
+  hiringProbability     Int?
+  wouldAdvance          Boolean?
   yesReasons            Json?
   noReasons             Json?
   roleComparison        String?
-  nextTargets           Json
+  nextTargets           Json?
   coachAudioUrl         String?          @db.VarChar(500)
   coachScript           String?
 
@@ -257,9 +257,9 @@ model ObserveSession {
   sourceSessionId String
   sourceSession   InterviewSession @relation(fields: [sourceSessionId], references: [id], onDelete: Cascade)
 
-  runType         String           @db.VarChar(20)
-  exchanges       Json
-  annotations     Json
+  runType         String           @db.VarChar(20) @map("type")
+  exchanges       Json?
+  annotations     Json?
   audioUrls       Json?
 
   createdAt       DateTime         @default(now())
@@ -271,14 +271,14 @@ model Subscription {
   userId                String    @unique
   user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  plan                  String    @db.VarChar(20)
-  status                String    @db.VarChar(20)
+  plan                  String    @default("free") @db.VarChar(20)
+  status                String    @default("active") @db.VarChar(20)
   billingCycle          String?   @db.VarChar(20)
   currentPeriodStart    DateTime?
   currentPeriodEnd      DateTime?
   paymentProcessor      String?   @db.VarChar(50)
-  processorCustomerId   String?   @db.VarChar(255)
-  processorSubId        String?   @db.VarChar(255)
+  processorCustomerId   String?   @db.VarChar(255) @map("stripeCustomerId")
+  processorSubId        String?   @db.VarChar(255) @map("stripeSubId")
   sessionsUsedThisMonth Int       @default(0)
 
   createdAt             DateTime  @default(now())
@@ -292,7 +292,7 @@ model CountdownPlan {
   application     Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
   interviewDate   DateTime    @db.Date
-  planData        Json
+  planData        Json?
 
   createdAt       DateTime    @default(now())
 }

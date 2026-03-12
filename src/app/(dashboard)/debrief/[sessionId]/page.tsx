@@ -121,10 +121,10 @@ export default async function DebriefPage({
           <div className="rounded-2xl bg-[#292929] p-6 text-center">
             <p className="text-xs text-gray-400 uppercase tracking-wider mb-2">Hiring Probability</p>
             <p className={`text-5xl font-bold ${
-              analysis.hiringProbability >= 70 ? 'text-emerald-400' :
-              analysis.hiringProbability >= 40 ? 'text-yellow-400' : 'text-red-400'
+              (analysis.hiringProbability ?? 0) >= 70 ? 'text-emerald-400' :
+              (analysis.hiringProbability ?? 0) >= 40 ? 'text-yellow-400' : 'text-red-400'
             }`}>
-              {analysis.hiringProbability}%
+              {analysis.hiringProbability ?? 0}%
             </p>
             <p className={`mt-3 text-lg font-semibold ${analysis.wouldAdvance ? 'text-emerald-400' : 'text-red-400'}`}>
               Would Advance: {analysis.wouldAdvance ? 'YES' : 'NO'}
