@@ -5,16 +5,16 @@ import { prisma } from '@/lib/prisma'
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    const { token, newPassword } = body
+    const { token, password } = body
 
-    if (!token || !newPassword) {
+    if (!token || !password) {
       return NextResponse.json(
         { error: 'Token and new password are required.' },
         { status: 400 }
       )
     }
 
-    if (newPassword.length < 8) {
+    if (password.length < 8) {
       return NextResponse.json(
         { error: 'Password must be at least 8 characters.' },
         { status: 400 }
@@ -32,7 +32,7 @@ export async function POST(request: Request) {
       )
     }
 
-    const hashedPassword = await bcrypt.hash(newPassword, 12)
+    const hashedPassword = await bcrypt.hash(password, 12)
 
     await prisma.user.update({
       where: { id: user.id },
