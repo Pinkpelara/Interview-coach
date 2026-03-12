@@ -413,10 +413,13 @@ export default function InterviewRoomPage() {
     }])
   }, [])
 
+  // Track next character ID from backend (for panel rotation)
+  const nextCharacterIdRef = useRef<string | null>(null)
+
   const sendExchange = useCallback(async (
     candidateText: string,
     characters: Character[],
-    charIndex: number
+    _charIndex: number
   ) => {
     if (!candidateText.trim()) return
 
@@ -431,8 +434,9 @@ export default function InterviewRoomPage() {
       isCandidate: true,
     })
 
-    // Pick which character responds (rotate through panel)
-    const respondingChar = characters[charIndex % characters.length]
+    // Use backend-suggested character, fallback to rotation
+    const respondingCharId = nextCharacterIdRef.current || characters[_charIndex % characters.length]?.id
+    const respondingChar = characters.find(c => c.id === respondingCharId) || characters[0]
 
     try {
       const res = await fetch(`/api/sessions/${sessionId}/exchanges`, {
@@ -456,30 +460,63 @@ export default function InterviewRoomPage() {
       const responseText = data.interviewerExchange?.messageText || 'Could you elaborate on that?'
       const respChar = data.character || respondingChar
 
-      // Archetype silence delay — dead air before responding, like a real interview
-      const silenceMs = getArchetypeSilenceMs(respondingChar.archetype)
+      // A11: Store backend's next character suggestion for the next exchange
+      if (data.nextCharacterId) {
+        nextCharacterIdRef.current = data.nextCharacterId
+      }
+
+      // Use backend-driven silence duration instead of local calculation
+      const silenceMs = data.silenceMs ?? getArchetypeSilenceMs(respondingChar.archetype)
       if (silenceMs > 0) {
         await new Promise(r => setTimeout(r, silenceMs))
       }
 
       // Add interviewer message to chat
+      const actualChar = characters.find(c => c.id === respChar.id) || respondingChar
       addMessage({
         speaker: respChar.id,
         speakerName: respChar.name,
         text: responseText,
-        avatarColor: respondingChar.avatarColor,
+        avatarColor: actualChar.avatarColor,
         isCandidate: false,
       })
 
       // Speak the response via TTS (with archetype for voice styling)
       await speakText(
         responseText,
-        respondingChar.voiceId,
+        actualChar.voiceId,
         speakerEnabledRef.current,
-        () => setActiveSpeakerId(respondingChar.id),
+        () => setActiveSpeakerId(actualChar.id),
         () => setActiveSpeakerId(null),
-        respondingChar.archetype
+        actualChar.archetype
       )
+
+      // A10: Handle session ended from backend
+      if (data.sessionEnded) {
+        // Inline stop listening logic (can't call stopListening — defined later)
+        if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
+        if (recognitionRef.current) {
+          try { recognitionRef.current.abort() } catch { /* ok */ }
+          recognitionRef.current = null
+        }
+        setIsListening(false)
+        setInterimTranscript('')
+        window.speechSynthesis?.cancel()
+        setPhase('ended')
+        mediaStreamRef.current?.getTracks().forEach(t => t.stop())
+        if (timerRef.current) clearInterval(timerRef.current)
+        // Mark session completed on server
+        try {
+          await fetch(`/api/sessions/${sessionId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'completed' }),
+          })
+        } catch { /* best effort */ }
+        setIsProcessing(false)
+        isProcessingRef.current = false
+        return
+      }
     } catch (err) {
       console.error('Exchange failed:', err)
     }
