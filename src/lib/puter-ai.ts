@@ -1,11 +1,11 @@
 import OpenAI from 'openai'
 
 const client = new OpenAI({
-  baseURL: 'https://api.puter.com/puterai/openai/v1/',
-  apiKey: process.env.PUTER_API_TOKEN || '',
+  baseURL: 'https://openrouter.ai/api/v1',
+  apiKey: process.env.OPENROUTER_API_KEY || '',
 })
 
-const MODEL = process.env.PUTER_AI_MODEL || 'gpt-4.1-nano'
+const MODEL = process.env.AI_MODEL || 'google/gemini-2.0-flash-001'
 
 export async function chatCompletion(
   systemPrompt: string,
@@ -41,6 +41,6 @@ export async function chatCompletionJSON<T>(
   return JSON.parse(cleaned)
 }
 
-export function isPuterConfigured(): boolean {
-  return !!process.env.PUTER_API_TOKEN
+export function isAIConfigured(): boolean {
+  return !!process.env.OPENROUTER_API_KEY
 }

@@ -20,7 +20,6 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react'
-import Script from 'next/script'
 import CharacterVideo, { type ExpressionState } from '@/components/perform/CharacterVideo'
 import { AudioAnalyser } from '@/components/perform/AudioAnalyser'
 
@@ -222,141 +221,28 @@ const FALLBACK_VOICE_CONFIG: Record<string, { pitch: number; rate: number }> = {
 }
 
 // ---------------------------------------------------------------------------
-// Speech synthesis hook — Puter.js TTS with AudioContext routing for lip sync
-// Cascade: OpenAI TTS → AWS Polly (default) → Web Speech API
+// Speech synthesis hook — Web Speech API with voice selection
 // ---------------------------------------------------------------------------
-
-function waitForPuter(timeoutMs = 15000): Promise<any> {
-  return new Promise((resolve) => {
-    const start = Date.now()
-    const check = () => {
-      const puter = (window as any).puter
-      if (puter?.ai?.txt2speech) {
-        resolve(puter)
-        return
-      }
-      if (Date.now() - start > timeoutMs) {
-        resolve(null)
-        return
-      }
-      setTimeout(check, 200)
-    }
-    check()
-  })
-}
 
 function useSpeech() {
   const [speaking, setSpeaking] = useState(false)
-  const currentAudioRef = useRef<HTMLAudioElement | null>(null)
   const synthRef = useRef<SpeechSynthesis | null>(null)
-  const puterReadyRef = useRef<any>(null)
   const audioAnalyserRef = useRef<AudioAnalyser>(new AudioAnalyser())
 
   useEffect(() => {
     synthRef.current = window.speechSynthesis
     synthRef.current.getVoices()
-    waitForPuter().then(p => {
-      puterReadyRef.current = p
-      if (p) console.log('Puter.js TTS ready')
-      else console.warn('Puter.js TTS not available, will use Web Speech')
-    })
     return () => {
-      currentAudioRef.current?.pause()
       synthRef.current?.cancel()
       audioAnalyserRef.current.disconnect()
     }
   }, [])
 
   const speak = useCallback((text: string, voiceConfig?: { voice: string; instructions: string }) => {
-    return new Promise<void>(async (resolve) => {
-      // Stop any currently playing audio
-      if (currentAudioRef.current) {
-        currentAudioRef.current.pause()
-        currentAudioRef.current = null
-      }
+    return new Promise<void>((resolve) => {
       synthRef.current?.cancel()
-
       setSpeaking(true)
 
-      // Ensure AudioContext is resumed (browser autoplay policy)
-      await AudioAnalyser.ensureResumed()
-
-      // Helper to play audio from Puter TTS with AudioContext routing
-      const playPuterAudio = (audio: HTMLAudioElement): Promise<void> => {
-        return new Promise((res, rej) => {
-          currentAudioRef.current = audio
-
-          // Route through AudioAnalyser for lip sync
-          try {
-            audioAnalyserRef.current.connect(audio)
-          } catch (e) {
-            console.warn('AudioAnalyser connect failed:', e)
-          }
-
-          audio.onended = () => {
-            setSpeaking(false)
-            currentAudioRef.current = null
-            res()
-          }
-          audio.onerror = () => {
-            currentAudioRef.current = null
-            rej(new Error('audio playback failed'))
-          }
-          audio.play().catch(rej)
-        })
-      }
-
-      // Check if Puter.js is available
-      let puter = puterReadyRef.current
-      if (!puter) {
-        puter = (window as any).puter
-        if (puter?.ai?.txt2speech) puterReadyRef.current = puter
-      }
-
-      if (puter?.ai?.txt2speech) {
-        // Attempt 1: OpenAI TTS via Puter (best quality)
-        if (voiceConfig) {
-          try {
-            const audio = await puter.ai.txt2speech(text, {
-              provider: 'openai',
-              model: 'gpt-4o-mini-tts',
-              voice: voiceConfig.voice || 'alloy',
-              instructions: voiceConfig.instructions || '',
-              response_format: 'mp3',
-            })
-            await playPuterAudio(audio)
-            resolve()
-            return
-          } catch (e) {
-            console.warn('Puter OpenAI TTS failed:', e)
-          }
-        }
-
-        // Attempt 2: AWS Polly via Puter
-        try {
-          const audio = await puter.ai.txt2speech(text, {
-            provider: 'aws',
-            engine: 'neural',
-          })
-          await playPuterAudio(audio)
-          resolve()
-          return
-        } catch (e) {
-          console.warn('Puter AWS TTS failed:', e)
-        }
-
-        // Attempt 3: Puter default
-        try {
-          const audio = await puter.ai.txt2speech(text)
-          await playPuterAudio(audio)
-          resolve()
-          return
-        } catch (e) {
-          console.warn('Puter default TTS failed:', e)
-        }
-      }
-
-      // Last resort: Web Speech API (no AudioAnalyser routing possible)
       if (!synthRef.current) { setSpeaking(false); resolve(); return }
 
       const utterance = new SpeechSynthesisUtterance(text)
@@ -383,10 +269,6 @@ function useSpeech() {
   }, [])
 
   const stop = useCallback(() => {
-    if (currentAudioRef.current) {
-      currentAudioRef.current.pause()
-      currentAudioRef.current = null
-    }
     synthRef.current?.cancel()
     audioAnalyserRef.current.disconnect()
     setSpeaking(false)
@@ -1439,8 +1321,6 @@ export default function InterviewRoomPage() {
         </button>
       </div>
 
-      {/* Puter.js for OpenAI TTS */}
-      <Script src="https://js.puter.com/v2/" strategy="beforeInteractive" />
 
       {/* Hidden video element for camera stream */}
       {cameraActive && (

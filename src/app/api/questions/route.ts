@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { chatCompletionJSON, isPuterConfigured } from '@/lib/puter-ai'
+import { chatCompletionJSON, isAIConfigured } from '@/lib/puter-ai'
 
 interface QuestionTemplate {
   questionText: string
@@ -224,7 +224,7 @@ export async function POST(request: Request) {
 
     // Generate questions using AI (with fallback)
     let questionTemplates: QuestionTemplate[]
-    if (isPuterConfigured()) {
+    if (isAIConfigured()) {
       try {
         questionTemplates = await generateQuestionsWithAI(
           application.companyName,

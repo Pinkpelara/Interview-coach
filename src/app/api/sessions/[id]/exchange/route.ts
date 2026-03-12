@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { chatCompletion, isPuterConfigured } from '@/lib/puter-ai'
+import { chatCompletion, isAIConfigured } from '@/lib/puter-ai'
 
 interface Character {
   id: string
@@ -357,7 +357,7 @@ export async function POST(
 
     // Generate AI response with full context
     let responseText: string
-    if (isPuterConfigured()) {
+    if (isAIConfigured()) {
       try {
         responseText = await generateResponseWithAI(
           respondingCharacter.archetype,

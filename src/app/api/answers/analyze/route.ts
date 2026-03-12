@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { chatCompletionJSON, isPuterConfigured } from '@/lib/puter-ai'
+import { chatCompletionJSON, isAIConfigured } from '@/lib/puter-ai'
 
 interface AnalysisResult {
   strengths: string[]
@@ -45,7 +45,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Question not found' }, { status: 404 })
     }
 
-    if (!isPuterConfigured()) {
+    if (!isAIConfigured()) {
       // Return smart fallback analysis
       const wordCount = answerText.trim().split(/\s+/).length
       const hasNumbers = /\d+/.test(answerText)

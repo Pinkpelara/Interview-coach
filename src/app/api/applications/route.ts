@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { chatCompletionJSON, isPuterConfigured } from '@/lib/puter-ai'
+import { chatCompletionJSON, isAIConfigured } from '@/lib/puter-ai'
 
 export async function GET() {
   try {
@@ -70,7 +70,7 @@ export async function POST(request: Request) {
     let missingKeywords: string
     let probeAreas: string
 
-    if (isPuterConfigured()) {
+    if (isAIConfigured()) {
       try {
         const analysis = await chatCompletionJSON<{
           alignmentScore: number

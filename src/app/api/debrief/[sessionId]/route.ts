@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { chatCompletionJSON, chatCompletion, isPuterConfigured } from '@/lib/puter-ai'
+import { chatCompletionJSON, chatCompletion, isAIConfigured } from '@/lib/puter-ai'
 
 function randomInt(min: number, max: number) {
   return Math.floor(Math.random() * (max - min + 1)) + min
@@ -145,7 +145,7 @@ export async function GET(
       .join('\n')
       .slice(0, 3000)
 
-    if (isPuterConfigured() && exchangeText.length > 0) {
+    if (isAIConfigured() && exchangeText.length > 0) {
       try {
         const [scoresResult, coachResult] = await Promise.all([
           chatCompletionJSON<{
