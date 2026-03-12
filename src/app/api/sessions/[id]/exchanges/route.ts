@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { chatCompletion, chatCompletionJSON, isAIConfigured } from '@/lib/ai-gateway'
+import { chatCompletion, isAIConfigured } from '@/lib/ai-gateway'
 
 export const dynamic = 'force-dynamic'
 
@@ -11,113 +11,89 @@ interface Character {
   name: string
   title: string
   archetype: string
+  avatarColor?: string
   voiceId?: string
 }
 
-// ---------------------------------------------------------------------------
-// QuestionState — explicit tracking replaces estimated index
-// ---------------------------------------------------------------------------
+interface QuestionPlanItem {
+  questionText: string
+  questionType: string
+  priority: number
+  ownerId: string
+  ownerArchetype: string
+}
 
 interface QuestionState {
   currentQuestionIndex: number
   followUpCount: number
-  maxFollowUps: number
   sessionShouldEnd: boolean
-  lastTransitionExchangeNum: number
 }
 
 // ---------------------------------------------------------------------------
-// Answer evaluation result from LLM
-// ---------------------------------------------------------------------------
-
-interface AnswerEvaluation {
-  answered: boolean
-  vague: boolean
-  hasOutcome: boolean
-  hasOwnership: boolean
-  readyToMoveOn: boolean
-  followUpType: 'probe_deeper' | 'ask_outcome' | 'ask_ownership' | 'move_on' | 'wrap_up'
-}
-
-// ---------------------------------------------------------------------------
-// Full archetype behavioral prompts (B4)
+// Full archetype behavioral prompts (spec 1.3)
 // ---------------------------------------------------------------------------
 
 const ARCHETYPE_FULL_PROMPTS: Record<string, string> = {
-  skeptic: `You are The Skeptic.
-PERSONALITY: Direct, measured, unimpressed. You've seen candidates exaggerate hundreds of times.
-BEHAVIOR RULES:
-- Never say "great answer", "that's interesting", or any praise. You are not here to make them comfortable.
-- After ANY broad claim, immediately ask for specifics: numbers, timelines, percentages, exact role.
-- If they say "we" — ask "What was YOUR specific contribution?"
-- If they give a number, challenge it: "How did you measure that?" or "What was the baseline?"
-- Push for measurable outcomes on every answer. Vague = unacceptable.
-- Keep tone professional but cold. You respect evidence, not enthusiasm.
-RESPONSE LENGTH: 1-2 sentences. Never more than 3.
-FORBIDDEN PHRASES: "That's great", "I love that", "Wonderful", "Thanks for sharing"
-TYPICAL PHRASES: "Be specific.", "What was your exact role?", "What was the measurable outcome?", "Walk me through the decision.", "How do you know that worked?"`,
 
-  friendly_champion: `You are The Friendly Champion.
-PERSONALITY: Warm, genuinely enthusiastic, but strategically so. You use warmth to get candidates to over-share and reveal depth.
-BEHAVIOR RULES:
-- Start warm: "That's a really interesting background" / "I love that you mentioned..."
-- After warmth, probe: "Tell me more about HOW you actually did that"
-- Use encouragement to extract specifics they wouldn't give a cold interviewer
-- After a strong answer, ask ONE focused challenge: "What would you do differently?"
-- If the answer is surface-level, gently redirect: "I'd love to hear more specifics about..."
-- Build rapport but don't let the candidate coast on charm
-RESPONSE LENGTH: 1-3 sentences. Conversational pace.
-TYPICAL PHRASES: "That's really interesting, tell me more about...", "I love that example!", "How did the team respond?", "What would you do differently looking back?"`,
+  skeptic: `You are The Skeptic interviewer.
+BEHAVIOR:
+- Ask for specifics after broad claims
+- Push for numbers, percentages, timelines
+- Challenge "we did" by asking for personal role
+- Tone: direct, measured, professional — not warm, not hostile
+- NEVER affirm. Never say "great", "interesting", "thanks for sharing", "I appreciate that"
+- If answer is vague, re-ask: "I need you to be more specific about [X]."
+PHRASING: "Be specific.", "What was your role exactly?", "Walk me through the numbers.", "What was the measurable outcome?"
+NEVER SAY: "Great", "Love that", "Awesome", "That's really interesting"
+RESPONSE LENGTH: 1-2 sentences. Max 3.`,
 
-  technical_griller: `You are The Technical Griller.
-PERSONALITY: Precise, analytical, zero tolerance for hand-waving. You care about HOW things work, not what they are.
-BEHAVIOR RULES:
-- No pleasantries. No "thanks for that." Jump straight to the technical probe.
-- If the answer is vague, ask the EXACT same question again more specifically.
-- Ask about: methodology, tradeoffs, edge cases, failure modes, scale considerations
-- Demand implementation details: "Walk me through exactly how you built that"
-- Challenge architecture decisions: "Why that approach over [alternative]?"
-- If they can't explain it clearly, they probably didn't build it.
-RESPONSE LENGTH: 1-2 sentences. Direct and pointed.
-FORBIDDEN PHRASES: "Thanks", "That's helpful", "I appreciate that"
-TYPICAL PHRASES: "Walk me through exactly how you implemented that.", "What tradeoffs did you consider?", "How did you handle edge cases?", "Why not [alternative approach]?", "What happens when that fails?"`,
+  friendly_champion: `You are The Friendly Champion interviewer.
+BEHAVIOR:
+- Warm, encouraging, genuine
+- Use "tell me more" to get them talking — this is strategic
+- After a long answer, ask ONE sharp follow-up about an edge case or inconsistency
+- Show you're listening by referencing specific things they said
+- You like the candidate but you're still evaluating
+PHRASING: "Tell me more about that.", "That's a great example — what would you have done differently if [constraint changed]?", "Oh interesting, and then what happened?"
+RESPONSE LENGTH: 1-3 sentences. Warm but concise.`,
 
-  distracted_senior: `You are The Distracted Senior.
-PERSONALITY: Busy VP/C-level who triple-booked this interview. You care about big-picture impact and ROI, not details.
-BEHAVIOR RULES:
-- Occasionally seem distracted: "Sorry, you were saying..." / "Right, right..."
-- Interrupt mid-answer to pivot: "That's fine, but what I really want to understand is..."
-- Test if candidate can communicate concisely to an executive who isn't fully paying attention
-- Care about: business impact, strategic thinking, leadership, scale of influence
-- Ignore technical details — wave them off: "I'll take your word on the tech side"
-- Occasionally ask sharp, insightful questions that show you were actually listening
-- End with one unexpectedly precise question that references something they said earlier
-RESPONSE LENGTH: 1-2 sentences. Sometimes trail off mid-thought.
-TYPICAL PHRASES: "Right, right...", "Let's fast-forward.", "What was the business impact?", "Sorry, say that again?", "Bottom line it for me."`,
+  technical_griller: `You are The Technical Griller interviewer.
+BEHAVIOR:
+- Zero pleasantries. Zero warmth. Immediate question, no warmup.
+- Ask about methodology, tradeoffs, edge cases, failure handling
+- If vague, repeat the EXACT same question: "That's not what I asked. [repeat verbatim]"
+- Focus on what went WRONG, not just right
+- Ask about tradeoffs: "What did you consider and reject?"
+PHRASING: "Walk me through the implementation.", "What tradeoffs did you consider?", "How did you handle the failure case?", "That's not what I asked."
+NEVER SAY: "Great job", "Nice", any encouragement
+RESPONSE LENGTH: 1-2 sentences. Blunt.`,
 
-  culture_fit: `You are The Culture Fit Assessor.
-PERSONALITY: Warm, thoughtful, genuinely curious about people. You're evaluating whether this person will thrive on the team.
-BEHAVIOR RULES:
-- Focus on: values, collaboration style, conflict handling, communication, adaptability
-- Ask about relationships: "How would your closest colleague describe you?"
-- Probe conflict: "Tell me about a time you disagreed with your manager"
-- Look for self-awareness: "What's the hardest feedback you've received?"
-- Avoid technical depth — redirect to interpersonal dynamics
-- Listen for language that signals alignment or mismatch with team culture
-- Explore how they handle ambiguity and change
-RESPONSE LENGTH: 1-3 sentences. Relaxed, conversational.
-TYPICAL PHRASES: "How would your team describe your working style?", "What kind of environment brings out your best?", "Tell me about a time you went above and beyond for a colleague."`,
+  distracted_senior: `You are The Distracted Senior interviewer.
+BEHAVIOR:
+- Occasionally ask candidate to repeat: "Sorry, say that again?"
+- Shift between brief engagement and abrupt topic pivots
+- Care about big picture / strategic vision, not tactical details
+- Cut answers short: "Yeah I get it. But what about [different angle]?"
+- Your LAST question should be sharp and prove you were paying attention all along
+PHRASING: "Sorry, can you repeat that?", "Right, right... so what's the strategic angle?", "Where do you see this in 3 years?"
+RESPONSE LENGTH: 1-2 sentences, sometimes cut short.`,
 
-  silent_observer: `You are The Silent Observer.
-PERSONALITY: Quiet, watchful, intimidating through presence rather than words. You take notes and say almost nothing.
-BEHAVIOR RULES:
-- Respond with minimal acknowledgements: "...", "*nods*", "Hmm.", "I see.", "Interesting."
-- Do NOT ask questions until the final turn. Just observe.
-- Your silence creates social pressure — that's intentional.
-- When you finally speak (last turn only), ask ONE sharp question that references something specific from earlier in the conversation.
-- That final question should be surprising and insightful — show you were listening to everything.
-RESPONSE LENGTH: 1-10 words MAXIMUM. Until final turn, then 1-2 full sentences.
-TYPICAL PHRASES: "...", "*nods slowly*", "Hmm.", "I see.", "Interesting.", "Go on."`,
+  culture_fit: `You are The Culture Fit Assessor interviewer.
+BEHAVIOR:
+- Relaxed, conversational, warm. NEVER technical.
+- Focus on values, collaboration, conflict, communication style
+- Probe word choices: "You said 'pushed back' — tell me more about how you handle disagreements"
+- Ask about team dynamics, not individual achievement
+PHRASING: "How would your colleagues describe you?", "Tell me about a time you had to compromise.", "What kind of environment brings out your best work?"
+NEVER ASK: Technical questions, system design, coding, architecture
+RESPONSE LENGTH: 1-2 sentences. Conversational.`,
+
+  silent_observer: `You are The Silent Observer interviewer.
+BEHAVIOR:
+- You DO NOT SPEAK during the interview. Respond only with "..." or "*nods*"
+- EXCEPTION: When explicitly told this is your final turn, ask ONE sharp question referencing something specific from early in the interview that connects to something said recently.
+BEFORE FINAL TURN: "..." — nothing else
+FINAL TURN: Exactly 1 sentence. Sharp. Unexpected. Shows you were listening the entire time.`,
 }
 
 // Silence duration ranges per archetype [min_ms, max_ms]
@@ -128,16 +104,6 @@ const ARCHETYPE_SILENCE_MS: Record<string, [number, number]> = {
   distracted_senior: [1000, 8000],
   culture_fit: [2000, 3000],
   silent_observer: [0, 0],
-}
-
-// Question type to preferred archetype mapping for panel rotation
-const QUESTION_TYPE_ARCHETYPE_MAP: Record<string, string[]> = {
-  behavioral: ['friendly_champion', 'culture_fit', 'skeptic'],
-  technical: ['technical_griller', 'skeptic'],
-  situational: ['skeptic', 'friendly_champion'],
-  cultural: ['culture_fit', 'friendly_champion'],
-  strategic: ['distracted_senior', 'skeptic'],
-  closing: ['friendly_champion', 'culture_fit'],
 }
 
 const FALLBACK_RESPONSES: Record<string, string[]> = {
@@ -174,47 +140,8 @@ function randomFrom<T>(arr: T[]): T {
 }
 
 // ---------------------------------------------------------------------------
-// B7: Pick next speaker based on question type and available characters
+// POST — exchange endpoint with owner-based conversation flow
 // ---------------------------------------------------------------------------
-
-function pickNextSpeaker(
-  questionType: string,
-  characters: Character[],
-  lastSpeakerId: string | null
-): Character {
-  const preferred = QUESTION_TYPE_ARCHETYPE_MAP[questionType] || QUESTION_TYPE_ARCHETYPE_MAP.behavioral
-  // Find a character matching the preferred archetype order, avoiding the last speaker
-  for (const archetype of preferred) {
-    const match = characters.find(c => c.archetype === archetype && c.id !== lastSpeakerId)
-    if (match) return match
-  }
-  // Fallback: any character that isn't the last speaker
-  const others = characters.filter(c => c.id !== lastSpeakerId)
-  if (others.length > 0) return others[0]
-  return characters[0]
-}
-
-// ---------------------------------------------------------------------------
-// B6: Check if session should end
-// ---------------------------------------------------------------------------
-
-function shouldEndSession(
-  questionState: QuestionState,
-  questionPlanLength: number,
-  elapsedMs: number,
-  targetDurationMin: number
-): boolean {
-  // Already flagged
-  if (questionState.sessionShouldEnd) return true
-  // All questions exhausted
-  if (questionState.currentQuestionIndex >= questionPlanLength) return true
-  // Exceeded target duration by 20%
-  const targetMs = targetDurationMin * 60 * 1000
-  if (targetMs > 0 && elapsedMs > targetMs * 1.2) return true
-  // Within 90% of target and past 80% of questions
-  if (targetMs > 0 && elapsedMs > targetMs * 0.9 && questionState.currentQuestionIndex >= questionPlanLength * 0.8) return true
-  return false
-}
 
 export async function POST(
   request: Request,
@@ -229,7 +156,7 @@ export async function POST(
     const userId = (session.user as { id: string }).id
     const sessionId = params.id
     const body = await request.json()
-    const { messageText, characterId } = body
+    const { messageText } = body
 
     if (!messageText?.trim()) {
       return NextResponse.json({ error: 'Message text is required' }, { status: 400 })
@@ -263,7 +190,7 @@ export async function POST(
       )
     }
 
-    // Parse characters (Json field)
+    // Parse characters
     const characters: Character[] = Array.isArray(interviewSession.characters)
       ? (interviewSession.characters as unknown as Character[])
       : []
@@ -278,48 +205,229 @@ export async function POST(
       ? interviewSession.startedAt.getTime()
       : now
     const elapsedMs = now - sessionStartMs
-    const targetDurationMin = (interviewSession as unknown as { targetDurationMin?: number }).targetDurationMin || 30
+    const targetDurationMin = (interviewSession as unknown as { targetDurationMin?: number }).targetDurationMin || 45
 
-    // Extract session state from unexpectedEvents
+    // -----------------------------------------------------------------------
+    // Step 1: Read session state
+    // -----------------------------------------------------------------------
+
     const sessionEvents = (interviewSession.unexpectedEvents as Record<string, unknown>) || {}
-    const questionPlan = (sessionEvents.questionPlan as Array<{ questionText: string; questionType: string; priority: number }>) || []
+    const questionPlan = (sessionEvents.questionPlan as QuestionPlanItem[]) || []
 
-    // B1: Load or initialize explicit QuestionState
-    let questionState: QuestionState = (sessionEvents.questionState as QuestionState) || {
+    const questionState: QuestionState = (sessionEvents.questionState as QuestionState) || {
       currentQuestionIndex: 0,
       followUpCount: 0,
-      maxFollowUps: 3,
       sessionShouldEnd: false,
-      lastTransitionExchangeNum: 0,
     }
-
-    // Build conversation history from recent exchanges
-    const recentExchanges = interviewSession.exchanges.slice().reverse()
-    const conversationHistory = recentExchanges
-      .map((ex) => {
-        const speakerLabel = ex.speaker === 'candidate'
-          ? 'Candidate'
-          : characters.find(c => c.id === ex.characterId)?.name || 'Interviewer'
-        return `${speakerLabel}: ${ex.messageText}`
-      })
-      .join('\n')
 
     const currentQuestion = questionPlan[questionState.currentQuestionIndex]
     const nextQuestion = questionPlan[questionState.currentQuestionIndex + 1]
 
-    // Determine last speaker character ID from most recent interviewer exchange
-    const lastInterviewerExchange = recentExchanges.find(e => e.speaker === 'interviewer')
-    const lastSpeakerId = lastInterviewerExchange?.characterId || null
+    // -----------------------------------------------------------------------
+    // Step 2: Determine the responding character (OWNER responds, not rotation)
+    // -----------------------------------------------------------------------
 
-    // B7: Pick responding character — use panel rotation based on current question type
-    let respondingCharacter: Character
-    if (characterId) {
-      respondingCharacter = characters.find((c) => c.id === characterId) || characters[0]
-    } else if (currentQuestion) {
-      respondingCharacter = pickNextSpeaker(currentQuestion.questionType, characters, lastSpeakerId)
+    let respondingCharacter: Character | undefined
+
+    if (questionState.followUpCount === 0) {
+      // First exchange on this question — the OWNER responds
+      respondingCharacter = characters.find(c => c.id === currentQuestion?.ownerId)
     } else {
-      respondingCharacter = characters[0]
+      // Follow-up: usually the same owner. 10% chance a different panelist jumps in.
+      const jumpInChance = Math.random()
+      if (jumpInChance < 0.10 && characters.length > 1) {
+        const otherCharacters = characters.filter(c =>
+          c.id !== currentQuestion?.ownerId && c.archetype !== 'silent_observer'
+        )
+        if (otherCharacters.length > 0) {
+          respondingCharacter = otherCharacters[Math.floor(Math.random() * otherCharacters.length)]
+        }
+      }
+      if (!respondingCharacter) {
+        respondingCharacter = characters.find(c => c.id === currentQuestion?.ownerId)
+      }
     }
+
+    // Fallback
+    if (!respondingCharacter) {
+      respondingCharacter = characters.find(c => c.archetype !== 'silent_observer') || characters[0]
+    }
+
+    // -----------------------------------------------------------------------
+    // Step 3: Decide follow-up vs move-on (weighted randomness, NO LLM call)
+    // -----------------------------------------------------------------------
+
+    let shouldMoveOn = true // DEFAULT is move on
+    let followUpHint = ''
+
+    if (questionState.followUpCount >= 2) {
+      // Already had 2 follow-ups. Always move on.
+      shouldMoveOn = true
+    } else if (questionState.followUpCount === 0) {
+      // First answer. Usually move on, sometimes follow up (~25-30% based on quality).
+      const candidateText = messageText.toLowerCase()
+      const wordCount = messageText.trim().split(/\s+/).length
+
+      const isVeryShort = wordCount < 20
+      const usesWeLanguage = /\bwe\b/.test(candidateText) && !/\bi\b/.test(candidateText)
+      const isVague = /\b(sort of|kind of|i think|i guess|maybe|probably|stuff|things)\b/.test(candidateText)
+      const hasNoNumbers = !/\d/.test(candidateText)
+
+      let followUpProbability = 0.15 // base 15%
+      if (isVeryShort) { followUpProbability += 0.35; followUpHint = 'The answer was very brief. Ask them to elaborate.' }
+      else if (usesWeLanguage) { followUpProbability += 0.25; followUpHint = 'They used "we" without "I". Ask about their personal role.' }
+      else if (isVague && hasNoNumbers) { followUpProbability += 0.20; followUpHint = 'The answer was vague with no specifics. Push for concrete details.' }
+      else if (isVague) { followUpProbability += 0.10; followUpHint = 'Somewhat vague. Could probe for specifics.' }
+
+      // Archetype modifier
+      if (respondingCharacter.archetype === 'skeptic') followUpProbability += 0.15
+      if (respondingCharacter.archetype === 'technical_griller') followUpProbability += 0.20
+      if (respondingCharacter.archetype === 'friendly_champion') followUpProbability += 0.05
+
+      followUpProbability = Math.min(followUpProbability, 0.70)
+      shouldMoveOn = Math.random() > followUpProbability
+    } else {
+      // Already had 1 follow-up. 80% chance to move on now.
+      shouldMoveOn = Math.random() < 0.80
+    }
+
+    // -----------------------------------------------------------------------
+    // Step 4: Build the system prompt
+    // -----------------------------------------------------------------------
+
+    const archetypePrompt = ARCHETYPE_FULL_PROMPTS[respondingCharacter.archetype] || ARCHETYPE_FULL_PROMPTS.friendly_champion
+    const app = interviewSession.application
+
+    // Build conversation history (chronological)
+    const history = interviewSession.exchanges
+      .slice()
+      .reverse()
+      .map(ex => {
+        if (ex.speaker === 'candidate') return `Candidate: ${ex.messageText}`
+        const charName = characters.find(c => c.id === ex.characterId)?.name || 'Interviewer'
+        return `${charName}: ${ex.messageText}`
+      })
+      .join('\n')
+
+    // Build action instruction
+    let actionInstruction = ''
+
+    if (shouldMoveOn && nextQuestion) {
+      const nextOwner = characters.find(c => c.id === nextQuestion.ownerId)
+      const isSameOwner = nextQuestion.ownerId === respondingCharacter.id
+
+      if (isSameOwner) {
+        actionInstruction = `ACTION: You are done with the current question. Transition to your next question.
+Your next question: "${nextQuestion.questionText}"
+- Acknowledge the answer briefly (1 short sentence max, or just transition directly)
+- Then ask your next question naturally
+- Do NOT say "next question" or "moving on" or "let's switch gears"
+- Keep total response to 2-3 sentences`
+      } else {
+        actionInstruction = `ACTION: You are done with this question. Wrap up briefly.
+- Give a brief acknowledgment (1 sentence max) like "Thanks" or "Got it" or just nod
+- Do NOT ask another question — the next question belongs to ${nextOwner?.name || 'another panelist'}
+- Keep response to 1 sentence max`
+      }
+    } else if (shouldMoveOn && !nextQuestion) {
+      actionInstruction = `ACTION: This was the last question. Wrap up the interview.
+- Thank the candidate for their time
+- Mention one specific thing from the interview that stood out
+- Say the team will be in touch
+- Keep to 2-3 sentences`
+    } else {
+      // Follow up
+      if (followUpHint) {
+        actionInstruction = `ACTION: Follow up on this question. ${followUpHint}
+- Stay on the same topic
+- Reference something specific the candidate just said
+- Keep to 1-2 sentences max
+- Do NOT start a new topic`
+      } else {
+        actionInstruction = `ACTION: Ask one brief follow-up about the most interesting or unclear part of their answer.
+- Stay on the same topic
+- Keep to 1-2 sentences max`
+      }
+    }
+
+    // Check if a different panelist is jumping in
+    const isJumpIn = respondingCharacter.id !== currentQuestion?.ownerId
+    let jumpInPrefix = ''
+    if (isJumpIn && !shouldMoveOn) {
+      const ownerName = characters.find(c => c.id === currentQuestion?.ownerId)?.name || 'the previous interviewer'
+      jumpInPrefix = `You are jumping in on ${ownerName}'s question. Start with something like "Just to add to that —" or "I'm curious about something you mentioned —" to make it natural. Keep it brief (1 sentence question).`
+    }
+
+    // -----------------------------------------------------------------------
+    // Step 5: Handle session ending
+    // -----------------------------------------------------------------------
+
+    const targetMs = targetDurationMin * 60 * 1000
+    let sessionEnded = false
+
+    if (shouldMoveOn && !nextQuestion) {
+      sessionEnded = true
+    } else if (elapsedMs >= targetMs && shouldMoveOn) {
+      sessionEnded = true
+    }
+
+    // Silent Observer gets one final question before ending
+    const silentObserver = characters.find(c => c.archetype === 'silent_observer')
+    if (sessionEnded && silentObserver && !questionState.sessionShouldEnd) {
+      const observerHasSpoken = interviewSession.exchanges.some(
+        e => e.characterId === silentObserver.id && e.messageText.length > 10
+      )
+      if (!observerHasSpoken) {
+        // Override: Silent Observer speaks BEFORE closing
+        respondingCharacter = silentObserver
+        sessionEnded = false // delay by one more exchange
+        actionInstruction = `ACTION: This is your ONE moment to speak. The interview is about to end. Ask ONE pointed question that references something specific the candidate said early in the interview. Show you were listening the entire time. One sentence only.`
+        jumpInPrefix = ''
+        // Mark that we've given the observer their turn
+        questionState.sessionShouldEnd = true
+      }
+    }
+
+    // If observer already spoke and we're ending
+    if (questionState.sessionShouldEnd && shouldMoveOn) {
+      sessionEnded = true
+      // Override to friendly closer
+      const closer = characters.find(c => c.archetype === 'friendly_champion') ||
+        characters.find(c => c.archetype !== 'silent_observer') || characters[0]
+      if (respondingCharacter.archetype === 'silent_observer') {
+        respondingCharacter = closer
+      }
+      actionInstruction = `ACTION: This was the last question. Wrap up the interview.
+- Thank the candidate for their time
+- Mention one specific thing from the interview that stood out
+- Say the team will be in touch
+- Keep to 2-3 sentences`
+    }
+
+    const systemPrompt = `${archetypePrompt}
+
+YOU ARE: ${respondingCharacter.name}, ${respondingCharacter.title}
+COMPANY: ${app.companyName}
+ROLE: ${app.jobTitle}
+
+CONVERSATION SO FAR:
+${history || '(Interview just started)'}
+
+CURRENT QUESTION (#${questionState.currentQuestionIndex + 1} of ${questionPlan.length}): "${currentQuestion?.questionText || 'General question'}"
+${jumpInPrefix}
+
+${actionInstruction}
+
+RULES:
+- Stay in character. Never break character or mention AI/simulation.
+- React to what the candidate ACTUALLY said. Reference their words.
+- Keep total response to 1-3 sentences max. Real interviewers are concise.
+- Do NOT start with "That's a great question" or "Thanks for sharing that" unless your archetype specifically allows warmth.
+- If the candidate asks YOU a question, answer briefly in character, then continue with your action.`
+
+    // -----------------------------------------------------------------------
+    // Step 6: Generate response
+    // -----------------------------------------------------------------------
 
     // Create candidate exchange
     const candidateExchange = await prisma.sessionExchange.create({
@@ -333,159 +441,20 @@ export async function POST(
       },
     })
 
-    // B2: Evaluate the candidate's answer using LLM
-    let evaluation: AnswerEvaluation = {
-      answered: true,
-      vague: false,
-      hasOutcome: true,
-      hasOwnership: true,
-      readyToMoveOn: true,
-      followUpType: 'move_on',
-    }
-
-    if (isAIConfigured() && currentQuestion) {
-      try {
-        evaluation = await chatCompletionJSON<AnswerEvaluation>(
-          `You are an interview evaluation assistant. Analyze the candidate's answer to the question: "${currentQuestion.questionText}"
-
-Return a JSON object with these fields:
-- answered (boolean): Did they actually address the question?
-- vague (boolean): Was the answer lacking specifics, numbers, or concrete examples?
-- hasOutcome (boolean): Did they mention measurable results or outcomes?
-- hasOwnership (boolean): Did they describe their personal contribution (not just "we")?
-- readyToMoveOn (boolean): Is the answer sufficient to move to the next question?
-- followUpType (string): One of "probe_deeper", "ask_outcome", "ask_ownership", "move_on", "wrap_up"
-
-Decision rules:
-- If vague AND followUpCount < 3 → probe_deeper
-- If !hasOutcome → ask_outcome
-- If !hasOwnership → ask_ownership
-- If answered AND (hasOutcome OR followUpCount >= 2) → move_on
-- Default to move_on if unclear`,
-          `Question asked: "${currentQuestion.questionText}"
-Candidate's answer: "${messageText}"
-Follow-ups already asked on this question: ${questionState.followUpCount}`,
-          {
-            temperature: 0.3,
-            maxTokens: 200,
-            taskType: 'live_followup',
-          }
-        )
-      } catch {
-        // Default: move on if evaluation fails
-        evaluation.readyToMoveOn = questionState.followUpCount >= 2
-        evaluation.followUpType = evaluation.readyToMoveOn ? 'move_on' : 'probe_deeper'
-      }
-    }
-
-    // B3: Decide follow-up vs move-on and build transition instruction
-    let transitionInstruction = ''
-    const isLastQuestion = questionState.currentQuestionIndex >= questionPlan.length - 1
-
-    // B6: Check session ending
-    const sessionShouldEnd = shouldEndSession(questionState, questionPlan.length, elapsedMs, targetDurationMin)
-
-    if (sessionShouldEnd || (isLastQuestion && evaluation.readyToMoveOn)) {
-      // Handle silent observer's final question
-      const silentObserver = characters.find(c => c.archetype === 'silent_observer')
-      if (silentObserver && silentObserver.id !== respondingCharacter.id && !questionState.sessionShouldEnd) {
-        // Let silent observer ask their one sharp question before ending
-        respondingCharacter = silentObserver
-        transitionInstruction = `IMPORTANT: This is your ONE moment to speak. You have been silent the entire interview, observing everything. Now ask ONE sharp, specific question that references something the candidate said earlier. Show you were listening. Then the interview will wrap up. Make it count.`
-        questionState.sessionShouldEnd = true
-      } else {
-        transitionInstruction = `The interview is wrapping up. Thank the candidate warmly, mention that the team enjoyed speaking with them, and close naturally. Do NOT ask another question.`
-        questionState.sessionShouldEnd = true
-      }
-    } else if (evaluation.followUpType === 'move_on' || evaluation.readyToMoveOn) {
-      // Move to next question
-      questionState.currentQuestionIndex++
-      questionState.followUpCount = 0
-      questionState.lastTransitionExchangeNum = lastSequence + 2
-
-      if (nextQuestion) {
-        // B7: Pick speaker for next question
-        if (!characterId) {
-          respondingCharacter = pickNextSpeaker(nextQuestion.questionType, characters, lastSpeakerId)
-        }
-        transitionInstruction = `TRANSITION: The candidate has adequately answered the previous question. Naturally transition to the next topic: "${nextQuestion.questionText}"
-Do NOT say "next question" or "moving on". Use natural phrases like:
-- "That's helpful. I'd also like to understand..."
-- "Great. Shifting gears a bit..."
-- "Thanks for sharing that. Let me ask about..."
-- "Appreciate that perspective. On a different note..."
-Briefly acknowledge their last answer, then ask the new question.`
-      }
-    } else {
-      // Follow up on current question
-      questionState.followUpCount++
-      const followUpInstructions: Record<string, string> = {
-        probe_deeper: `The candidate's answer was vague. Ask a specific follow-up to dig deeper. Ask for concrete examples, specific numbers, or detailed steps.`,
-        ask_outcome: `The candidate didn't mention measurable outcomes. Ask specifically about results: "What was the measurable impact?" or "How did you know it was successful?"`,
-        ask_ownership: `The candidate used "we" language without clarifying their role. Ask: "What was YOUR specific contribution?" or "What decisions did YOU make?"`,
-        wrap_up: transitionInstruction,
-      }
-      transitionInstruction = followUpInstructions[evaluation.followUpType] || followUpInstructions.probe_deeper
-    }
-
-    // Generate AI response
     let responseText: string
+
     if (isAIConfigured()) {
       try {
-        const archPrompt = ARCHETYPE_FULL_PROMPTS[respondingCharacter.archetype] || ARCHETYPE_FULL_PROMPTS.friendly_champion
-        const app = interviewSession.application
-
-        // B5: Build complete system prompt with all context
-        const questionPlanSection = questionPlan.length > 0
-          ? questionPlan
-              .map((q, i) => {
-                const marker = i === questionState.currentQuestionIndex ? '→ CURRENT' :
-                              i < questionState.currentQuestionIndex ? '✓ ASKED' : '  UPCOMING'
-                return `  ${i + 1}. [${q.questionType.toUpperCase()}] ${q.questionText} ${marker}`
-              })
-              .join('\n')
-          : ''
-
-        const systemPrompt = `You are ${respondingCharacter.name}, ${respondingCharacter.title}, conducting a panel interview at ${app.companyName} for the ${app.jobTitle} position.
-
-${archPrompt}
-
-INTERVIEW CONTEXT:
-- Company: ${app.companyName}
-- Role: ${app.jobTitle}
-${app.jdText ? `- Job Description highlights: ${app.jdText.slice(0, 500)}` : ''}
-- Interview elapsed: ${Math.floor(elapsedMs / 60000)} minutes
-- Target duration: ${targetDurationMin} minutes
-
-${questionPlanSection ? `QUESTION PLAN:\n${questionPlanSection}` : ''}
-
-CURRENT STATE:
-- Question ${questionState.currentQuestionIndex + 1} of ${questionPlan.length}: "${currentQuestion?.questionText || 'general discussion'}"
-- Follow-ups on this question: ${questionState.followUpCount}
-
-${transitionInstruction ? `\nYOUR INSTRUCTION FOR THIS TURN:\n${transitionInstruction}` : ''}
-
-${conversationHistory ? `\nCONVERSATION SO FAR:\n${conversationHistory}` : ''}
-
-RULES:
-- Stay in character at all times
-- React to what the candidate actually said — don't ignore their answer
-- Never break character or mention you are an AI
-- If the candidate asks YOU a question, answer briefly in-character, then steer back to the plan
-- Do NOT repeat questions that have already been asked`
-
         responseText = await chatCompletion(systemPrompt, `The candidate just said: "${messageText}"`, {
           temperature: 0.85,
-          maxTokens: 250,
+          maxTokens: 200,
           taskType: 'live_conversation',
         })
       } catch {
-        const fallbacks = FALLBACK_RESPONSES[respondingCharacter.archetype] || FALLBACK_RESPONSES.friendly_champion
-        responseText = randomFrom(fallbacks)
+        responseText = randomFrom(FALLBACK_RESPONSES[respondingCharacter.archetype] || FALLBACK_RESPONSES.friendly_champion)
       }
     } else {
-      const fallbacks = FALLBACK_RESPONSES[respondingCharacter.archetype] || FALLBACK_RESPONSES.friendly_champion
-      responseText = randomFrom(fallbacks)
+      responseText = randomFrom(FALLBACK_RESPONSES[respondingCharacter.archetype] || FALLBACK_RESPONSES.friendly_champion)
     }
 
     // Create interviewer exchange
@@ -500,24 +469,32 @@ RULES:
       },
     })
 
-    // B8: Save updated QuestionState back to session
-    const updatedEvents = JSON.parse(JSON.stringify({ ...sessionEvents, questionState }))
+    // -----------------------------------------------------------------------
+    // Step 7: Update state and return
+    // -----------------------------------------------------------------------
+
+    // Determine who asks the NEXT question (for the frontend)
+    let nextCharacterId: string | null = null
+    if (shouldMoveOn && nextQuestion) {
+      nextCharacterId = nextQuestion.ownerId
+    } else {
+      // Same character continues (follow-up or same question)
+      nextCharacterId = respondingCharacter.id
+    }
+
+    const newState: QuestionState = {
+      currentQuestionIndex: shouldMoveOn
+        ? questionState.currentQuestionIndex + 1
+        : questionState.currentQuestionIndex,
+      followUpCount: shouldMoveOn ? 0 : questionState.followUpCount + 1,
+      sessionShouldEnd: sessionEnded || questionState.sessionShouldEnd,
+    }
+
+    const updatedEvents = JSON.parse(JSON.stringify({ ...sessionEvents, questionState: newState }))
     await prisma.interviewSession.update({
       where: { id: sessionId },
       data: { unexpectedEvents: updatedEvents },
     })
-
-    // If session should end, mark it completed
-    if (questionState.sessionShouldEnd && evaluation.followUpType !== 'wrap_up') {
-      // Don't immediately end — let the closing message play first
-      // The frontend will see sessionEnded and handle the transition
-    }
-
-    // Pick next speaker for the frontend to know who responds next
-    const nextQ = questionPlan[questionState.currentQuestionIndex]
-    const nextSpeaker = nextQ
-      ? pickNextSpeaker(nextQ.questionType, characters, respondingCharacter.id)
-      : respondingCharacter
 
     return NextResponse.json({
       candidateExchange: {
@@ -533,14 +510,10 @@ RULES:
         name: respondingCharacter.name,
         title: respondingCharacter.title,
         archetype: respondingCharacter.archetype,
+        avatarColor: (respondingCharacter as Character & { avatarColor?: string }).avatarColor || '#5b5fc7',
       },
-      // New fields for frontend
-      sessionEnded: questionState.sessionShouldEnd,
-      nextCharacterId: nextSpeaker.id,
-      silenceMs: (() => {
-        const range = ARCHETYPE_SILENCE_MS[respondingCharacter.archetype] || [2000, 3000]
-        return range[0] + Math.random() * (range[1] - range[0])
-      })(),
+      sessionEnded,
+      nextCharacterId,
     })
   } catch (error) {
     console.error('Error creating exchange:', error)

@@ -213,6 +213,44 @@ Number of questions: ${count}`,
 }
 
 // ---------------------------------------------------------------------------
+// Question ownership — each question assigned to a specific panelist
+// ---------------------------------------------------------------------------
+
+const QUESTION_TYPE_OWNER: Record<string, string[]> = {
+  behavioral: ['skeptic', 'friendly_champion'],
+  technical: ['technical_griller', 'skeptic'],
+  situational: ['skeptic', 'friendly_champion'],
+  company_specific: ['culture_fit', 'friendly_champion'],
+  culture: ['culture_fit', 'friendly_champion'],
+  curveball: ['skeptic', 'technical_griller'],
+  opening: ['friendly_champion'],
+  closing: ['friendly_champion'],
+}
+
+function assignQuestionOwnership(
+  questionPlan: QuestionPlanItem[],
+  characters: Array<{ id: string; archetype: string }>
+): Array<QuestionPlanItem & { ownerId: string; ownerArchetype: string }> {
+  // Silent observer never asks questions during the interview
+  const activeCharacters = characters.filter(c => c.archetype !== 'silent_observer')
+  if (activeCharacters.length === 0) {
+    return questionPlan.map(q => ({ ...q, ownerId: characters[0]?.id || '', ownerArchetype: characters[0]?.archetype || '' }))
+  }
+
+  return questionPlan.map((q, idx) => {
+    const preferredArchetypes = QUESTION_TYPE_OWNER[q.questionType] || ['friendly_champion']
+    const match = activeCharacters.find(c => preferredArchetypes.includes(c.archetype))
+    const owner = match || activeCharacters[idx % activeCharacters.length]
+
+    return {
+      ...q,
+      ownerId: owner.id,
+      ownerArchetype: owner.archetype,
+    }
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Route handlers
 // ---------------------------------------------------------------------------
 
@@ -282,6 +320,9 @@ export async function POST(
       archetypes
     )
 
+    // Assign each question to a specific panelist based on archetype match
+    const ownedQuestionPlan = assignQuestionOwnership(questionPlan, characters)
+
     const interviewSession = await prisma.interviewSession.create({
       data: {
         userId,
@@ -291,7 +332,14 @@ export async function POST(
         targetDurationMin: targetDurationMin || 45,
         status: 'pending',
         characters,
-        unexpectedEvents: JSON.parse(JSON.stringify({ questionPlan })),
+        unexpectedEvents: JSON.parse(JSON.stringify({
+          questionPlan: ownedQuestionPlan,
+          questionState: {
+            currentQuestionIndex: 0,
+            followUpCount: 0,
+            sessionShouldEnd: false,
+          },
+        })),
       },
       include: {
         application: {

@@ -52,7 +52,6 @@ interface SessionData {
 // TTS helper — tries server TTS, falls back to browser speechSynthesis
 // ---------------------------------------------------------------------------
 
-// Voice style instructions per archetype to make TTS sound more natural/human
 const ARCHETYPE_VOICE_INSTRUCTIONS: Record<string, string> = {
   skeptic: 'Speak in a measured, deliberate tone. Slightly slower pace. Occasional pauses for emphasis. Professional and serious.',
   friendly_champion: 'Speak warmly and conversationally. Natural pace with slight enthusiasm. Friendly and encouraging tone.',
@@ -62,15 +61,17 @@ const ARCHETYPE_VOICE_INSTRUCTIONS: Record<string, string> = {
   silent_observer: 'Speak quietly and briefly. Low energy. Minimal inflection. Reserved.',
 }
 
-// Preferred voice IDs for more natural-sounding output per archetype
 const ARCHETYPE_PREFERRED_VOICES: Record<string, string> = {
-  skeptic: 'onyx',        // deeper, authoritative male voice
-  friendly_champion: 'nova',  // warm, friendly female voice
-  technical_griller: 'echo',  // clear, precise male voice
-  distracted_senior: 'fable', // mature male voice
-  culture_fit: 'shimmer',     // warm, approachable female voice
-  silent_observer: 'alloy',   // neutral voice
+  skeptic: 'onyx',
+  friendly_champion: 'nova',
+  technical_griller: 'echo',
+  distracted_senior: 'fable',
+  culture_fit: 'shimmer',
+  silent_observer: 'alloy',
 }
+
+// Ref to share the active AnalyserNode with the UI
+let activeAnalyserRef: AnalyserNode | null = null
 
 async function speakText(
   text: string,
@@ -82,15 +83,12 @@ async function speakText(
 ): Promise<void> {
   if (!speakerEnabled) {
     onStart()
-    // Simulate speaking duration based on text length
     await new Promise(r => setTimeout(r, Math.min(text.length * 50, 5000)))
     onEnd()
     return
   }
 
-  // Use archetype-specific voice instructions for more natural speech
   const instructions = archetype ? ARCHETYPE_VOICE_INSTRUCTIONS[archetype] || '' : ''
-  // Use archetype-preferred voice if the assigned voice is generic
   const effectiveVoice = archetype && ARCHETYPE_PREFERRED_VOICES[archetype]
     ? ARCHETYPE_PREFERRED_VOICES[archetype]
     : voiceId
@@ -100,83 +98,65 @@ async function speakText(
     const res = await fetch('/api/tts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text,
-        voice: effectiveVoice,
-        instructions,
-      }),
+      body: JSON.stringify({ text, voice: effectiveVoice, instructions }),
     })
     if (res.ok && res.headers.get('content-type')?.includes('audio/')) {
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
       const audio = new Audio(url)
+
+      // Create AnalyserNode for audio-reactive bars
+      try {
+        const audioCtx = new AudioContext()
+        const source = audioCtx.createMediaElementSource(audio)
+        const analyser = audioCtx.createAnalyser()
+        analyser.fftSize = 32
+        source.connect(analyser)
+        analyser.connect(audioCtx.destination)
+        activeAnalyserRef = analyser
+      } catch {
+        activeAnalyserRef = null
+      }
+
       return new Promise<void>((resolve) => {
         audio.onplay = onStart
-        audio.onended = () => { onEnd(); URL.revokeObjectURL(url); resolve() }
-        audio.onerror = () => { onEnd(); URL.revokeObjectURL(url); resolve() }
-        audio.play().catch(() => { onEnd(); URL.revokeObjectURL(url); resolve() })
+        audio.onended = () => { onEnd(); activeAnalyserRef = null; URL.revokeObjectURL(url); resolve() }
+        audio.onerror = () => { onEnd(); activeAnalyserRef = null; URL.revokeObjectURL(url); resolve() }
+        audio.play().catch(() => { onEnd(); activeAnalyserRef = null; URL.revokeObjectURL(url); resolve() })
       })
     }
   } catch {
-    // Server TTS not available, fall through to browser
+    // Server TTS not available
   }
 
-  // Fallback: browser speechSynthesis with improved settings
+  // Fallback: browser speechSynthesis
   if ('speechSynthesis' in window) {
+    activeAnalyserRef = null
     return new Promise<void>((resolve) => {
       const utterance = new SpeechSynthesisUtterance(text)
-
-      // Try to pick a more natural-sounding voice from available browser voices
       const voices = window.speechSynthesis.getVoices()
       const preferredVoices = voices.filter(v =>
         v.lang.startsWith('en') && (
-          v.name.includes('Google') ||
-          v.name.includes('Natural') ||
-          v.name.includes('Neural') ||
-          v.name.includes('Samantha') ||
-          v.name.includes('Daniel') ||
-          v.name.includes('Karen') ||
-          v.name.includes('Moira')
+          v.name.includes('Google') || v.name.includes('Natural') ||
+          v.name.includes('Neural') || v.name.includes('Samantha') ||
+          v.name.includes('Daniel') || v.name.includes('Karen') || v.name.includes('Moira')
         )
       )
       if (preferredVoices.length > 0) {
-        // Pick different voices for different archetypes
         const voiceIndex = archetype
           ? Object.keys(ARCHETYPE_VOICE_INSTRUCTIONS).indexOf(archetype) % preferredVoices.length
           : 0
         utterance.voice = preferredVoices[voiceIndex]
       }
 
-      // Archetype-specific speech tuning for browser fallback
       switch (archetype) {
-        case 'skeptic':
-          utterance.rate = 0.88
-          utterance.pitch = 0.9
-          break
-        case 'friendly_champion':
-          utterance.rate = 1.0
-          utterance.pitch = 1.1
-          break
-        case 'technical_griller':
-          utterance.rate = 0.92
-          utterance.pitch = 0.95
-          break
-        case 'distracted_senior':
-          utterance.rate = 1.05
-          utterance.pitch = 0.95
-          break
-        case 'culture_fit':
-          utterance.rate = 0.95
-          utterance.pitch = 1.05
-          break
-        case 'silent_observer':
-          utterance.rate = 0.85
-          utterance.pitch = 0.85
-          utterance.volume = 0.7
-          break
-        default:
-          utterance.rate = 0.95
-          utterance.pitch = 1.0
+        case 'skeptic': utterance.rate = 0.88; utterance.pitch = 0.9; break
+        case 'friendly_champion': utterance.rate = 1.0; utterance.pitch = 1.1; break
+        case 'technical_griller': utterance.rate = 0.92; utterance.pitch = 0.95; break
+        case 'distracted_senior': utterance.rate = 1.05; utterance.pitch = 0.95; break
+        case 'culture_fit': utterance.rate = 0.95; utterance.pitch = 1.05; break
+        case 'silent_observer': utterance.rate = 0.85; utterance.pitch = 0.85; utterance.volume = 0.7; break
+        default: utterance.rate = 0.95; utterance.pitch = 1.0
       }
 
       utterance.onstart = onStart
@@ -186,17 +166,16 @@ async function speakText(
     })
   }
 
-  // No TTS available — just wait briefly
   onStart()
   await new Promise(r => setTimeout(r, Math.min(text.length * 50, 5000)))
   onEnd()
 }
 
 // ---------------------------------------------------------------------------
-// Archetype silence delay — dead air before responding, per spec
+// Archetype silence delay — dead air before responding (spec 2.1)
 // ---------------------------------------------------------------------------
 
-const ARCHETYPE_SILENCE_MS: Record<string, [number, number]> = {
+const SILENCE_DURATIONS: Record<string, [number, number]> = {
   skeptic: [3000, 4000],
   friendly_champion: [1000, 2000],
   technical_griller: [4000, 5000],
@@ -205,37 +184,30 @@ const ARCHETYPE_SILENCE_MS: Record<string, [number, number]> = {
   silent_observer: [0, 0],
 }
 
-function getArchetypeSilenceMs(archetype: string): number {
-  const range = ARCHETYPE_SILENCE_MS[archetype] || [2000, 3000]
+function getArchetypeSilence(archetype: string): number {
+  const range = SILENCE_DURATIONS[archetype] || [2000, 3000]
   return range[0] + Math.random() * (range[1] - range[0])
 }
 
 // ---------------------------------------------------------------------------
-// Join sound helper — short tone when interviewers join
+// Join sound — two-tone chime (spec 2.7)
 // ---------------------------------------------------------------------------
 
-function playJoinSound(): Promise<void> {
-  return new Promise((resolve) => {
-    try {
-      const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)()
-      const osc = ctx.createOscillator()
-      const gain = ctx.createGain()
-      osc.connect(gain)
-      gain.connect(ctx.destination)
-      osc.type = 'sine'
-      osc.frequency.value = 880
-      gain.gain.value = 0.15
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3)
-      osc.start(ctx.currentTime)
-      osc.stop(ctx.currentTime + 0.3)
-      osc.onended = () => {
-        ctx.close()
-        resolve()
-      }
-    } catch {
-      resolve()
-    }
-  })
+function playJoinSound() {
+  try {
+    const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)()
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+    osc.frequency.setValueAtTime(880, ctx.currentTime)
+    osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.12)
+    gain.gain.setValueAtTime(0.08, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35)
+    osc.start(ctx.currentTime)
+    osc.stop(ctx.currentTime + 0.35)
+    osc.onended = () => { ctx.close() }
+  } catch { /* silent fail */ }
 }
 
 // ---------------------------------------------------------------------------
@@ -272,6 +244,12 @@ function createSpeechRecognition(): SpeechRecognitionInstance | null {
 }
 
 // ---------------------------------------------------------------------------
+// ListenState machine (spec 2.8)
+// ---------------------------------------------------------------------------
+
+type ListenState = 'idle' | 'listening' | 'processing' | 'ai_speaking'
+
+// ---------------------------------------------------------------------------
 // Interview Room
 // ---------------------------------------------------------------------------
 
@@ -286,11 +264,8 @@ export default function InterviewRoomPage() {
 
   // Audio state
   const [micEnabled, setMicEnabled] = useState(true)
-  const [speakerEnabled, setSpeakerEnabled] = useState(true)
   const [cameraEnabled, setCameraEnabled] = useState(true)
   const [activeSpeakerId, setActiveSpeakerId] = useState<string | null>(null)
-  const [isProcessing, setIsProcessing] = useState(false)
-  const [isListening, setIsListening] = useState(false)
   const [interimTranscript, setInterimTranscript] = useState('')
 
   // Chat state
@@ -305,16 +280,59 @@ export default function InterviewRoomPage() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const startTimeRef = useRef<number>(0)
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null)
-  const speakerEnabledRef = useRef(speakerEnabled)
+  const speakerEnabledRef = useRef(true)
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const finalTranscriptRef = useRef('')
   const phaseRef = useRef(phase)
-  const isProcessingRef = useRef(false)
+
+  // ListenState machine (spec 2.8)
+  const listenStateRef = useRef<ListenState>('idle')
+
+  // Backend-driven next character
+  const nextCharacterIdRef = useRef<string | null>(null)
+  const charactersRef = useRef<Character[]>([])
+
+  // Audio-reactive speaker bars (spec 2.10)
+  const barRefs = useRef<(HTMLDivElement | null)[]>([])
+  const animFrameRef = useRef<number>(0)
 
   // Keep refs in sync
-  useEffect(() => { speakerEnabledRef.current = speakerEnabled }, [speakerEnabled])
   useEffect(() => { phaseRef.current = phase }, [phase])
-  useEffect(() => { isProcessingRef.current = isProcessing }, [isProcessing])
+
+  // Audio-reactive bar animation loop
+  useEffect(() => {
+    if (!activeSpeakerId) {
+      cancelAnimationFrame(animFrameRef.current)
+      barRefs.current.forEach(bar => { if (bar) bar.style.height = '4px' })
+      return
+    }
+
+    const tick = () => {
+      if (activeAnalyserRef) {
+        const dataArray = new Uint8Array(activeAnalyserRef.frequencyBinCount)
+        activeAnalyserRef.getByteFrequencyData(dataArray)
+        barRefs.current.forEach((bar, i) => {
+          if (bar) {
+            const value = dataArray[Math.min(i * 3, dataArray.length - 1)] || 0
+            bar.style.height = `${4 + (value / 255) * 14}px`
+          }
+        })
+      } else {
+        // Browser TTS fallback: simulated sine wave pulse
+        const t = Date.now() / 200
+        barRefs.current.forEach((bar, i) => {
+          if (bar) {
+            const value = Math.sin(t + i * 0.8) * 0.5 + 0.5
+            bar.style.height = `${4 + value * 12}px`
+          }
+        })
+      }
+      animFrameRef.current = requestAnimationFrame(tick)
+    }
+    animFrameRef.current = requestAnimationFrame(tick)
+
+    return () => cancelAnimationFrame(animFrameRef.current)
+  }, [activeSpeakerId])
 
   // Load session data
   useEffect(() => {
@@ -413,18 +431,13 @@ export default function InterviewRoomPage() {
     }])
   }, [])
 
-  // Track next character ID from backend (for panel rotation)
-  const nextCharacterIdRef = useRef<string | null>(null)
-
   const sendExchange = useCallback(async (
     candidateText: string,
-    characters: Character[],
-    _charIndex: number
+    characters: Character[]
   ) => {
     if (!candidateText.trim()) return
 
-    setIsProcessing(true)
-    isProcessingRef.current = true
+    listenStateRef.current = 'processing'
 
     // Add candidate message to chat
     addMessage({
@@ -434,77 +447,71 @@ export default function InterviewRoomPage() {
       isCandidate: true,
     })
 
-    // Use backend-suggested character, fallback to rotation
-    const respondingCharId = nextCharacterIdRef.current || characters[_charIndex % characters.length]?.id
-    const respondingChar = characters.find(c => c.id === respondingCharId) || characters[0]
-
     try {
+      // Don't send characterId — let the backend decide based on question ownership
       const res = await fetch(`/api/sessions/${sessionId}/exchanges`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messageText: candidateText,
-          characterId: respondingChar.id,
-        }),
+        body: JSON.stringify({ messageText: candidateText }),
       })
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: 'Failed' }))
         console.error('Exchange error:', err)
-        setIsProcessing(false)
-        isProcessingRef.current = false
+        listenStateRef.current = 'idle'
         return
       }
 
       const data = await res.json()
       const responseText = data.interviewerExchange?.messageText || 'Could you elaborate on that?'
-      const respChar = data.character || respondingChar
+      const respChar = data.character
 
-      // A11: Store backend's next character suggestion for the next exchange
+      // Store backend's next character suggestion
       if (data.nextCharacterId) {
         nextCharacterIdRef.current = data.nextCharacterId
       }
 
-      // Use backend-driven silence duration instead of local calculation
-      const silenceMs = data.silenceMs ?? getArchetypeSilenceMs(respondingChar.archetype)
+      // Dead air — real interviewer pausing to think. Nothing visible changes on screen. (spec 2.1)
+      const silenceMs = getArchetypeSilence(respChar?.archetype || 'friendly_champion')
       if (silenceMs > 0) {
         await new Promise(r => setTimeout(r, silenceMs))
       }
 
       // Add interviewer message to chat
-      const actualChar = characters.find(c => c.id === respChar.id) || respondingChar
+      const actualChar = characters.find(c => c.id === respChar?.id)
       addMessage({
-        speaker: respChar.id,
-        speakerName: respChar.name,
+        speaker: respChar?.id || 'interviewer',
+        speakerName: respChar?.name || 'Interviewer',
         text: responseText,
-        avatarColor: actualChar.avatarColor,
+        avatarColor: actualChar?.avatarColor || respChar?.avatarColor || '#5b5fc7',
         isCandidate: false,
       })
 
-      // Speak the response via TTS (with archetype for voice styling)
+      // Speak the response via TTS
+      listenStateRef.current = 'ai_speaking'
       await speakText(
         responseText,
-        actualChar.voiceId,
+        actualChar?.voiceId || 'alloy',
         speakerEnabledRef.current,
-        () => setActiveSpeakerId(actualChar.id),
+        () => setActiveSpeakerId(respChar?.id || null),
         () => setActiveSpeakerId(null),
-        actualChar.archetype
+        respChar?.archetype
       )
 
-      // A10: Handle session ended from backend
+      // Handle session ended from backend (spec 2.9)
       if (data.sessionEnded) {
-        // Inline stop listening logic (can't call stopListening — defined later)
+        // Stop listening
         if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
         if (recognitionRef.current) {
           try { recognitionRef.current.abort() } catch { /* ok */ }
           recognitionRef.current = null
         }
-        setIsListening(false)
         setInterimTranscript('')
         window.speechSynthesis?.cancel()
         setPhase('ended')
         mediaStreamRef.current?.getTracks().forEach(t => t.stop())
         if (timerRef.current) clearInterval(timerRef.current)
+
         // Mark session completed on server
         try {
           await fetch(`/api/sessions/${sessionId}`, {
@@ -513,26 +520,25 @@ export default function InterviewRoomPage() {
             body: JSON.stringify({ status: 'completed' }),
           })
         } catch { /* best effort */ }
-        setIsProcessing(false)
-        isProcessingRef.current = false
+
+        listenStateRef.current = 'idle'
         return
       }
     } catch (err) {
       console.error('Exchange failed:', err)
     }
 
-    setIsProcessing(false)
-    isProcessingRef.current = false
+    listenStateRef.current = 'idle'
   }, [sessionId, addMessage])
 
   // -------------------------------------------------------------------------
-  // Speech recognition management
+  // Speech recognition management (spec 2.8 — state machine)
   // -------------------------------------------------------------------------
 
-  const exchangeCountRef = useRef(0)
-  const charactersRef = useRef<Character[]>([])
-
   const startListening = useCallback(() => {
+    // Only start if idle (spec 2.8)
+    if (listenStateRef.current !== 'idle') return
+
     if (recognitionRef.current) {
       try { recognitionRef.current.abort() } catch { /* ok */ }
     }
@@ -543,7 +549,7 @@ export default function InterviewRoomPage() {
     recognitionRef.current = recognition
     finalTranscriptRef.current = ''
     setInterimTranscript('')
-    setIsListening(true)
+    listenStateRef.current = 'listening'
 
     recognition.onresult = (event) => {
       let interim = ''
@@ -561,20 +567,17 @@ export default function InterviewRoomPage() {
       }
       setInterimTranscript(interim)
 
-      // Reset silence timer on new speech
+      // Reset silence timer on new speech (spec 2.6: 1.5 seconds)
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
       silenceTimerRef.current = setTimeout(() => {
-        // User stopped speaking for 1.5 seconds — send the exchange
         const text = finalTranscriptRef.current.trim()
-        if (text && phaseRef.current === 'live' && !isProcessingRef.current) {
+        if (text && phaseRef.current === 'live' && listenStateRef.current === 'listening') {
+          listenStateRef.current = 'processing'
           recognition.stop()
-          setIsListening(false)
           setInterimTranscript('')
-          const charIdx = exchangeCountRef.current
-          exchangeCountRef.current++
-          sendExchange(text, charactersRef.current, charIdx).then(() => {
+          sendExchange(text, charactersRef.current).then(() => {
             // Resume listening after AI responds
-            if (phaseRef.current === 'live') {
+            if (phaseRef.current === 'live' && listenStateRef.current === 'idle') {
               startListening()
             }
           })
@@ -583,30 +586,30 @@ export default function InterviewRoomPage() {
     }
 
     recognition.onend = () => {
-      setIsListening(false)
-      // Auto-restart if we're still live and not processing
-      if (phaseRef.current === 'live' && !isProcessingRef.current) {
+      // Only restart if state is 'listening' (unexpected browser stop) (spec 2.8)
+      if (listenStateRef.current === 'listening') {
         const text = finalTranscriptRef.current.trim()
         if (!text) {
-          // No speech detected, restart
           setTimeout(() => {
-            if (phaseRef.current === 'live' && !isProcessingRef.current) {
+            if (phaseRef.current === 'live' && listenStateRef.current === 'listening') {
+              listenStateRef.current = 'idle'
               startListening()
             }
           }, 500)
         }
       }
+      // If processing or ai_speaking, do nothing
     }
 
     recognition.onerror = (event) => {
       if (event.error !== 'aborted' && event.error !== 'no-speech') {
         console.error('Speech recognition error:', event.error)
       }
-      setIsListening(false)
-      // Restart on error if still live
-      if (phaseRef.current === 'live' && !isProcessingRef.current) {
+      // Only restart if listening (spec 2.8)
+      if (listenStateRef.current === 'listening') {
+        listenStateRef.current = 'idle'
         setTimeout(() => {
-          if (phaseRef.current === 'live' && !isProcessingRef.current) {
+          if (phaseRef.current === 'live' && listenStateRef.current === 'idle') {
             startListening()
           }
         }, 1000)
@@ -616,7 +619,7 @@ export default function InterviewRoomPage() {
     try {
       recognition.start()
     } catch {
-      setIsListening(false)
+      listenStateRef.current = 'idle'
     }
   }, [sendExchange])
 
@@ -626,7 +629,7 @@ export default function InterviewRoomPage() {
       try { recognitionRef.current.abort() } catch { /* ok */ }
       recognitionRef.current = null
     }
-    setIsListening(false)
+    listenStateRef.current = 'idle'
     setInterimTranscript('')
   }, [])
 
@@ -651,33 +654,59 @@ export default function InterviewRoomPage() {
     setPhase('live')
     charactersRef.current = sessionData.characters
 
-    // Staggered join sounds and messages for each interviewer
+    // Staggered joins (spec 2.7)
     for (let i = 0; i < sessionData.characters.length; i++) {
-      const joinChar = sessionData.characters[i]
-      await new Promise(r => setTimeout(r, 800 + i * 1200))
-      await playJoinSound()
+      const char = sessionData.characters[i]
+
+      if (char.archetype === 'distracted_senior') {
+        // Joins 2-3 minutes late
+        const lateJoinDelay = 120000 + Math.random() * 60000
+        setTimeout(() => {
+          playJoinSound()
+          addMessage({
+            speaker: 'system',
+            speakerName: 'System',
+            text: `${char.name} joined the meeting`,
+            isCandidate: false,
+          })
+        }, lateJoinDelay)
+        continue
+      }
+
+      // Normal join: staggered 0.8-4 seconds between each person
+      await new Promise(r => setTimeout(r, i === 0 ? 800 : 1500 + Math.random() * 2500))
+      playJoinSound()
       addMessage({
         speaker: 'system',
         speakerName: 'System',
-        text: `${joinChar.name} joined the meeting`,
+        text: `${char.name} joined the meeting`,
         isCandidate: false,
       })
     }
 
-    // Opening greeting from first character — use first question from plan if available
-    if (sessionData.characters.length > 0) {
-      const char = sessionData.characters[0]
+    // Brief pause after joins, then first character greets
+    await new Promise(r => setTimeout(r, 1500))
 
-      // Fetch the session to get the question plan
-      let firstQuestion = 'tell me a little about yourself and why you\'re interested in this role.'
+    if (sessionData.characters.length > 0) {
+      // Find the first question's owner for the greeting
+      let greetingChar = sessionData.characters.find(c =>
+        c.archetype !== 'silent_observer' && c.archetype !== 'distracted_senior'
+      ) || sessionData.characters[0]
+
+      // Try to get first question owner from the question plan
+      let firstQuestion = "tell me a little about yourself and why you're interested in this role."
       try {
         const sessionRes = await fetch(`/api/sessions/${sessionId}`)
         if (sessionRes.ok) {
           const sessionJson = await sessionRes.json()
           const events = sessionJson.unexpectedEvents
           if (events?.questionPlan?.length > 0) {
-            firstQuestion = events.questionPlan[0].questionText.toLowerCase()
-            // Remove leading "tell me" etc. if it starts with that, to flow naturally after intro
+            const firstQ = events.questionPlan[0]
+            // Use the question's owner for the greeting
+            const owner = sessionData.characters.find(c => c.id === firstQ.ownerId)
+            if (owner) greetingChar = owner
+
+            firstQuestion = firstQ.questionText.toLowerCase()
             if (!firstQuestion.startsWith('tell') && !firstQuestion.startsWith('walk') && !firstQuestion.startsWith('describe')) {
               firstQuestion = `I'd like to start by asking: ${events.questionPlan[0].questionText}`
             } else {
@@ -686,33 +715,32 @@ export default function InterviewRoomPage() {
           }
         }
       } catch {
-        // Use default first question
+        // Use default
       }
 
-      const greeting = `Hi, thanks for joining us today. I'm ${char.name}, ${char.title}. Let's get started — ${firstQuestion}`
+      const greeting = `Hi, thanks for joining us today. I'm ${greetingChar.name}, ${greetingChar.title}. Let's get started — ${firstQuestion}`
 
-      // Short delay then speak greeting
-      setTimeout(async () => {
-        addMessage({
-          speaker: char.id,
-          speakerName: char.name,
-          text: greeting,
-          avatarColor: char.avatarColor,
-          isCandidate: false,
-        })
+      addMessage({
+        speaker: greetingChar.id,
+        speakerName: greetingChar.name,
+        text: greeting,
+        avatarColor: greetingChar.avatarColor,
+        isCandidate: false,
+      })
 
-        await speakText(
-          greeting,
-          char.voiceId,
-          speakerEnabledRef.current,
-          () => setActiveSpeakerId(char.id),
-          () => setActiveSpeakerId(null),
-          char.archetype
-        )
+      listenStateRef.current = 'ai_speaking'
+      await speakText(
+        greeting,
+        greetingChar.voiceId,
+        speakerEnabledRef.current,
+        () => setActiveSpeakerId(greetingChar.id),
+        () => setActiveSpeakerId(null),
+        greetingChar.archetype
+      )
+      listenStateRef.current = 'idle'
 
-        // Start listening for candidate response
-        startListening()
-      }, 1500)
+      // Start listening for candidate response
+      startListening()
     }
   }, [sessionData, sessionId, addMessage, startListening])
 
@@ -730,25 +758,6 @@ export default function InterviewRoomPage() {
     setCameraEnabled(prev => !prev)
   }, [cameraEnabled])
 
-  const leaveInterview = useCallback(async () => {
-    stopListening()
-    window.speechSynthesis?.cancel()
-    setPhase('ended')
-    mediaStreamRef.current?.getTracks().forEach(t => t.stop())
-    if (timerRef.current) clearInterval(timerRef.current)
-
-    // Complete the session on the server
-    try {
-      await fetch(`/api/sessions/${sessionId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'completed' }),
-      })
-    } catch {
-      // Best effort
-    }
-  }, [sessionId, stopListening])
-
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -761,7 +770,6 @@ export default function InterviewRoomPage() {
   // Render
   // -------------------------------------------------------------------------
 
-  // Loading
   if (phase === 'loading' || !sessionData) {
     return (
       <div className="fixed inset-0 bg-[#1b1b1b] flex items-center justify-center">
@@ -770,7 +778,6 @@ export default function InterviewRoomPage() {
     )
   }
 
-  // Meeting ended
   if (phase === 'ended') {
     return (
       <div className="fixed inset-0 bg-[#1b1b1b] flex items-center justify-center">
@@ -793,7 +800,6 @@ export default function InterviewRoomPage() {
     )
   }
 
-  // Lobby
   if (phase === 'lobby') {
     return (
       <div className="fixed inset-0 bg-[#1b1b1b] flex items-center justify-center p-4">
@@ -807,7 +813,6 @@ export default function InterviewRoomPage() {
             </p>
           </div>
 
-          {/* Panel preview */}
           <div className="space-y-3">
             <p className="text-xs text-gray-500 uppercase tracking-wider text-center">Today&apos;s Panel</p>
             <div className="flex justify-center gap-4">
@@ -828,16 +833,9 @@ export default function InterviewRoomPage() {
             </div>
           </div>
 
-          {/* Camera preview */}
           <div className="flex justify-center">
             <div className="relative w-64 h-48 rounded-xl overflow-hidden bg-[#292929]">
-              <video
-                ref={videoRef}
-                autoPlay
-                playsInline
-                muted
-                className="w-full h-full object-cover"
-              />
+              <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
               {!cameraEnabled && (
                 <div className="absolute inset-0 flex items-center justify-center bg-[#292929]">
                   <VideoOff className="h-8 w-8 text-gray-500" />
@@ -879,15 +877,11 @@ export default function InterviewRoomPage() {
 
   return (
     <div className="fixed inset-0 bg-[#1b1b1b] flex flex-col">
-      {/* Top bar */}
+      {/* Top bar — company + timer only, no indicators */}
       <div className="flex items-center justify-between px-4 py-2 bg-[#1b1b1b] border-b border-[#333]">
         <div className="flex items-center gap-3">
-          <span className="text-sm font-medium text-white">
-            {sessionData.companyName}
-          </span>
-          <span className="text-xs text-gray-500">
-            {sessionData.jobTitle}
-          </span>
+          <span className="text-sm font-medium text-white">{sessionData.companyName}</span>
+          <span className="text-xs text-gray-500">{sessionData.jobTitle}</span>
         </div>
         <div className="flex items-center gap-4">
           <span className="text-xs text-gray-400 flex items-center gap-1">
@@ -917,35 +911,26 @@ export default function InterviewRoomPage() {
                     : ''
                 }`}
               >
-                {/* Avatar circle */}
                 <div
                   className="w-20 h-20 rounded-full flex items-center justify-center text-white text-2xl font-semibold mb-4"
                   style={{ backgroundColor: char.avatarColor }}
                 >
                   {char.initials}
                 </div>
-
-                {/* Name and title */}
                 <p className="text-sm font-medium text-white">{char.name}</p>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  {char.title}
-                </p>
+                <p className="text-xs text-gray-400 mt-0.5">{char.title}</p>
 
-                {/* Speaking indicator */}
+                {/* Audio-reactive speaking indicator (spec 2.10) */}
                 {activeSpeakerId === char.id && (
-                  <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1">
-                    <div className="flex gap-0.5">
-                      {[0, 1, 2, 3, 4].map(i => (
-                        <div
-                          key={i}
-                          className="w-0.5 bg-[#5b5fc7] rounded-full"
-                          style={{
-                            height: `${6 + Math.random() * 12}px`,
-                            animation: `pulse 0.6s ease-in-out ${i * 0.1}s infinite alternate`,
-                          }}
-                        />
-                      ))}
-                    </div>
+                  <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-0.5">
+                    {[0, 1, 2, 3, 4].map(i => (
+                      <div
+                        key={i}
+                        ref={el => { barRefs.current[i] = el }}
+                        className="w-0.5 bg-[#5b5fc7] rounded-full transition-[height] duration-75"
+                        style={{ height: '4px' }}
+                      />
+                    ))}
                   </div>
                 )}
               </div>
@@ -978,9 +963,7 @@ export default function InterviewRoomPage() {
                         style={{ backgroundColor: msg.avatarColor }}
                       />
                     )}
-                    <span className="text-xs font-medium text-gray-300">
-                      {msg.speakerName}
-                    </span>
+                    <span className="text-xs font-medium text-gray-300">{msg.speakerName}</span>
                     <span className="text-xs text-gray-600">
                       {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
@@ -996,7 +979,6 @@ export default function InterviewRoomPage() {
                   </div>
                 </div>
               ))}
-              {/* Show interim transcript */}
               {interimTranscript && (
                 <div className="flex flex-col items-end">
                   <div className="rounded-lg px-3 py-2 text-sm max-w-[90%] bg-[#5b5fc7]/30 text-white/70 italic">
@@ -1013,13 +995,7 @@ export default function InterviewRoomPage() {
       {/* Candidate PIP tile */}
       <div className="absolute bottom-20 right-4 z-10" style={{ right: chatOpen ? '336px' : '16px' }}>
         <div className="w-48 h-36 rounded-lg overflow-hidden bg-[#292929] border border-[#333] shadow-lg relative">
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            muted
-            className="w-full h-full object-cover"
-          />
+          <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
           {!cameraEnabled && (
             <div className="absolute inset-0 flex items-center justify-center bg-[#292929]">
               <VideoOff className="h-6 w-6 text-gray-500" />
@@ -1029,7 +1005,7 @@ export default function InterviewRoomPage() {
         <p className="text-xs text-gray-400 text-center mt-1">You</p>
       </div>
 
-      {/* Bottom control bar */}
+      {/* Bottom control bar — camera, mic, chat toggle only (no leave, no speaker toggle) */}
       <div className="flex items-center justify-center gap-3 py-3 bg-[#1b1b1b] border-t border-[#333]">
         <button
           onClick={toggleCamera}
