@@ -19,6 +19,7 @@ export async function GET() {
       include: {
         parsedResume: true,
         parsedJD: true,
+        alignmentAnalysis: true,
         _count: {
           select: {
             questions: true,
@@ -47,9 +48,8 @@ export async function POST(request: Request) {
     const userId = (session.user as { id: string }).id
     const body = await request.json()
 
-    const { companyName, jobTitle, jdText, resumeText, interviewStage } = body
+    const { companyName, jobTitle, jdText, resumeText, interviewStage, realInterviewDate } = body
 
-    // Validate required fields
     if (!companyName?.trim()) {
       return NextResponse.json({ error: 'Company name is required' }, { status: 400 })
     }
@@ -63,12 +63,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Resume text is required' }, { status: 400 })
     }
 
-    // Analyze resume vs JD — use AI if configured, otherwise fallback
+    // Analyze resume vs JD for alignment
     let alignmentScore: number
-    let skillGaps: string
-    let strengths: string
-    let missingKeywords: string
-    let probeAreas: string
+    let skillGaps: string[] = []
+    let strengths: string[] = []
+    let missingKeywords: string[] = []
+    let probeAreas: string[] = []
 
     if (isAIConfigured()) {
       try {
@@ -96,24 +96,24 @@ Return:
         )
 
         alignmentScore = Math.min(100, Math.max(0, analysis.alignmentScore))
-        skillGaps = JSON.stringify(analysis.skillGaps)
-        strengths = JSON.stringify(analysis.strengths)
-        missingKeywords = JSON.stringify(analysis.missingKeywords)
-        probeAreas = JSON.stringify(analysis.probeAreas)
+        skillGaps = analysis.skillGaps || []
+        strengths = analysis.strengths || []
+        missingKeywords = analysis.missingKeywords || []
+        probeAreas = analysis.probeAreas || []
       } catch (aiError) {
         console.error('AI analysis failed, using fallback:', aiError)
         alignmentScore = Math.floor(Math.random() * 26) + 60
-        skillGaps = JSON.stringify(['System Design', 'Cloud Architecture', 'CI/CD Pipeline Management'])
-        strengths = JSON.stringify(['Problem Solving', 'Team Leadership', 'Agile Methodology'])
-        missingKeywords = JSON.stringify(['Kubernetes', 'Terraform', 'GraphQL'])
-        probeAreas = JSON.stringify(['Experience scaling distributed systems', 'Handling production incidents'])
+        skillGaps = ['System Design', 'Cloud Architecture', 'CI/CD Pipeline Management']
+        strengths = ['Problem Solving', 'Team Leadership', 'Agile Methodology']
+        missingKeywords = ['Kubernetes', 'Terraform', 'GraphQL']
+        probeAreas = ['Experience scaling distributed systems', 'Handling production incidents']
       }
     } else {
       alignmentScore = Math.floor(Math.random() * 26) + 60
-      skillGaps = JSON.stringify(['System Design', 'Cloud Architecture', 'CI/CD Pipeline Management'])
-      strengths = JSON.stringify(['Problem Solving', 'Team Leadership', 'Agile Methodology', 'Technical Communication'])
-      missingKeywords = JSON.stringify(['Kubernetes', 'Terraform', 'GraphQL', 'Event-Driven Architecture', 'SLA Management'])
-      probeAreas = JSON.stringify(['Experience scaling distributed systems', 'Handling production incidents', 'Cross-team collaboration', 'Technical debt prioritization'])
+      skillGaps = ['System Design', 'Cloud Architecture', 'CI/CD Pipeline Management']
+      strengths = ['Problem Solving', 'Team Leadership', 'Agile Methodology', 'Technical Communication']
+      missingKeywords = ['Kubernetes', 'Terraform', 'GraphQL', 'Event-Driven Architecture', 'SLA Management']
+      probeAreas = ['Experience scaling distributed systems', 'Handling production incidents', 'Cross-team collaboration', 'Technical debt prioritization']
     }
 
     // Create application with parsed data in a transaction
@@ -127,68 +127,61 @@ Return:
           resumeText: resumeText.trim(),
           interviewStage: interviewStage?.trim() || 'screening',
           alignmentScore,
+          readinessScore: Math.floor(Math.random() * 20) + 10,
+          ...(realInterviewDate && {
+            realInterviewDate: new Date(realInterviewDate),
+          }),
+        },
+      })
+
+      // Create AlignmentAnalysis
+      await tx.alignmentAnalysis.create({
+        data: {
+          applicationId: app.id,
+          score: alignmentScore,
           skillGaps,
           strengths,
           missingKeywords,
           probeAreas,
-          readinessScore: Math.floor(Math.random() * 20) + 10,
         },
       })
 
-      // Create ParsedResume with placeholder data extracted from resumeText
+      // Create ParsedResume with placeholder data
       await tx.parsedResume.create({
         data: {
           applicationId: app.id,
-          topSkills: 'Extracted from resume',
-          careerTimeline: 'Parsed career history',
-          experienceGaps: JSON.stringify(['Potential gap between 2019-2020']),
-          achievements: JSON.stringify([
-            'Led team of 8 engineers',
-            'Improved system performance by 40%',
-          ]),
-          education: 'Extracted education background',
+          topSkills: strengths,
+          careerTimeline: [{ period: 'Recent', description: 'Extracted from resume' }],
+          experienceGaps: [],
+          achievements: ['Led team of 8 engineers', 'Improved system performance by 40%'],
+          education: [{ degree: 'Extracted from resume' }],
         },
       })
 
-      // Create ParsedJD with placeholder data extracted from jdText
+      // Create ParsedJD with placeholder data
       await tx.parsedJD.create({
         data: {
           applicationId: app.id,
-          requiredSkills: JSON.stringify([
-            'JavaScript',
-            'TypeScript',
-            'React',
-            'Node.js',
-          ]),
-          preferredSkills: JSON.stringify([
-            'AWS',
-            'Docker',
-            'Kubernetes',
-          ]),
-          responsibilities: JSON.stringify([
+          requiredSkills: ['JavaScript', 'TypeScript', 'React', 'Node.js'],
+          preferredSkills: ['AWS', 'Docker', 'Kubernetes'],
+          responsibilities: [
             'Design and implement scalable solutions',
             'Mentor junior developers',
             'Participate in architecture reviews',
-          ]),
+          ],
           seniorityLevel: 'mid',
-          valuesLanguage: JSON.stringify([
-            'Innovation',
-            'Collaboration',
-            'Growth mindset',
-          ]),
-          redFlagAreas: JSON.stringify([
-            'Limited experience with their tech stack',
-          ]),
+          valuesLanguage: ['Innovation', 'Collaboration', 'Growth mindset'],
+          redFlagAreas: ['Limited experience with their tech stack'],
           interviewFormatPrediction: 'Technical screen + System design + Behavioral',
         },
       })
 
-      // Re-fetch with relations
       return tx.application.findUnique({
         where: { id: app.id },
         include: {
           parsedResume: true,
           parsedJD: true,
+          alignmentAnalysis: true,
           _count: {
             select: {
               questions: true,

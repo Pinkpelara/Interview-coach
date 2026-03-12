@@ -3,23 +3,15 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
-import { Plus, Zap, Briefcase, Clock, ArrowRight } from 'lucide-react'
-import { Card, CardContent, CardHeader } from '@/components/ui/Card'
-import { Button } from '@/components/ui/Button'
-import { ScoreGauge } from '@/components/ui/ScoreGauge'
-import { ProgressBar } from '@/components/ui/ProgressBar'
-import { Badge } from '@/components/ui/Badge'
+import { Plus, Clock, TrendingUp, Calendar, ChevronRight } from 'lucide-react'
 
 export default async function DashboardPage() {
   const session = await getServerSession(authOptions)
-
-  if (!session?.user) {
-    redirect('/login')
-  }
+  if (!session?.user) redirect('/signin')
 
   const userId = (session.user as { id: string }).id
 
-  const [user, applications, recentSessions] = await Promise.all([
+  const [user, applications] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
       select: { fullName: true },
@@ -32,16 +24,10 @@ export default async function DashboardPage() {
           where: { status: 'completed' },
           include: { analysis: { select: { hiringProbability: true } } },
           orderBy: { createdAt: 'desc' },
-          take: 1,
+          take: 2,
         },
       },
       orderBy: { updatedAt: 'desc' },
-    }),
-    prisma.interviewSession.findMany({
-      where: { userId },
-      include: { application: { select: { companyName: true, jobTitle: true } } },
-      orderBy: { createdAt: 'desc' },
-      take: 5,
     }),
   ])
 
@@ -49,200 +35,137 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-8">
-      {/* Welcome */}
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900">
-          Welcome back, {firstName}!
-        </h2>
-        <p className="mt-1 text-gray-500">
-          {applications.length > 0
-            ? `You have ${applications.length} active application${applications.length > 1 ? 's' : ''}.`
-            : 'Get started by creating your first application.'}
-        </p>
-      </div>
-
-      {/* Quick Actions */}
-      <div className="flex flex-wrap gap-3">
-        <Link href="/applications/new">
-          <Button size="md">
-            <Plus className="mr-2 h-4 w-4" />
-            New Application
-          </Button>
-        </Link>
-        <Link href="/pressure-lab">
-          <Button variant="outline" size="md">
-            <Zap className="mr-2 h-4 w-4" />
-            Quick Practice
-          </Button>
-        </Link>
-      </div>
-
-      {/* Applications */}
-      {applications.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-brand-700/10 mb-4">
-              <Briefcase className="h-8 w-8 text-brand-700" />
-            </div>
-            <h3 className="text-lg font-semibold text-gray-900">
-              No applications yet
-            </h3>
-            <p className="mt-2 max-w-sm text-sm text-gray-500">
-              Create your first application to start practicing for your interview.
-              We&apos;ll analyze the job description and tailor questions for you.
-            </p>
-            <Link href="/applications/new" className="mt-6">
-              <Button>
-                <Plus className="mr-2 h-4 w-4" />
-                Create your first application
-              </Button>
-            </Link>
-          </CardContent>
-        </Card>
-      ) : (
+      <div className="flex items-center justify-between">
         <div>
-          <h3 className="mb-4 text-lg font-semibold text-gray-900">
-            Your Applications
-          </h3>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {applications.map((app) => (
-              <Card key={app.id} className="hover:shadow-md transition-shadow">
-                <CardHeader>
-                  <div className="flex items-start justify-between">
-                    <div className="min-w-0 flex-1">
-                      <h4 className="truncate text-base font-semibold text-gray-900">
-                        {app.companyName}
-                      </h4>
-                      <p className="truncate text-sm text-gray-500">
-                        {app.jobTitle}
-                      </p>
-                    </div>
-                    <Badge
-                      variant={app.status === 'active' ? 'success' : 'default'}
-                    >
-                      {app.status}
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="flex flex-col items-center">
-                      <ScoreGauge
-                        score={app.alignmentScore ?? 0}
-                        size="sm"
-                        label="Alignment"
-                      />
-                    </div>
-                    <div className="flex-1">
-                      <ProgressBar
-                        value={app.readinessScore}
-                        label="Readiness"
-                        showPercent
-                      />
-                    </div>
-                  </div>
-
-                  {/* Hiring probability from latest session */}
-                  {app.sessions[0]?.analysis?.hiringProbability != null && (
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-gray-500">Hiring Probability</span>
-                      <span className={`font-semibold ${
-                        app.sessions[0].analysis.hiringProbability >= 70 ? 'text-green-600' :
-                        app.sessions[0].analysis.hiringProbability >= 40 ? 'text-yellow-600' : 'text-red-600'
-                      }`}>
-                        {app.sessions[0].analysis.hiringProbability}%
-                      </span>
-                    </div>
-                  )}
-
-                  <div className="flex items-center justify-between text-sm text-gray-500">
-                    <div className="flex items-center gap-3">
-                      <span className="flex items-center gap-1">
-                        <Clock className="h-4 w-4" />
-                        {app._count.sessions} session{app._count.sessions !== 1 ? 's' : ''}
-                      </span>
-                      {app.realInterviewDate && (() => {
-                        const days = Math.ceil((new Date(app.realInterviewDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
-                        if (days < 0) return null
-                        return (
-                          <Badge variant={days <= 3 ? 'danger' : days <= 7 ? 'warning' : 'info'}>
-                            {days === 0 ? 'Today' : days === 1 ? 'Tomorrow' : `${days}d left`}
-                          </Badge>
-                        )
-                      })()}
-                    </div>
-                    <Link
-                      href={`/applications/${app.id}`}
-                      className="inline-flex items-center gap-1 font-medium text-brand-700 hover:text-brand-800"
-                    >
-                      View
-                      <ArrowRight className="h-3 w-3" />
-                    </Link>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+          <h2 className="text-2xl font-bold text-white">
+            Welcome back, {firstName}
+          </h2>
+          <p className="mt-1 text-gray-400">
+            {applications.length > 0
+              ? `You have ${applications.length} active application${applications.length > 1 ? 's' : ''}.`
+              : 'Get started by creating your first application.'}
+          </p>
         </div>
-      )}
+        <Link
+          href="/applications/new"
+          className="flex items-center gap-2 rounded-lg bg-[#5b5fc7] px-4 py-2.5 text-sm font-medium text-white hover:bg-[#4e52b5] transition-colors"
+        >
+          <Plus className="h-4 w-4" />
+          New Application
+        </Link>
+      </div>
 
-      {/* Recent Sessions */}
-      {recentSessions.length > 0 && (
-        <div>
-          <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-gray-900">
-              Recent Sessions
-            </h3>
-            <Link
-              href="/session-history"
-              className="text-sm font-medium text-brand-700 hover:text-brand-800"
-            >
-              View all
-            </Link>
+      {applications.length === 0 ? (
+        <div className="flex flex-col items-center justify-center rounded-2xl bg-[#292929] py-20 text-center">
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[#5b5fc7]/20 mb-4">
+            <Plus className="h-8 w-8 text-[#5b5fc7]" />
           </div>
-          <Card>
-            <div className="divide-y divide-gray-100">
-              {recentSessions.map((s) => (
-                <div
-                  key={s.id}
-                  className="flex items-center justify-between px-6 py-4"
-                >
+          <h3 className="text-lg font-semibold text-white">
+            Create your first Application
+          </h3>
+          <p className="mt-2 max-w-md text-sm text-gray-400">
+            Add a job you&apos;re applying for. We&apos;ll analyze the job description against your resume,
+            generate personalized interview questions, and prepare you for the real thing.
+          </p>
+          <Link
+            href="/applications/new"
+            className="mt-6 flex items-center gap-2 rounded-lg bg-[#5b5fc7] px-6 py-3 text-sm font-medium text-white hover:bg-[#4e52b5] transition-colors"
+          >
+            <Plus className="h-4 w-4" />
+            New Application
+          </Link>
+        </div>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {applications.map((app) => {
+            const latestProb = app.sessions[0]?.analysis?.hiringProbability
+            const prevProb = app.sessions[1]?.analysis?.hiringProbability
+            const trend = latestProb != null && prevProb != null ? latestProb - prevProb : null
+            const daysUntil = app.realInterviewDate
+              ? Math.ceil((new Date(app.realInterviewDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+              : null
+
+            return (
+              <Link
+                key={app.id}
+                href={`/applications/${app.id}`}
+                className="group rounded-2xl bg-[#292929] p-5 hover:bg-[#333] transition-colors"
+              >
+                <div className="flex items-start justify-between mb-4">
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-gray-900">
-                      {s.application.companyName} &mdash; {s.application.jobTitle}
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      {s.stage} &middot; {s.intensity} &middot;{' '}
-                      {s.createdAt.toLocaleDateString('en-US', {
-                        month: 'short',
-                        day: 'numeric',
-                        year: 'numeric',
-                      })}
+                    <h4 className="truncate text-base font-semibold text-white">
+                      {app.companyName}
+                    </h4>
+                    <p className="truncate text-sm text-gray-400">
+                      {app.jobTitle}
                     </p>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <Badge
-                      variant={
-                        s.status === 'completed'
-                          ? 'success'
-                          : s.status === 'active'
-                          ? 'warning'
-                          : 'default'
-                      }
-                    >
-                      {s.status.replace('_', ' ')}
-                    </Badge>
-                    <Link
-                      href={`/debrief/${s.id}`}
-                      className="text-sm font-medium text-brand-700 hover:text-brand-800"
-                    >
-                      <ArrowRight className="h-4 w-4" />
-                    </Link>
+                  {app.interviewStage && (
+                    <span className="ml-2 shrink-0 rounded-full bg-[#5b5fc7]/20 px-2.5 py-0.5 text-xs font-medium text-[#5b5fc7]">
+                      {app.interviewStage}
+                    </span>
+                  )}
+                </div>
+
+                {/* Alignment Score */}
+                <div className="mb-3">
+                  <div className="flex items-center justify-between text-xs text-gray-400 mb-1">
+                    <span>Alignment</span>
+                    <span className="text-white font-medium">{app.alignmentScore ?? 0}%</span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-[#1b1b1b]">
+                    <div
+                      className="h-full rounded-full bg-[#5b5fc7] transition-all"
+                      style={{ width: `${app.alignmentScore ?? 0}%` }}
+                    />
                   </div>
                 </div>
-              ))}
-            </div>
-          </Card>
+
+                {/* Readiness Score */}
+                <div className="mb-4">
+                  <div className="flex items-center justify-between text-xs text-gray-400 mb-1">
+                    <span>Readiness</span>
+                    <span className="text-white font-medium">{app.readinessScore}%</span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-[#1b1b1b]">
+                    <div
+                      className="h-full rounded-full bg-emerald-500 transition-all"
+                      style={{ width: `${app.readinessScore}%` }}
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between text-xs text-gray-400">
+                  <div className="flex items-center gap-3">
+                    {latestProb != null && (
+                      <span className="flex items-center gap-1">
+                        <TrendingUp className="h-3.5 w-3.5" />
+                        <span className={latestProb >= 70 ? 'text-emerald-400' : latestProb >= 40 ? 'text-yellow-400' : 'text-red-400'}>
+                          {latestProb}%
+                        </span>
+                        {trend != null && trend !== 0 && (
+                          <span className={trend > 0 ? 'text-emerald-400' : 'text-red-400'}>
+                            {trend > 0 ? '+' : ''}{trend}
+                          </span>
+                        )}
+                      </span>
+                    )}
+                    <span className="flex items-center gap-1">
+                      <Clock className="h-3.5 w-3.5" />
+                      {app._count.sessions}
+                    </span>
+                    {daysUntil != null && daysUntil >= 0 && (
+                      <span className={`flex items-center gap-1 ${daysUntil <= 3 ? 'text-red-400' : daysUntil <= 7 ? 'text-yellow-400' : 'text-gray-400'}`}>
+                        <Calendar className="h-3.5 w-3.5" />
+                        {daysUntil === 0 ? 'Today' : daysUntil === 1 ? 'Tomorrow' : `${daysUntil}d`}
+                      </span>
+                    )}
+                  </div>
+                  <ChevronRight className="h-4 w-4 text-gray-500 group-hover:text-white transition-colors" />
+                </div>
+              </Link>
+            )
+          })}
         </div>
       )}
     </div>

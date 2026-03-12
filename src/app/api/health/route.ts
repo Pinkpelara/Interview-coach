@@ -1,9 +1,8 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { aiHealthCheck, isAIServiceConfigured } from '@/lib/ai'
+import { isAIConfigured } from '@/lib/ai-gateway'
 import { metricSnapshot } from '@/lib/monitoring'
 import { sendAlert } from '@/lib/alerts'
-import { aiConfig } from '@/lib/ai/config'
 
 export async function GET() {
   const started = Date.now()
@@ -19,16 +18,15 @@ export async function GET() {
     dbOk = false
   }
 
-  const ai = await aiHealthCheck()
+  const aiOk = isAIConfigured()
   const chatLatency = metricSnapshot('ai.chat.latency_ms', 60_000)
   const ttsLatency = metricSnapshot('ai.tts.latency_ms', 60_000)
-  const ok = dbOk && (ai.ok || !isAIServiceConfigured())
+  const ok = dbOk && aiOk
 
   if (!ok) {
     await sendAlert('health_degraded', {
       db_ok: dbOk,
-      ai_ok: ai.ok,
-      ai_detail: ai,
+      ai_ok: aiOk,
       metrics: {
         ai_chat_count: chatLatency.count,
         ai_tts_count: ttsLatency.count,
@@ -42,10 +40,10 @@ export async function GET() {
       uptime_ms: process.uptime() * 1000,
       checks: {
         db: dbOk ? 'ok' : 'fail',
-        ai: ai.ok ? 'ok' : isAIServiceConfigured() ? 'fail' : 'not_configured',
+        ai: aiOk ? 'ok' : 'not_configured',
         tts: dedicatedTTSConfigured ? 'dedicated_service_configured' : 'ai_provider_or_browser_fallback',
       },
-      ai_source_mode: aiConfig.sourceMode,
+      ai_source_mode: 'openrouter',
       metrics_60s: {
         ai_chat_count: chatLatency.count,
         ai_chat_avg_latency_ms: Math.round(chatLatency.avg),

@@ -47,13 +47,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Work arrangement is required' }, { status: 400 })
     }
 
-    // Update user name and onboarded flag, and upsert profile in a transaction
+    // Update user name and onboardingDone flag, and upsert profile in a transaction
     await prisma.$transaction([
       prisma.user.update({
         where: { id: userId },
         data: {
           fullName: fullName.trim(),
-          onboarded: true,
+          onboardingDone: true,
         },
       }),
       prisma.userProfile.upsert({

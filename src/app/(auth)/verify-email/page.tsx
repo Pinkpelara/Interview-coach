@@ -1,74 +1,111 @@
+"use client";
+
+import { useState, useEffect, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Card, CardContent } from "@/components/ui/Card";
-import { Button } from "@/components/ui/Button";
-import { prisma } from "@/lib/prisma";
 
-export const dynamic = "force-dynamic";
+function VerifyEmailContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const token = searchParams.get("token");
 
-export default async function VerifyEmailPage({
-  searchParams,
-}: {
-  searchParams?: { token?: string };
-}) {
-  const token = searchParams?.token?.trim();
-  let success = false;
-  let error = "";
+  const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
+  const [errorMessage, setErrorMessage] = useState("");
 
-  if (!token) {
-    error = "Missing verification token.";
-  } else {
-    try {
-      const user = await prisma.user.findFirst({
-        where: { verifyToken: token },
-        select: { id: true, emailVerified: true },
-      });
-
-      if (!user) {
-        error = "Invalid or expired verification link.";
-      } else {
-        if (!user.emailVerified) {
-          await prisma.user.update({
-            where: { id: user.id },
-            data: {
-              emailVerified: true,
-              verifyToken: null,
-            },
-          });
-        }
-        success = true;
-      }
-    } catch {
-      error = "Unable to verify email.";
+  useEffect(() => {
+    if (!token) {
+      setStatus("error");
+      setErrorMessage("Missing verification token.");
+      return;
     }
-  }
+
+    async function verify() {
+      try {
+        const res = await fetch(`/api/auth/verify-email?token=${encodeURIComponent(token!)}`);
+        const data = await res.json();
+
+        if (!res.ok) {
+          setStatus("error");
+          setErrorMessage(data.error || "Verification failed.");
+          return;
+        }
+
+        setStatus("success");
+        // Redirect to onboarding after a short delay
+        setTimeout(() => {
+          router.push("/onboarding");
+        }, 2000);
+      } catch {
+        setStatus("error");
+        setErrorMessage("Unable to verify email. Please try again.");
+      }
+    }
+
+    verify();
+  }, [token, router]);
 
   return (
-    <Card>
-      <CardContent>
-        <div className="text-center space-y-4 py-2">
-          <h2 className="text-xl font-semibold text-gray-900">Verify your email</h2>
+    <div className="rounded-xl border border-gray-700 p-8 text-center" style={{ backgroundColor: '#292929' }}>
+      {status === "loading" && (
+        <>
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center">
+            <svg className="animate-spin h-8 w-8" style={{ color: '#5b5fc7' }} fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+            </svg>
+          </div>
+          <h2 className="text-xl font-semibold text-white">Verifying your email...</h2>
+          <p className="mt-2 text-sm text-gray-400">Please wait while we verify your email address.</p>
+        </>
+      )}
 
-          {success ? (
-            <>
-              <p className="text-sm text-green-700">
-                Your email has been verified. You can now sign in.
-              </p>
-              <Link href="/login">
-                <Button className="w-full">Go to login</Button>
-              </Link>
-            </>
-          ) : (
-            <>
-              <p className="text-sm text-red-600">{error || "Verification failed."}</p>
-              <Link href="/signup">
-                <Button variant="outline" className="w-full">
-                  Back to signup
-                </Button>
-              </Link>
-            </>
-          )}
-        </div>
-      </CardContent>
-    </Card>
+      {status === "success" && (
+        <>
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-green-500/15">
+            <svg className="h-6 w-6 text-green-400" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+            </svg>
+          </div>
+          <h2 className="text-xl font-semibold text-white">Email verified!</h2>
+          <p className="mt-2 text-sm text-gray-400">
+            Your email has been verified. Redirecting to onboarding...
+          </p>
+          <Link
+            href="/onboarding"
+            className="mt-4 inline-block text-sm font-medium hover:underline"
+            style={{ color: '#5b5fc7' }}
+          >
+            Continue to onboarding
+          </Link>
+        </>
+      )}
+
+      {status === "error" && (
+        <>
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-500/15">
+            <svg className="h-6 w-6 text-red-400" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </div>
+          <h2 className="text-xl font-semibold text-white">Verification failed</h2>
+          <p className="mt-2 text-sm text-red-400">{errorMessage}</p>
+          <Link
+            href="/signup"
+            className="mt-4 inline-block text-sm font-medium hover:underline"
+            style={{ color: '#5b5fc7' }}
+          >
+            Back to sign up
+          </Link>
+        </>
+      )}
+    </div>
+  );
+}
+
+export default function VerifyEmailPage() {
+  return (
+    <Suspense fallback={<div className="text-center text-gray-400">Loading...</div>}>
+      <VerifyEmailContent />
+    </Suspense>
   );
 }

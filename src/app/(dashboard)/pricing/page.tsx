@@ -88,7 +88,7 @@ export default async function PricingPage({
   const session = await getServerSession(authOptions)
 
   if (!session?.user) {
-    redirect('/login')
+    redirect('/signin')
   }
 
   const userId = (session.user as { id: string }).id

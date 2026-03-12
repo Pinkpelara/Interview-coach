@@ -8,124 +8,136 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+// 1.1 users
 model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
-  passwordHash  String
-  fullName      String?
-  emailVerified Boolean   @default(false)
-  verifyToken   String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id              String    @id @default(uuid())
+  email           String    @unique @db.VarChar(255)
+  passwordHash    String    @db.VarChar(255)
+  fullName        String    @db.VarChar(255)
+  emailVerified   Boolean   @default(false)
+  verifyToken     String?
+  onboardingDone  Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @default(now()) @updatedAt
 
-  profile       UserProfile?
-  applications  Application[]
-  userAnswers   UserAnswer[]
-  sessions      InterviewSession[]
-  subscription  Subscription?
-  notificationPreferences NotificationPreference?
-  notificationEvents NotificationEvent[]
-  reflections   InterviewReflection[]
-  onboarded     Boolean   @default(false)
+  profile         UserProfile?
+  applications    Application[]
+  userAnswers     UserAnswer[]
+  sessions        InterviewSession[]
+  subscription    Subscription?
 }
 
+// 1.2 user_profiles
 model UserProfile {
-  id              String  @id @default(cuid())
-  userId          String  @unique
-  user            User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                  String   @id @default(uuid())
+  userId              String   @unique
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  anxietyLevel    Int     @default(5)
-  currentRole     String?
-  yearsExperience String?
-  currentIndustry String?
-  targetIndustry  String?
-  workArrangement String?
+  anxietyLevel        Int?
+  currentRole         String?  @db.VarChar(255)
+  yearsExperience     String?  @db.VarChar(20)
+  currentIndustry     String?  @db.VarChar(255)
+  targetIndustry      String?  @db.VarChar(255)
+  workArrangement     String?  @db.VarChar(20)
   interviewDifficulty String?
-  linkedinUrl     String?
-  portfolioUrl    String?
+  linkedinUrl         String?  @db.VarChar(500)
+  portfolioUrl        String?  @db.VarChar(500)
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt           DateTime @default(now())
 }
 
+// 1.3 applications
 model Application {
-  id                String   @id @default(cuid())
-  userId            String
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                  String    @id @default(uuid())
+  userId              String
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  companyName       String
-  jobTitle          String
-  jdText            String
-  resumeText        String
-  jdFileUrl         String?
-  resumeFileUrl     String?
-  interviewStage    String?
-  realInterviewDate DateTime?
-  alignmentScore    Int?
-  status            String   @default("active")
+  companyName         String    @db.VarChar(255)
+  jobTitle            String    @db.VarChar(255)
+  jdText              String
+  resumeText          String
+  jdFileUrl           String?   @db.VarChar(500)
+  resumeFileUrl       String?   @db.VarChar(500)
+  interviewStage      String?   @db.VarChar(50)
+  realInterviewDate   DateTime? @db.Date
+  alignmentScore      Int?
+  readinessScore      Int       @default(0)
+  status              String    @default("active") @db.VarChar(20)
 
-  skillGaps         String?
-  strengths         String?
-  missingKeywords   String?
-  probeAreas        String?
-  readinessScore    Int      @default(0)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @default(now()) @updatedAt
 
-  parsedResume      ParsedResume?
-  parsedJD          ParsedJD?
-  questions         Question[]
-  sessions          InterviewSession[]
-  countdownPlans    CountdownPlan[]
-  reflections       InterviewReflection[]
-
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  parsedResume        ParsedResume?
+  parsedJD            ParsedJD?
+  alignmentAnalysis   AlignmentAnalysis?
+  questions           Question[]
+  sessions            InterviewSession[]
+  countdownPlans      CountdownPlan[]
 }
 
+// 1.4 parsed_resumes
 model ParsedResume {
-  id              String      @id @default(cuid())
+  id                String      @id @default(uuid())
+  applicationId     String      @unique
+  application       Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  careerTimeline    Json
+  topSkills         Json
+  experienceGaps    Json?
+  achievements      Json?
+  education         Json?
+  careerTransitions Json?
+
+  createdAt         DateTime    @default(now())
+}
+
+// 1.5 parsed_jds
+model ParsedJD {
+  id                        String      @id @default(uuid())
+  applicationId             String      @unique
+  application               Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  requiredSkills            Json
+  preferredSkills           Json?
+  responsibilities          Json
+  seniorityLevel            String?     @db.VarChar(50)
+  valuesLanguage            Json?
+  redFlagAreas              Json?
+  interviewFormatPrediction String?     @db.VarChar(50)
+
+  createdAt                 DateTime    @default(now())
+}
+
+// 1.6 alignment_analyses
+model AlignmentAnalysis {
+  id              String      @id @default(uuid())
   applicationId   String      @unique
   application     Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
-  careerTimeline  String?
-  topSkills       String?
-  experienceGaps  String?
-  achievements    String?
-  education       String?
-  careerTransitions String?
+  score           Int
+  skillGaps       Json?
+  strengths       Json?
+  missingKeywords Json?
+  probeAreas      Json?
 
   createdAt       DateTime    @default(now())
 }
 
-model ParsedJD {
-  id                      String      @id @default(cuid())
-  applicationId           String      @unique
-  application             Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-
-  requiredSkills          String?
-  preferredSkills         String?
-  responsibilities        String?
-  seniorityLevel          String?
-  valuesLanguage          String?
-  redFlagAreas            String?
-  interviewFormatPrediction String?
-
-  createdAt               DateTime    @default(now())
-}
-
+// 1.7 questions
 model Question {
-  id              String      @id @default(cuid())
+  id              String      @id @default(uuid())
   applicationId   String
   application     Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
   questionText    String
-  questionType    String
-  whyAsked        String?
-  framework       String?
-  modelAnswer     String?
-  whatNotToSay    String?
-  timeGuidance    Int?
-  difficulty      Int         @default(3)
-  likelyFollowUp  String?
+  questionType    String      @db.VarChar(30)
+  whyAsked        String
+  framework       String?     @db.VarChar(20)
+  modelAnswer     String
+  whatNotToSay    String
+  timeGuidanceSec Int?
+  likelyFollowup  String?
+  difficulty      Int
   sortOrder       Int?
 
   userAnswers     UserAnswer[]
@@ -133,192 +145,173 @@ model Question {
   createdAt       DateTime    @default(now())
 }
 
+// 1.8 user_answers
 model UserAnswer {
-  id              String    @id @default(cuid())
-  questionId      String
-  question        Question  @relation(fields: [questionId], references: [id], onDelete: Cascade)
-  userId          String
-  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id               String    @id @default(uuid())
+  questionId       String
+  question         Question  @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  answerText      String
-  audioUrl        String?
-  confidenceRating Int      @default(0)
-  status          String    @default("drafting")
-  practiceCount   Int       @default(0)
-  isFavorite      Boolean   @default(false)
+  answerText       String
+  audioUrl         String?   @db.VarChar(500)
+  confidenceRating Int?
+  status           String    @default("drafting") @db.VarChar(20)
+  practiceCount    Int       @default(0)
+  isFavorite       Boolean   @default(false)
 
-  feedbacks       AnswerFeedback[]
+  feedbacks        AnswerFeedback[]
 
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @default(now()) @updatedAt
 }
 
+// 1.9 answer_feedbacks
 model AnswerFeedback {
-  id              String     @id @default(cuid())
-  userAnswerId    String
-  userAnswer      UserAnswer @relation(fields: [userAnswerId], references: [id], onDelete: Cascade)
+  id               String     @id @default(uuid())
+  userAnswerId     String
+  userAnswer       UserAnswer @relation(fields: [userAnswerId], references: [id], onDelete: Cascade)
 
-  strengths       String?
-  issues          String?
-  missingElements String?
-  structureScore  Int?
-  specificityScore Int?
-  confidenceScore Int?
-  overallScore    Int?
-  verdict         String?
+  strengths        Json?
+  issues           Json?
+  missingElements  Json?
+  scoreStructure   Int?
+  scoreSpecificity Int?
+  scoreConfidence  Int?
+  scoreOverall     Int?
+  verdict          String
 
-  createdAt       DateTime   @default(now())
+  createdAt        DateTime   @default(now())
 }
 
+// 1.10 interview_sessions
 model InterviewSession {
-  id              String      @id @default(cuid())
-  userId          String
-  user            User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  applicationId   String
-  application     Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  id                String    @id @default(uuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applicationId     String
+  application       Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
-  stage           String
-  intensity       String      @default("standard")
-  durationMinutes Int         @default(45)
-  status          String      @default("pending")
-  characters      String?
-  unexpectedEvents String?
+  stage             String    @db.VarChar(30)
+  intensity         String    @db.VarChar(20)
+  targetDurationMin Int
+  actualDurationMs  BigInt?
+  status            String    @default("pending") @db.VarChar(20)
+  characters        Json
+  unexpectedEvents  Json?
 
-  startedAt       DateTime?
-  endedAt         DateTime?
+  startedAt         DateTime?
+  endedAt           DateTime?
 
-  exchanges       SessionExchange[]
-  analysis        SessionAnalysis?
-  observeSessions ObserveSession[]
+  exchanges         SessionExchange[]
+  analysis          SessionAnalysis?
+  observeSessions   ObserveSession[]
 
-  createdAt       DateTime    @default(now())
+  createdAt         DateTime  @default(now())
 }
 
+// 1.11 session_exchanges
 model SessionExchange {
-  id              String           @id @default(cuid())
+  id              String           @id @default(uuid())
   sessionId       String
   session         InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   sequenceNumber  Int
-  speaker         String
-  characterId     String?
+  speaker         String           @db.VarChar(20)
+  characterId     String?          @db.VarChar(100)
   messageText     String
-  audioUrl        String?
-  timestampMs     Int
+  audioUrl        String?          @db.VarChar(500)
+  timestampMs     BigInt
   durationMs      Int?
 
   createdAt       DateTime         @default(now())
 }
 
+// 1.12 session_analyses
 model SessionAnalysis {
-  id                String           @id @default(cuid())
-  sessionId         String           @unique
-  session           InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  id                    String           @id @default(uuid())
+  sessionId             String           @unique
+  session               InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
-  momentMap         String?
-  answerQuality     Int?
-  deliveryConfidence Int?
-  pressureRecovery  Int?
-  companyFitLanguage Int?
-  listeningAccuracy Int?
-  hiringProbability Int?
-  wouldAdvance      Boolean?
-  yesReasons        String?
-  noReasons         String?
-  roleComparison    String?
-  nextTargets       String?
-  coachAudioUrl     String?
-  coachScript       String?
+  momentMap             Json
+  scoreAnswerQuality    Int
+  scoreDelivery         Int
+  scorePressure         Int
+  scoreCompanyFit       Int
+  scoreListening        Int
+  hiringProbability     Int
+  wouldAdvance          Boolean
+  yesReasons            Json?
+  noReasons             Json?
+  roleComparison        String?
+  nextTargets           Json
+  coachAudioUrl         String?          @db.VarChar(500)
+  coachScript           String?
 
-  createdAt         DateTime         @default(now())
+  createdAt             DateTime         @default(now())
 }
 
+// 1.13 observe_sessions
 model ObserveSession {
-  id              String           @id @default(cuid())
+  id              String           @id @default(uuid())
   sourceSessionId String
   sourceSession   InterviewSession @relation(fields: [sourceSessionId], references: [id], onDelete: Cascade)
 
-  type            String
-  exchanges       String?
-  annotations     String?
-  audioUrls       String?
+  runType         String           @db.VarChar(20)
+  exchanges       Json
+  annotations     Json
+  audioUrls       Json?
 
   createdAt       DateTime         @default(now())
 }
 
+// 1.14 subscriptions
 model Subscription {
-  id                String   @id @default(cuid())
-  userId            String   @unique
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                    String    @id @default(uuid())
+  userId                String    @unique
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  plan              String   @default("free")
-  status            String   @default("active")
-  billingCycle      String?
-  currentPeriodStart DateTime?
-  currentPeriodEnd  DateTime?
-  stripeCustomerId  String?
-  stripeSubId       String?
-  sessionsUsedThisMonth Int  @default(0)
+  plan                  String    @db.VarChar(20)
+  status                String    @db.VarChar(20)
+  billingCycle          String?   @db.VarChar(20)
+  currentPeriodStart    DateTime?
+  currentPeriodEnd      DateTime?
+  paymentProcessor      String?   @db.VarChar(50)
+  processorCustomerId   String?   @db.VarChar(255)
+  processorSubId        String?   @db.VarChar(255)
+  sessionsUsedThisMonth Int       @default(0)
 
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @default(now()) @updatedAt
 }
 
+// 1.15 countdown_plans
 model CountdownPlan {
-  id              String      @id @default(cuid())
+  id              String      @id @default(uuid())
   applicationId   String
   application     Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
-  interviewDate   DateTime
-  planData        String?
+  interviewDate   DateTime    @db.Date
+  planData        Json
 
   createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
 }
 
-model NotificationPreference {
-  id                   String   @id @default(cuid())
-  userId               String   @unique
-  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  welcomeEmail         Boolean  @default(true)
-  sessionSummaryEmail  Boolean  @default(true)
-  dailyCountdownEmail  Boolean  @default(false)
-  weeklyProgressEmail  Boolean  @default(true)
-  reengagementEmail    Boolean  @default(true)
-  interviewMorningEmail Boolean @default(true)
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
-}
+// 1.16 ai_metrics
+model AiMetric {
+  id                String    @id @default(uuid())
+  requestId         String?   @db.VarChar(255)
+  taskType          String    @db.VarChar(50)
+  modelId           String    @db.VarChar(255)
+  provider          String?   @db.VarChar(100)
+  latencyMs         Int?
+  inputTokens       Int?
+  outputTokens      Int?
+  totalTokens       Int?
+  costUsd           Decimal?  @db.Decimal(10, 6)
+  errorCode         String?   @db.VarChar(100)
+  fallbackTriggered Boolean   @default(false)
+  cacheHit          Boolean   @default(false)
 
-model NotificationEvent {
-  id         String   @id @default(cuid())
-  userId     String
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type       String
-  channel    String   @default("email")
-  recipient  String?
-  subject    String?
-  payload    String?
-  status     String   @default("queued")
-  sentAt     DateTime?
-  createdAt  DateTime @default(now())
-}
-
-model InterviewReflection {
-  id                 String      @id @default(cuid())
-  userId             String
-  user               User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  applicationId      String
-  application        Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-  interviewDate      DateTime
-  outcome            String?
-  selfRating         Int?
-  actualQuestions    String?
-  whatWentWell       String?
-  whatToImprove      String?
-  notes              String?
-  predictedStrengths String?
-  predictedRisks     String?
-  createdAt          DateTime    @default(now())
-  updatedAt          DateTime    @updatedAt
+  createdAt         DateTime  @default(now())
 }

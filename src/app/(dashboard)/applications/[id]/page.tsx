@@ -13,41 +13,7 @@ import {
   Target,
   AlertTriangle,
   CheckCircle2,
-  Hash,
-  Sparkles,
 } from 'lucide-react'
-import { Card, CardContent, CardHeader } from '@/components/ui/Card'
-import { Button } from '@/components/ui/Button'
-import { ScoreGauge } from '@/components/ui/ScoreGauge'
-import { ProgressBar } from '@/components/ui/ProgressBar'
-import { Badge } from '@/components/ui/Badge'
-
-function safeParseJSON(value: string | null | undefined): string[] {
-  if (!value) return []
-  try {
-    const parsed = JSON.parse(value)
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
-}
-
-function stageBadgeVariant(stage: string | null | undefined) {
-  switch (stage) {
-    case 'screening':
-      return 'info' as const
-    case 'technical':
-      return 'warning' as const
-    case 'behavioral':
-      return 'default' as const
-    case 'final':
-      return 'danger' as const
-    case 'offer':
-      return 'success' as const
-    default:
-      return 'default' as const
-  }
-}
 
 export default async function ApplicationDetailPage({
   params,
@@ -55,444 +21,221 @@ export default async function ApplicationDetailPage({
   params: { id: string }
 }) {
   const session = await getServerSession(authOptions)
-
-  if (!session?.user) {
-    redirect('/login')
-  }
-
+  if (!session?.user) redirect('/signin')
   const userId = (session.user as { id: string }).id
-  const { id } = params
 
-  const application = await prisma.application.findUnique({
-    where: { id },
+  const application = await prisma.application.findFirst({
+    where: { id: params.id, userId },
     include: {
-      parsedResume: true,
-      parsedJD: true,
-      questions: {
-        orderBy: { createdAt: 'desc' },
-      },
+      alignmentAnalysis: true,
+      _count: { select: { questions: true, sessions: true } },
       sessions: {
-        include: {
-          analysis: true,
-        },
+        where: { status: 'completed' },
+        include: { analysis: { select: { hiringProbability: true } } },
         orderBy: { createdAt: 'desc' },
-      },
-      _count: {
-        select: {
-          questions: true,
-          sessions: true,
-        },
+        take: 10,
       },
     },
   })
 
-  if (!application) {
-    redirect('/dashboard')
-  }
+  if (!application) redirect('/dashboard')
 
-  if (application.userId !== userId) {
-    redirect('/dashboard')
-  }
-
-  const skillGaps = safeParseJSON(application.skillGaps)
-  const strengths = safeParseJSON(application.strengths)
-  const missingKeywords = safeParseJSON(application.missingKeywords)
-  const probeAreas = safeParseJSON(application.probeAreas)
-  const hasQuestions = application._count.questions > 0
-  const latestObserveSession =
-    application.sessions.find((s) => s.status === 'completed') || null
+  const analysis = application.alignmentAnalysis
+  const skillGaps = (analysis?.skillGaps as string[] | null) || []
+  const strengths = (analysis?.strengths as string[] | null) || []
+  const missingKeywords = (analysis?.missingKeywords as string[] | null) || []
+  const probeAreas = (analysis?.probeAreas as string[] | null) || []
 
   return (
-    <div className="space-y-8">
-      {/* Back link + Header */}
-      <div>
-        <Link
-          href="/dashboard"
-          className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 mb-4"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back to Applications
-        </Link>
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <Link href="/dashboard" className="inline-flex items-center gap-1 text-sm text-gray-400 hover:text-white mb-2">
+            <ArrowLeft className="h-4 w-4" /> Back
+          </Link>
+          <h2 className="text-2xl font-bold text-white">{application.companyName}</h2>
+          <p className="text-gray-400">{application.jobTitle}</p>
+          {application.interviewStage && (
+            <span className="mt-2 inline-block rounded-full bg-[#5b5fc7]/20 px-3 py-0.5 text-xs font-medium text-[#5b5fc7]">
+              {application.interviewStage}
+            </span>
+          )}
+        </div>
+      </div>
 
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900">
-              {application.companyName}
-            </h2>
-            <p className="mt-1 text-lg text-gray-500">{application.jobTitle}</p>
+      {/* Scores */}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="rounded-2xl bg-[#292929] p-5">
+          <p className="text-xs text-gray-400 mb-1">Alignment Score</p>
+          <p className="text-3xl font-bold text-white">{application.alignmentScore ?? 0}%</p>
+          <div className="mt-2 h-1.5 rounded-full bg-[#1b1b1b]">
+            <div className="h-full rounded-full bg-[#5b5fc7]" style={{ width: `${application.alignmentScore ?? 0}%` }} />
           </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <Badge variant={stageBadgeVariant(application.interviewStage)}>
-              {application.interviewStage || 'No stage set'}
-            </Badge>
-            <Badge variant={application.status === 'active' ? 'success' : 'default'}>
-              {application.status}
-            </Badge>
-            {application.realInterviewDate && (() => {
-              const days = Math.ceil((new Date(application.realInterviewDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24))
-              if (days < 0) return <Badge variant="default">Interview passed</Badge>
-              return (
-                <Badge variant={days <= 3 ? 'danger' : days <= 7 ? 'warning' : 'info'}>
-                  <CalendarDays className="h-3 w-3 mr-1" />
-                  {days === 0 ? 'Interview today!' : days === 1 ? 'Interview tomorrow' : `${days} days until interview`}
-                </Badge>
-              )
-            })()}
+        </div>
+        <div className="rounded-2xl bg-[#292929] p-5">
+          <p className="text-xs text-gray-400 mb-1">Readiness Score</p>
+          <p className="text-3xl font-bold text-white">{application.readinessScore}%</p>
+          <div className="mt-2 h-1.5 rounded-full bg-[#1b1b1b]">
+            <div className="h-full rounded-full bg-emerald-500" style={{ width: `${application.readinessScore}%` }} />
           </div>
         </div>
       </div>
 
-      {/* No questions CTA */}
-      {!hasQuestions && (
-        <Card className="border-brand-200 bg-brand-50/50">
-          <CardContent className="flex flex-col items-center justify-center py-10 text-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-brand-700/10 mb-4">
-              <Sparkles className="h-7 w-7 text-brand-700" />
+      {/* Analysis section */}
+      {analysis && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {/* Skill Gaps */}
+          <div className="rounded-2xl bg-[#292929] p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <AlertTriangle className="h-4 w-4 text-yellow-400" />
+              <h3 className="text-sm font-medium text-white">Skill Gaps</h3>
             </div>
-            <h3 className="text-lg font-semibold text-gray-900">
-              Ready to start preparing?
-            </h3>
-            <p className="mt-2 max-w-md text-sm text-gray-600">
-              Generate a tailored question bank based on the job description and your
-              resume. Our AI will create questions you&apos;re most likely to face.
-            </p>
-            <Link href={`/prepare/${application.id}`} className="mt-6">
-              <Button size="lg">
-                <BookOpen className="mr-2 h-5 w-5" />
-                Generate Question Bank
-              </Button>
-            </Link>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Alignment Score + Readiness */}
-      <div className="grid gap-6 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2">
-              <Target className="h-5 w-5 text-brand-700" />
-              Alignment Score
-            </h3>
-          </CardHeader>
-          <CardContent className="flex flex-col items-center py-6">
-            <ScoreGauge
-              score={application.alignmentScore ?? 0}
-              size="lg"
-              label="JD-Resume Fit"
-            />
-            <p className="mt-4 text-sm text-gray-500 text-center max-w-xs">
-              How well your resume matches this job description based on skills,
-              experience, and keywords.
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2">
-              <CheckCircle2 className="h-5 w-5 text-green-600" />
-              Interview Readiness
-            </h3>
-          </CardHeader>
-          <CardContent className="flex flex-col justify-center py-6 space-y-6">
-            <ProgressBar
-              value={application.readinessScore}
-              label="Overall Readiness"
-              showPercent
-            />
-            <div className="grid grid-cols-3 gap-4 text-center">
-              <div>
-                <p className="text-2xl font-bold text-gray-900">
-                  {application._count.questions}
-                </p>
-                <p className="text-xs text-gray-500">Questions</p>
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-gray-900">
-                  {application._count.sessions}
-                </p>
-                <p className="text-xs text-gray-500">Sessions</p>
-              </div>
-              <div>
-                {(() => {
-                  const latestWithAnalysis = application.sessions.find(s => s.analysis?.hiringProbability != null)
-                  const prob = latestWithAnalysis?.analysis?.hiringProbability
-                  return (
-                    <>
-                      <p className={`text-2xl font-bold ${
-                        prob == null ? 'text-gray-400' :
-                        prob >= 70 ? 'text-green-600' :
-                        prob >= 40 ? 'text-yellow-600' : 'text-red-600'
-                      }`}>
-                        {prob != null ? `${prob}%` : '---'}
-                      </p>
-                      <p className="text-xs text-gray-500">Hire Probability</p>
-                    </>
-                  )
-                })()}
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Skill Gaps + Strengths */}
-      <div className="grid gap-6 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-red-500" />
-              Skill Gaps
-            </h3>
-          </CardHeader>
-          <CardContent>
-            {skillGaps.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
-                {skillGaps.map((gap, i) => (
-                  <Badge key={i} variant="danger">
-                    {gap}
-                  </Badge>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-gray-500">No skill gaps identified.</p>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2">
-              <CheckCircle2 className="h-5 w-5 text-green-600" />
-              Strengths
-            </h3>
-          </CardHeader>
-          <CardContent>
-            {strengths.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
-                {strengths.map((strength, i) => (
-                  <Badge key={i} variant="success">
-                    {strength}
-                  </Badge>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-gray-500">No strengths identified yet.</p>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Missing Keywords */}
-      <Card>
-        <CardHeader>
-          <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2">
-            <Hash className="h-5 w-5 text-yellow-600" />
-            Missing Keywords
-          </h3>
-        </CardHeader>
-        <CardContent>
-          {missingKeywords.length > 0 ? (
             <div className="flex flex-wrap gap-2">
-              {missingKeywords.map((keyword, i) => (
-                <span
-                  key={i}
-                  className="inline-flex items-center rounded-md bg-yellow-50 px-3 py-1 text-sm font-medium text-yellow-800 ring-1 ring-inset ring-yellow-600/20"
-                >
-                  {keyword}
+              {skillGaps.map((gap, i) => (
+                <span key={i} className="rounded-full bg-yellow-900/30 border border-yellow-800/50 px-2.5 py-0.5 text-xs text-yellow-300">
+                  {gap}
                 </span>
               ))}
+              {skillGaps.length === 0 && <p className="text-xs text-gray-500">No gaps identified</p>}
             </div>
-          ) : (
-            <p className="text-sm text-gray-500">No missing keywords detected.</p>
-          )}
-        </CardContent>
-      </Card>
+          </div>
 
-      {/* Likely Probe Areas */}
-      <Card>
-        <CardHeader>
-          <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2">
-            <Target className="h-5 w-5 text-purple-600" />
-            Likely Probe Areas
-          </h3>
-        </CardHeader>
-        <CardContent>
-          {probeAreas.length > 0 ? (
-            <ol className="space-y-3">
-              {probeAreas.map((area, i) => (
-                <li key={i} className="flex items-start gap-3">
-                  <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-purple-100 text-xs font-semibold text-purple-700">
-                    {i + 1}
-                  </span>
-                  <span className="text-sm text-gray-700 pt-0.5">{area}</span>
-                </li>
+          {/* Strengths */}
+          <div className="rounded-2xl bg-[#292929] p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+              <h3 className="text-sm font-medium text-white">Strengths</h3>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {strengths.map((s, i) => (
+                <span key={i} className="rounded-full bg-emerald-900/30 border border-emerald-800/50 px-2.5 py-0.5 text-xs text-emerald-300">
+                  {s}
+                </span>
               ))}
-            </ol>
-          ) : (
-            <p className="text-sm text-gray-500">No probe areas identified yet.</p>
-          )}
-        </CardContent>
-      </Card>
+              {strengths.length === 0 && <p className="text-xs text-gray-500">No strengths identified yet</p>}
+            </div>
+          </div>
 
-      {/* Parsed Resume + Job Description */}
-      {(application.parsedResume || application.parsedJD) && (
-        <div className="grid gap-6 md:grid-cols-2">
-          {application.parsedResume && (
-            <Card>
-              <CardHeader>
-                <h3 className="text-base font-semibold text-gray-900">Parsed Resume Snapshot</h3>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm text-gray-700">
-                <div>
-                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Top Skills</p>
-                  <p>{application.parsedResume.topSkills || 'Not available'}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Career Timeline</p>
-                  <p>{application.parsedResume.careerTimeline || 'Not available'}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Education</p>
-                  <p>{application.parsedResume.education || 'Not available'}</p>
-                </div>
-              </CardContent>
-            </Card>
+          {/* Missing Keywords */}
+          {missingKeywords.length > 0 && (
+            <div className="rounded-2xl bg-[#292929] p-5">
+              <h3 className="text-sm font-medium text-white mb-3">Missing Keywords</h3>
+              <div className="flex flex-wrap gap-2">
+                {missingKeywords.map((kw, i) => (
+                  <span key={i} className="rounded-full bg-red-900/30 border border-red-800/50 px-2.5 py-0.5 text-xs text-red-300">
+                    {kw}
+                  </span>
+                ))}
+              </div>
+            </div>
           )}
 
-          {application.parsedJD && (
-            <Card>
-              <CardHeader>
-                <h3 className="text-base font-semibold text-gray-900">Parsed Job Description Snapshot</h3>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm text-gray-700">
-                <div>
-                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Seniority Level</p>
-                  <p>{application.parsedJD.seniorityLevel || 'Not available'}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Interview Format Prediction</p>
-                  <p>{application.parsedJD.interviewFormatPrediction || 'Not available'}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Values Language</p>
-                  <div className="flex flex-wrap gap-2">
-                    {safeParseJSON(application.parsedJD.valuesLanguage).map((value, idx) => (
-                      <Badge key={idx} variant="info">{value}</Badge>
-                    ))}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+          {/* Probe Areas */}
+          {probeAreas.length > 0 && (
+            <div className="rounded-2xl bg-[#292929] p-5">
+              <div className="flex items-center gap-2 mb-3">
+                <Target className="h-4 w-4 text-[#5b5fc7]" />
+                <h3 className="text-sm font-medium text-white">Probe Areas</h3>
+              </div>
+              <ol className="space-y-1">
+                {probeAreas.map((area, i) => (
+                  <li key={i} className="text-xs text-gray-400 flex items-start gap-2">
+                    <span className="text-[#5b5fc7] font-medium shrink-0">{i + 1}.</span>
+                    {area}
+                  </li>
+                ))}
+              </ol>
+            </div>
           )}
         </div>
       )}
 
-      {/* Session History */}
-      {application.sessions.length > 0 && (
-        <Card>
-          <CardHeader>
-            <h3 className="text-base font-semibold text-gray-900 flex items-center gap-2">
-              <Clock className="h-5 w-5 text-gray-500" />
-              Session History
-            </h3>
-          </CardHeader>
-          <div className="divide-y divide-gray-100">
-            {application.sessions.map((s) => (
-              <div
+      {/* Action buttons */}
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Link
+          href={`/applications/${params.id}/questions`}
+          className="flex items-center gap-3 rounded-2xl bg-[#292929] p-4 hover:bg-[#333] transition-colors"
+        >
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#5b5fc7]/20">
+            <BookOpen className="h-5 w-5 text-[#5b5fc7]" />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-white">Question Bank</p>
+            <p className="text-xs text-gray-400">{application._count.questions} questions</p>
+          </div>
+        </Link>
+
+        <Link
+          href={`/applications/${params.id}/interview/setup`}
+          className="flex items-center gap-3 rounded-2xl bg-[#5b5fc7] p-4 hover:bg-[#4e52b5] transition-colors"
+        >
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/20">
+            <Mic className="h-5 w-5 text-white" />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-white">Start Interview</p>
+            <p className="text-xs text-white/70">{application._count.sessions} sessions</p>
+          </div>
+        </Link>
+
+        <Link
+          href={`/applications/${params.id}/observe`}
+          className={`flex items-center gap-3 rounded-2xl p-4 transition-colors ${
+            application._count.sessions > 0
+              ? 'bg-[#292929] hover:bg-[#333]'
+              : 'bg-[#292929] opacity-50 pointer-events-none'
+          }`}
+        >
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#5b5fc7]/20">
+            <Eye className="h-5 w-5 text-[#5b5fc7]" />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-white">Observe</p>
+            <p className="text-xs text-gray-400">
+              {application._count.sessions > 0 ? 'View runs' : 'Complete 1 session first'}
+            </p>
+          </div>
+        </Link>
+      </div>
+
+      {/* Session history */}
+      <div className="rounded-2xl bg-[#292929] p-5">
+        <h3 className="text-sm font-medium text-white mb-4">Session History</h3>
+        {application.sessions.length === 0 ? (
+          <div className="text-center py-8">
+            <p className="text-sm text-gray-500">No sessions yet. Start your first interview above.</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {application.sessions.map(s => (
+              <Link
                 key={s.id}
-                className="flex items-center justify-between px-6 py-4"
+                href={`/debrief/${s.id}`}
+                className="flex items-center justify-between rounded-xl bg-[#1b1b1b] px-4 py-3 hover:bg-[#333] transition-colors"
               >
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-gray-900">
-                    {s.stage} Interview &mdash; {s.intensity}
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    {s.durationMinutes} min &middot;{' '}
-                    {s.createdAt.toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                      year: 'numeric',
-                    })}
-                  </p>
-                </div>
                 <div className="flex items-center gap-3">
-                  {s.analysis && (
-                    <span className="text-xs font-medium text-gray-500">
-                      Score: {s.analysis.hiringProbability ?? '---'}
-                    </span>
-                  )}
-                  <Badge
-                    variant={
-                      s.status === 'completed'
-                        ? 'success'
-                        : s.status === 'active'
-                        ? 'warning'
-                        : 'default'
-                    }
-                  >
-                    {s.status.replace('_', ' ')}
-                  </Badge>
-                  <Link
-                    href={`/debrief/${s.id}`}
-                    className="text-sm font-medium text-brand-700 hover:text-brand-800"
-                  >
-                    Review
-                  </Link>
+                  <Clock className="h-4 w-4 text-gray-500" />
+                  <div>
+                    <p className="text-sm text-white">{s.stage} &middot; {s.intensity}</p>
+                    <p className="text-xs text-gray-500">
+                      {new Date(s.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </p>
+                  </div>
                 </div>
-              </div>
+                {s.analysis?.hiringProbability != null && (
+                  <span className={`text-sm font-semibold ${
+                    s.analysis.hiringProbability >= 70 ? 'text-emerald-400' :
+                    s.analysis.hiringProbability >= 40 ? 'text-yellow-400' : 'text-red-400'
+                  }`}>
+                    {s.analysis.hiringProbability}%
+                  </span>
+                )}
+              </Link>
             ))}
           </div>
-        </Card>
-      )}
-
-      {/* Action Buttons */}
-      <Card>
-        <CardContent className="py-6">
-          <div className="flex flex-wrap gap-3">
-            <Link href={`/prepare/${application.id}`}>
-              <Button variant={hasQuestions ? 'secondary' : 'primary'}>
-                <BookOpen className="mr-2 h-4 w-4" />
-                {hasQuestions ? 'View Question Bank' : 'Generate Question Bank'}
-              </Button>
-            </Link>
-            <Link
-              href={`/perform?applicationId=${application.id}&stage=${application.interviewStage || 'screening'}`}
-            >
-              <Button variant="primary">
-                <Mic className="mr-2 h-4 w-4" />
-                Start Interview
-              </Button>
-            </Link>
-            {latestObserveSession ? (
-              <Link href={`/observe/${latestObserveSession.id}`}>
-                <Button variant="outline">
-                  <Eye className="mr-2 h-4 w-4" />
-                  View Observe
-                </Button>
-              </Link>
-            ) : (
-              <Button variant="outline" disabled>
-                <Eye className="mr-2 h-4 w-4" />
-                View Observe (after first session)
-              </Button>
-            )}
-            <Link href={`/countdown/${application.id}`}>
-              <Button variant="outline">
-                <CalendarDays className="mr-2 h-4 w-4" />
-                Interview Countdown
-              </Button>
-            </Link>
-            <Link href={`/reflections/${application.id}`}>
-              <Button variant="outline">
-                <Clock className="mr-2 h-4 w-4" />
-                Reflection Log
-              </Button>
-            </Link>
-          </div>
-        </CardContent>
-      </Card>
+        )}
+      </div>
     </div>
   )
 }

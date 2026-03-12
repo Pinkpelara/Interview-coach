@@ -1,73 +1,68 @@
 import OpenAI from 'openai'
+import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
 import crypto from 'crypto'
-
-// ---------------------------------------------------------------------------
-// OpenRouter AI Gateway — Deterministic model routing, fallbacks, caching
-// ---------------------------------------------------------------------------
-
-const client = new OpenAI({
-  baseURL: 'https://openrouter.ai/api/v1',
-  apiKey: process.env.OPENROUTER_API_KEY || '',
-})
-
-// ---------------------------------------------------------------------------
-// 1. Task-specific model chains (deterministic, no auto-router)
-// ---------------------------------------------------------------------------
 
 export type TaskType =
   | 'resume_parsing'
+  | 'jd_parsing'
   | 'question_generation'
   | 'answer_analysis'
-  | 'live_interview_response'
-  | 'debrief_scoring'
-  | 'debrief_coaching'
+  | 'live_conversation'
+  | 'live_followup'
+  | 'debrief_analysis'
+  | 'observe_generation'
+  | 'countdown_planning'
 
-const MODEL_CHAINS: Record<TaskType, string[]> = {
-  resume_parsing: [
-    'anthropic/claude-sonnet-4',
-    'openai/gpt-4o',
-    'google/gemini-2.0-flash-001',
-  ],
-  question_generation: [
-    'anthropic/claude-sonnet-4',
-    'openai/gpt-4o',
-    'google/gemini-2.0-flash-001',
-  ],
-  answer_analysis: [
-    'anthropic/claude-sonnet-4',
-    'openai/gpt-4o',
-    'google/gemini-2.0-flash-001',
-  ],
-  live_interview_response: [
-    'openai/gpt-4o',
-    'anthropic/claude-sonnet-4',
-    'google/gemini-2.0-flash-001',
-  ],
-  debrief_scoring: [
-    'anthropic/claude-sonnet-4',
-    'openai/gpt-4o',
-    'google/gemini-2.0-flash-001',
-  ],
-  debrief_coaching: [
-    'anthropic/claude-sonnet-4',
-    'openai/gpt-4o',
-    'google/gemini-2.0-flash-001',
-  ],
+const CLAUDE_SONNET = 'anthropic/claude-3.5-sonnet'
+const GPT_4O = 'openai/gpt-4o'
+const MISTRAL_LARGE = 'mistralai/mistral-large'
+
+const CLAUDE_FIRST: [string, string, string] = [CLAUDE_SONNET, GPT_4O, MISTRAL_LARGE]
+const GPT_FIRST: [string, string, string] = [GPT_4O, CLAUDE_SONNET, MISTRAL_LARGE]
+
+const MODEL_CHAINS: Record<TaskType, [string, string, string]> = {
+  resume_parsing: CLAUDE_FIRST,
+  jd_parsing: CLAUDE_FIRST,
+  question_generation: CLAUDE_FIRST,
+  answer_analysis: CLAUDE_FIRST,
+  live_conversation: GPT_FIRST,
+  live_followup: GPT_FIRST,
+  debrief_analysis: CLAUDE_FIRST,
+  observe_generation: CLAUDE_FIRST,
+  countdown_planning: GPT_FIRST,
 }
 
-// Override: if AI_MODEL env is set, use it as primary for all tasks
-function getModelChain(taskType: TaskType): string[] {
-  const override = process.env.AI_MODEL
-  if (override) {
-    const chain = MODEL_CHAINS[taskType]
-    return [override, ...chain.filter(m => m !== override)]
+const LLM_TIMEOUT_MS = 20_000
+const DEFAULT_MAX_TOKENS = 2000
+const MAX_DAILY_TOKENS_PER_USER = 500_000
+const MAX_CACHE_ENTRIES = 500
+const CACHE_EVICT_COUNT = 100
+const SEVEN_DAYS_MS = 7 * 24 * 3600 * 1000
+
+const CACHE_TTL: Record<TaskType, number> = {
+  resume_parsing: Infinity,
+  jd_parsing: Infinity,
+  question_generation: Infinity,
+  observe_generation: Infinity,
+  debrief_analysis: Infinity,
+  answer_analysis: SEVEN_DAYS_MS,
+  live_conversation: 0,
+  live_followup: 0,
+  countdown_planning: Infinity,
+}
+
+function getClient(): OpenAI {
+  const apiKey = process.env.OPENROUTER_API_KEY
+  if (!apiKey) {
+    throw new Error('OPENROUTER_API_KEY is not set')
   }
-  return MODEL_CHAINS[taskType]
+  return new OpenAI({
+    baseURL: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
+    apiKey,
+  })
 }
 
-// ---------------------------------------------------------------------------
-// 2. In-memory cache (deterministic key: model + system + user prompt)
-// ---------------------------------------------------------------------------
+// --- In-memory cache ---
 
 interface CacheEntry {
   response: string
@@ -76,26 +71,15 @@ interface CacheEntry {
 
 const responseCache = new Map<string, CacheEntry>()
 
-const CACHE_TTL: Record<TaskType, number> = {
-  resume_parsing: Infinity,        // permanent
-  question_generation: Infinity,   // permanent
-  answer_analysis: 7 * 24 * 3600 * 1000, // 7 days
-  live_interview_response: 0,      // never cache (real-time)
-  debrief_scoring: 7 * 24 * 3600 * 1000,
-  debrief_coaching: 0,             // never cache (unique)
+function makeCacheKey(model: string, messages: ChatCompletionMessageParam[], systemPrompt: string): string {
+  const raw = `${model}|${systemPrompt}|${JSON.stringify(messages)}`
+  return crypto.createHash('sha256').update(raw).digest('hex')
 }
 
-function cacheKey(model: string, systemPrompt: string, userPrompt: string): string {
-  return crypto.createHash('sha256')
-    .update(`${model}|${systemPrompt}|${userPrompt}`)
-    .digest('hex')
-}
-
-function getCached(taskType: TaskType, model: string, system: string, user: string): string | null {
+function getCached(taskType: TaskType, key: string): string | null {
   const ttl = CACHE_TTL[taskType]
   if (ttl === 0) return null
 
-  const key = cacheKey(model, system, user)
   const entry = responseCache.get(key)
   if (!entry) return null
 
@@ -107,145 +91,134 @@ function getCached(taskType: TaskType, model: string, system: string, user: stri
   return entry.response
 }
 
-function setCache(model: string, system: string, user: string, response: string): void {
-  const key = cacheKey(model, system, user)
+function setCache(taskType: TaskType, key: string, response: string): void {
+  if (CACHE_TTL[taskType] === 0) return
+
   responseCache.set(key, { response, timestamp: Date.now() })
 
-  // Evict old entries if cache gets too large (max 500 entries)
-  if (responseCache.size > 500) {
-    const entries: [string, CacheEntry][] = []
-    responseCache.forEach((v, k) => entries.push([k, v]))
+  if (responseCache.size > MAX_CACHE_ENTRIES) {
+    const entries = Array.from(responseCache.entries())
     entries.sort((a, b) => a[1].timestamp - b[1].timestamp)
-    entries.slice(0, 100).forEach(([k]) => responseCache.delete(k))
+    for (let i = 0; i < CACHE_EVICT_COUNT; i++) {
+      responseCache.delete(entries[i][0])
+    }
   }
 }
 
-// ---------------------------------------------------------------------------
-// 3. Cost protection
-// ---------------------------------------------------------------------------
-
-const TOKEN_LIMITS = {
-  max_tokens_per_call: 4000,
-  max_context_tokens: 64000,
+export function clearCache(): void {
+  responseCache.clear()
 }
 
-// Per-user daily token tracking (in-memory, resets on restart)
-const userTokenUsage = new Map<string, { tokens: number; resetAt: number }>()
-const MAX_DAILY_TOKENS_PER_USER = 500_000
+// --- Per-user daily token tracking ---
 
-function checkUserTokenLimit(userId?: string): boolean {
-  if (!userId) return true
+const userTokenUsage = new Map<string, { tokens: number; resetAt: number }>()
+
+function checkAndTrackTokens(userId: string | undefined, tokens: number): void {
+  if (!userId) return
   const now = Date.now()
-  const usage = userTokenUsage.get(userId)
+  let usage = userTokenUsage.get(userId)
 
   if (!usage || now > usage.resetAt) {
-    userTokenUsage.set(userId, {
-      tokens: 0,
-      resetAt: now + 24 * 3600 * 1000,
-    })
-    return true
+    usage = { tokens: 0, resetAt: now + 24 * 3600 * 1000 }
+    userTokenUsage.set(userId, usage)
   }
 
-  return usage.tokens < MAX_DAILY_TOKENS_PER_USER
+  if (usage.tokens >= MAX_DAILY_TOKENS_PER_USER) {
+    throw new Error('Daily token limit exceeded. Please try again tomorrow.')
+  }
+
+  usage.tokens += tokens
 }
 
-function trackTokenUsage(userId: string | undefined, tokens: number): void {
+function assertTokenBudget(userId?: string): void {
   if (!userId) return
+  const now = Date.now()
   const usage = userTokenUsage.get(userId)
-  if (usage) {
-    usage.tokens += tokens
+  if (usage && now <= usage.resetAt && usage.tokens >= MAX_DAILY_TOKENS_PER_USER) {
+    throw new Error('Daily token limit exceeded. Please try again tomorrow.')
   }
 }
 
-// ---------------------------------------------------------------------------
-// 4. Core gateway function: run_llm
-// ---------------------------------------------------------------------------
+// --- Core gateway ---
 
-interface RunLLMOptions {
+export interface RunLLMOptions {
   temperature?: number
   maxTokens?: number
   userId?: string
+  responseFormat?: 'json' | 'text'
 }
 
 export async function runLLM(
   taskType: TaskType,
+  messages: ChatCompletionMessageParam[],
   systemPrompt: string,
-  userPrompt: string,
   options?: RunLLMOptions
 ): Promise<string> {
-  const maxTokens = Math.min(
-    options?.maxTokens ?? 2000,
-    TOKEN_LIMITS.max_tokens_per_call
-  )
+  const maxTokens = options?.maxTokens ?? DEFAULT_MAX_TOKENS
+  assertTokenBudget(options?.userId)
 
-  // Cost protection: check user daily limit
-  if (!checkUserTokenLimit(options?.userId)) {
-    throw new Error('Daily token limit exceeded. Please try again tomorrow.')
-  }
+  const chain = MODEL_CHAINS[taskType]
+  const primaryModel = chain[0]
 
-  const modelChain = getModelChain(taskType)
-
-  // Check cache first (using primary model for key)
-  const cached = getCached(taskType, modelChain[0], systemPrompt, userPrompt)
+  const cacheKey = makeCacheKey(primaryModel, messages, systemPrompt)
+  const cached = getCached(taskType, cacheKey)
   if (cached) return cached
 
-  // Try each model in the chain with retries
+  const client = getClient()
+  const fullMessages: ChatCompletionMessageParam[] = [
+    { role: 'system', content: systemPrompt },
+    ...messages,
+  ]
+
+  // Retry policy: attempt 1 = primary, 2 = primary retry, 3 = fallback1, 4 = fallback2, 5 = error
+  const attempts: string[] = [chain[0], chain[0], chain[1], chain[2]]
   let lastError: Error | null = null
 
-  for (const model of modelChain) {
-    // Attempt 1: primary try
-    // Attempt 2: retry same model
-    for (let retry = 0; retry < 2; retry++) {
-      try {
-        const response = await Promise.race([
-          client.chat.completions.create({
-            model,
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'user', content: userPrompt },
-            ],
-            temperature: options?.temperature ?? 0.7,
-            max_tokens: maxTokens,
-          }),
-          new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error('LLM timeout')), 20000)
-          ),
-        ])
+  for (const model of attempts) {
+    try {
+      const response = await Promise.race([
+        client.chat.completions.create({
+          model,
+          messages: fullMessages,
+          temperature: options?.temperature ?? 0.7,
+          max_tokens: maxTokens,
+          ...(options?.responseFormat === 'json' ? { response_format: { type: 'json_object' } } : {}),
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(`LLM timeout after ${LLM_TIMEOUT_MS}ms`)), LLM_TIMEOUT_MS)
+        ),
+      ])
 
-        const content = response.choices[0]?.message?.content || ''
+      const content = response.choices[0]?.message?.content || ''
+      const tokensUsed = response.usage?.total_tokens ?? maxTokens
+      checkAndTrackTokens(options?.userId, tokensUsed)
+      setCache(taskType, cacheKey, content)
 
-        // Track token usage
-        const tokensUsed = response.usage?.total_tokens ?? maxTokens
-        trackTokenUsage(options?.userId, tokensUsed)
-
-        // Cache the response
-        setCache(model, systemPrompt, userPrompt, content)
-
-        return content
-      } catch (err) {
-        lastError = err instanceof Error ? err : new Error(String(err))
-        // Don't retry on timeout, move to next model
-        if (lastError.message === 'LLM timeout') break
-      }
+      return content
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err))
     }
   }
 
-  throw lastError || new Error('All models in chain failed')
+  throw lastError ?? new Error('All models in chain failed')
 }
 
-// ---------------------------------------------------------------------------
-// 5. Convenience wrappers (drop-in replacements for old puter-ai functions)
-// ---------------------------------------------------------------------------
+// --- Convenience functions ---
 
 export async function chatCompletion(
   systemPrompt: string,
   userPrompt: string,
-  options?: { temperature?: number; maxTokens?: number; taskType?: TaskType; userId?: string }
+  options?: {
+    temperature?: number
+    maxTokens?: number
+    taskType?: TaskType
+    userId?: string
+  }
 ): Promise<string> {
   return runLLM(
-    options?.taskType ?? 'live_interview_response',
+    options?.taskType ?? 'live_conversation',
+    [{ role: 'user', content: userPrompt }],
     systemPrompt,
-    userPrompt,
     {
       temperature: options?.temperature,
       maxTokens: options?.maxTokens,
@@ -257,24 +230,29 @@ export async function chatCompletion(
 export async function chatCompletionJSON<T>(
   systemPrompt: string,
   userPrompt: string,
-  options?: { temperature?: number; maxTokens?: number; taskType?: TaskType; userId?: string }
+  options?: {
+    temperature?: number
+    maxTokens?: number
+    taskType?: TaskType
+    userId?: string
+  }
 ): Promise<T> {
   const response = await runLLM(
     options?.taskType ?? 'resume_parsing',
+    [{ role: 'user', content: userPrompt }],
     systemPrompt + '\n\nYou MUST respond with valid JSON only. No markdown, no code fences, no explanation.',
-    userPrompt,
     {
       temperature: options?.temperature,
       maxTokens: options?.maxTokens,
       userId: options?.userId,
+      responseFormat: 'json',
     }
   )
 
-  // Strip markdown code fences if present
   const cleaned = response.replace(/```(?:json)?\s*/g, '').replace(/```\s*/g, '').trim()
   return JSON.parse(cleaned)
 }
 
 export function isAIConfigured(): boolean {
-  return !!process.env.OPENROUTER_API_KEY
+  return Boolean(process.env.OPENROUTER_API_KEY)
 }

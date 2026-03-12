@@ -3,178 +3,73 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
-import { Clock, ArrowRight, History } from 'lucide-react'
-import { Card, CardContent, CardHeader } from '@/components/ui/Card'
-import { Button } from '@/components/ui/Button'
-import { Badge } from '@/components/ui/Badge'
-import { ScoreGauge } from '@/components/ui/ScoreGauge'
-
-function intensityVariant(intensity: string) {
-  switch (intensity) {
-    case 'high-pressure':
-      return 'danger' as const
-    case 'standard':
-      return 'warning' as const
-    case 'warmup':
-      return 'success' as const
-    default:
-      return 'default' as const
-  }
-}
-
-function formatDuration(minutes: number): string {
-  if (minutes < 60) return `${minutes}m`
-  const h = Math.floor(minutes / 60)
-  const m = minutes % 60
-  return m > 0 ? `${h}h ${m}m` : `${h}h`
-}
-
-function parseMomentMap(value?: string | null): Array<{ type?: string }> {
-  if (!value) return []
-  try {
-    const parsed = JSON.parse(value)
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
-}
+import { Clock, ChevronRight } from 'lucide-react'
 
 export default async function SessionHistoryPage() {
   const session = await getServerSession(authOptions)
-
-  if (!session?.user) {
-    redirect('/login')
-  }
-
+  if (!session?.user) redirect('/signin')
   const userId = (session.user as { id: string }).id
 
   const sessions = await prisma.interviewSession.findMany({
     where: { userId },
     include: {
-      application: {
-        select: { companyName: true, jobTitle: true },
-      },
-      analysis: {
-        select: { hiringProbability: true, momentMap: true },
-      },
+      application: { select: { companyName: true, jobTitle: true } },
+      analysis: { select: { hiringProbability: true } },
     },
     orderBy: { createdAt: 'desc' },
   })
 
   return (
-    <div className="space-y-8">
-      <div>
-        <h2 className="text-2xl font-bold text-gray-900">Session History</h2>
-        <p className="mt-1 text-gray-500">
-          Review all your past interview practice sessions.
-        </p>
-      </div>
+    <div className="space-y-6">
+      <h2 className="text-2xl font-bold text-white">Session History</h2>
 
       {sessions.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-brand-700/10 mb-4">
-              <History className="h-8 w-8 text-brand-700" />
-            </div>
-            <h3 className="text-lg font-semibold text-gray-900">
-              No sessions yet
-            </h3>
-            <p className="mt-2 max-w-sm text-sm text-gray-500">
-              Once you complete your first interview practice session, it will appear here
-              with a full breakdown and debrief.
-            </p>
-            <Link href="/dashboard" className="mt-6">
-              <Button>
-                Start Practicing
-              </Button>
-            </Link>
-          </CardContent>
-        </Card>
+        <div className="rounded-2xl bg-[#292929] p-8 text-center">
+          <p className="text-gray-400">No sessions yet. Start your first interview from an application.</p>
+        </div>
       ) : (
-        <Card>
-          <div className="divide-y divide-gray-100">
-            {sessions.map((s) => (
-              <div
-                key={s.id}
-                className="flex items-center justify-between gap-4 px-6 py-4"
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-gray-900">
+        <div className="space-y-2">
+          {sessions.map(s => (
+            <Link
+              key={s.id}
+              href={s.status === 'completed' ? `/debrief/${s.id}` : `/perform/${s.id}`}
+              className="flex items-center justify-between rounded-2xl bg-[#292929] px-5 py-4 hover:bg-[#333] transition-colors"
+            >
+              <div className="flex items-center gap-4">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#5b5fc7]/20">
+                  <Clock className="h-5 w-5 text-[#5b5fc7]" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-white">
                     {s.application.companyName} &mdash; {s.application.jobTitle}
                   </p>
-                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
-                    <span>
-                      {s.createdAt.toLocaleDateString('en-US', {
-                        month: 'short',
-                        day: 'numeric',
-                        year: 'numeric',
-                      })}
-                    </span>
-                    <span>&middot;</span>
-                    <span className="flex items-center gap-1">
-                      <Clock className="h-3 w-3" />
-                      {formatDuration(s.durationMinutes)}
-                    </span>
-                    <span>&middot;</span>
-                    <span>{s.stage}</span>
-                  </div>
-                  {(() => {
-                    const momentMap = parseMomentMap(s.analysis?.momentMap)
-                    if (!momentMap.length) return null
-                    return (
-                      <div className="mt-2 flex h-2 overflow-hidden rounded-full bg-gray-100 ring-1 ring-inset ring-gray-200 max-w-xs">
-                        {momentMap.slice(0, 40).map((segment, idx) => {
-                          const type = segment?.type || 'recoverable'
-                          const bg =
-                            type === 'strong'
-                              ? 'bg-emerald-500'
-                              : type === 'dropped'
-                              ? 'bg-rose-500'
-                              : 'bg-amber-400'
-                          return <span key={`${s.id}-seg-${idx}`} className={`h-full flex-1 ${bg}`} />
-                        })}
-                      </div>
-                    )
-                  })()}
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <Badge variant={intensityVariant(s.intensity)}>
-                    {s.intensity}
-                  </Badge>
-
-                  {s.analysis?.hiringProbability != null && (
-                    <ScoreGauge
-                      score={s.analysis.hiringProbability}
-                      size="sm"
-                      label="Hire %"
-                    />
-                  )}
-
-                  <Badge
-                    variant={
-                      s.status === 'completed'
-                        ? 'success'
-                          : s.status === 'active'
-                        ? 'warning'
-                        : 'default'
-                    }
-                  >
-                    {s.status.replace('_', ' ')}
-                  </Badge>
-
-                  <Link
-                    href={`/debrief/${s.id}`}
-                    className="inline-flex items-center gap-1 text-sm font-medium text-brand-700 hover:text-brand-800"
-                  >
-                    Debrief
-                    <ArrowRight className="h-3 w-3" />
-                  </Link>
+                  <p className="text-xs text-gray-400">
+                    {s.stage} &middot; {s.intensity} &middot;{' '}
+                    {new Date(s.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </p>
                 </div>
               </div>
-            ))}
-          </div>
-        </Card>
+              <div className="flex items-center gap-3">
+                <span className={`text-xs px-2 py-0.5 rounded-full ${
+                  s.status === 'completed' ? 'bg-emerald-900/30 text-emerald-400' :
+                  s.status === 'active' ? 'bg-yellow-900/30 text-yellow-400' :
+                  'bg-[#333] text-gray-400'
+                }`}>
+                  {s.status}
+                </span>
+                {s.analysis?.hiringProbability != null && (
+                  <span className={`text-sm font-semibold ${
+                    s.analysis.hiringProbability >= 70 ? 'text-emerald-400' :
+                    s.analysis.hiringProbability >= 40 ? 'text-yellow-400' : 'text-red-400'
+                  }`}>
+                    {s.analysis.hiringProbability}%
+                  </span>
+                )}
+                <ChevronRight className="h-4 w-4 text-gray-500" />
+              </div>
+            </Link>
+          ))}
+        </div>
       )}
     </div>
   )

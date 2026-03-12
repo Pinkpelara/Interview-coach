@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { synthesizeSpeech, AIServiceError, isAIServiceConfigured } from '@/lib/ai'
 import { checkRateLimit } from '@/lib/rate-limit'
 
 const VOICES = new Set([
@@ -162,8 +161,7 @@ export async function POST(request: Request) {
     }
 
     const canUseDedicatedTTS = hasDedicatedTTSService()
-    const canUseAIProviderTTS = isAIServiceConfigured()
-    if (!canUseDedicatedTTS && !canUseAIProviderTTS) {
+    if (!canUseDedicatedTTS) {
       return NextResponse.json(
         {
           error: 'Human-like TTS is not configured on the server yet.',
@@ -191,10 +189,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Text is required' }, { status: 400 })
     }
 
-    let audioBuffer = await synthesizeWithDedicatedTTS(text, voice, instructions)
-    if (!audioBuffer && canUseAIProviderTTS) {
-      audioBuffer = await synthesizeSpeech(text, voice, instructions)
-    }
+    const audioBuffer = await synthesizeWithDedicatedTTS(text, voice, instructions)
     if (!audioBuffer || audioBuffer.length === 0) {
       return NextResponse.json(
         {
@@ -212,12 +207,6 @@ export async function POST(request: Request) {
       },
     })
   } catch (error) {
-    if (error instanceof AIServiceError) {
-      return NextResponse.json(
-        { error: 'Voice synthesis temporarily unavailable', code: error.code },
-        { status: 503 }
-      )
-    }
     console.error('TTS error:', error)
     return NextResponse.json(
       { error: 'Failed to synthesize interviewer voice' },

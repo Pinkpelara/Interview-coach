@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { aiConfig } from '@/lib/ai/config'
-import { aiHealthCheck, isAIServiceConfigured } from '@/lib/ai'
+import { isAIConfigured } from '@/lib/ai-gateway'
 
 type CheckResult = {
   ok: boolean
@@ -48,7 +47,7 @@ export async function GET() {
     dbOk = false
   }
 
-  const ai = await aiHealthCheck()
+  const aiOk = isAIConfigured()
 
   const relayHealthUrl = process.env.MEDIA_RELAY_HEALTH_URL
   const conductorHealthUrl =
@@ -72,13 +71,13 @@ export async function GET() {
     phaseA_foundation: dbOk && optionalServiceReady(apiServer, Boolean(apiServerHealthUrl)),
     phaseB_async_ai:
       dbOk &&
-      (ai.ok || !isAIServiceConfigured()) &&
+      aiOk &&
       optionalServiceReady(aiEngine, Boolean(aiEngineHealthUrl)),
     phaseC_audio_conversation: dbOk && conductor.ok && relay.ok,
     phaseD_level1_animation: dbOk && conductor.ok && relay.ok,
     phaseE_full_product_surface: dbOk && conductor.ok && relay.ok,
     phaseG_neural_gpu_ready: gpuWorkers.ok,
-    phaseH_self_hosted_mode: aiConfig.sourceMode === 'modern' && conductor.ok && gpuWorkers.ok,
+    phaseH_self_hosted_mode: aiOk && conductor.ok && gpuWorkers.ok,
   }
 
   const overall =
@@ -92,7 +91,7 @@ export async function GET() {
       response_time_ms: Date.now() - started,
       service_checks: {
         db: { ok: dbOk },
-        ai_service: ai,
+        ai_service: { ok: aiOk },
         ai_engine: aiEngine,
         api_server: apiServer,
         media_relay: relay,
@@ -101,7 +100,7 @@ export async function GET() {
       },
       phase_readiness: phases,
       config: {
-        ai_source_mode: aiConfig.sourceMode,
+        ai_source_mode: 'openrouter',
         relay_health_url_configured: Boolean(relayHealthUrl),
         conductor_health_url_configured: Boolean(conductorHealthUrl),
         gpu_health_url_configured: Boolean(gpuHealthUrl),

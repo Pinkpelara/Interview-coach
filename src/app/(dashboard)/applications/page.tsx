@@ -12,7 +12,7 @@ import { Badge } from '@/components/ui/Badge'
 
 export default async function ApplicationsPage() {
   const session = await getServerSession(authOptions)
-  if (!session?.user) redirect('/login')
+  if (!session?.user) redirect('/signin')
 
   const userId = (session.user as { id: string }).id
   const applications = await prisma.application.findMany({
