@@ -69,7 +69,6 @@ model Application {
   parsedJD          ParsedJD?
   questions         Question[]
   sessions          InterviewSession[]
-  countdownPlans    CountdownPlan[]
 
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -119,7 +118,6 @@ model Question {
   timeGuidance    Int?
   difficulty      Int         @default(3)
   likelyFollowUp  String?
-  sortOrder       Int?
 
   userAnswers     UserAnswer[]
 
@@ -176,8 +174,6 @@ model InterviewSession {
   status          String      @default("pending")
   characters      String?
 
-  unexpectedEvents String?
-
   startedAt       DateTime?
   endedAt         DateTime?
 
@@ -215,9 +211,6 @@ model SessionAnalysis {
   companyFitLanguage Int?
   listeningAccuracy Int?
   hiringProbability Int?
-  yesReasons        String?
-  noReasons         String?
-  roleComparison    String?
   nextTargets       String?
   coachScript       String?
 
@@ -234,18 +227,6 @@ model ObserveSession {
   annotations     String?
 
   createdAt       DateTime         @default(now())
-}
-
-model CountdownPlan {
-  id              String      @id @default(cuid())
-  applicationId   String
-  application     Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
-
-  interviewDate   DateTime
-  planData        String?
-
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
 }
 
 model Subscription {
