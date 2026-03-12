@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { chatCompletionJSON, isAIConfigured } from '@/lib/puter-ai'
+import { chatCompletionJSON, isAIConfigured } from '@/lib/ai-gateway'
 
 interface AnalysisResult {
   strengths: string[]
@@ -114,6 +114,7 @@ Analyze this answer.`
     const analysis = await chatCompletionJSON<AnalysisResult>(systemPrompt, userPrompt, {
       temperature: 0.5,
       maxTokens: 1000,
+      taskType: 'answer_analysis',
     })
 
     // Save feedback to database

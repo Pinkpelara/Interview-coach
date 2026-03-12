@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { chatCompletionJSON, chatCompletion, isAIConfigured } from '@/lib/puter-ai'
+import { chatCompletionJSON, chatCompletion, isAIConfigured } from '@/lib/ai-gateway'
 
 function randomInt(min: number, max: number) {
   return Math.floor(Math.random() * (max - min + 1)) + min
@@ -169,12 +169,12 @@ export async function GET(
 
 Transcript:
 ${exchangeText}`,
-            { temperature: 0.5 }
+            { temperature: 0.5, taskType: 'debrief_scoring' }
           ),
           chatCompletion(
             'You are a direct, encouraging interview coach delivering a post-interview debrief. Speak naturally and conversationally. Reference specific moments from the interview. Keep it to 3-4 sentences.',
             `Give a brief coaching debrief based on this interview transcript:\n\n${exchangeText}`,
-            { temperature: 0.8, maxTokens: 300 }
+            { temperature: 0.8, maxTokens: 300, taskType: 'debrief_coaching' }
           ),
         ])
 

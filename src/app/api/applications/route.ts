@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { chatCompletionJSON, isAIConfigured } from '@/lib/puter-ai'
+import { chatCompletionJSON, isAIConfigured } from '@/lib/ai-gateway'
 
 export async function GET() {
   try {
@@ -92,7 +92,7 @@ Return:
 - strengths: array of 3-5 strengths from the resume that match the JD
 - missingKeywords: array of 4-6 important keywords from the JD not found in the resume
 - probeAreas: array of 3-5 topics interviewers will likely probe based on gaps`,
-          { temperature: 0.3 }
+          { temperature: 0.3, taskType: 'resume_parsing' }
         )
 
         alignmentScore = Math.min(100, Math.max(0, analysis.alignmentScore))

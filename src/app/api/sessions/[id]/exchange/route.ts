@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { chatCompletion, isAIConfigured } from '@/lib/puter-ai'
+import { chatCompletion, isAIConfigured } from '@/lib/ai-gateway'
 
 interface Character {
   id: string
@@ -203,6 +203,7 @@ Respond in character as the interviewer. Remember to ask questions specific to $
   return chatCompletion(systemPrompt, userPrompt, {
     temperature: 0.85,
     maxTokens: 250,
+    taskType: 'live_interview_response',
   })
 }
 

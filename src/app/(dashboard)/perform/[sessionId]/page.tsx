@@ -19,6 +19,9 @@ import {
   MessageSquare,
   Volume2,
   VolumeX,
+  MoreHorizontal,
+  Users,
+  ChevronRight,
 } from 'lucide-react'
 import CharacterVideo, { type ExpressionState } from '@/components/perform/CharacterVideo'
 import { AudioAnalyser } from '@/components/perform/AudioAnalyser'
@@ -180,7 +183,7 @@ function formatTime(seconds: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Voice config per archetype — OpenAI TTS voices via Puter.js
+// Voice config per archetype
 // ---------------------------------------------------------------------------
 
 const VOICE_CONFIG: Record<string, { voice: string; instructions: string }> = {
@@ -210,7 +213,6 @@ const VOICE_CONFIG: Record<string, { voice: string; instructions: string }> = {
   },
 }
 
-// Fallback Web Speech API config for when Puter.js is unavailable
 const FALLBACK_VOICE_CONFIG: Record<string, { pitch: number; rate: number }> = {
   skeptic: { pitch: 0.85, rate: 0.88 },
   friendly_champion: { pitch: 1.08, rate: 1.0 },
@@ -221,7 +223,7 @@ const FALLBACK_VOICE_CONFIG: Record<string, { pitch: number; rate: number }> = {
 }
 
 // ---------------------------------------------------------------------------
-// Speech synthesis hook — Web Speech API with voice selection
+// Speech synthesis hook — Web Speech API
 // ---------------------------------------------------------------------------
 
 function useSpeech() {
@@ -302,6 +304,9 @@ export default function InterviewRoomPage() {
   const [isSending, setIsSending] = useState(false)
   const [speakingCharacterId, setSpeakingCharacterId] = useState<string | null>(null)
   const [characterExpressions, setCharacterExpressions] = useState<Record<string, ExpressionState>>({})
+
+  // Chat panel toggle
+  const [isChatOpen, setIsChatOpen] = useState(true)
 
   // Voice I/O
   const { speak, stop: stopSpeech, speaking: isTTSSpeaking, audioAnalyser } = useSpeech()
@@ -517,27 +522,22 @@ export default function InterviewRoomPage() {
 
     const interval = setInterval(() => {
       for (const char of sessionData.characters) {
-        // Skip the currently speaking character
         if (char.id === speakingCharacterId) continue
 
         if (char.archetype === 'distracted_senior') {
-          // Distracted senior occasionally looks away → expression: distracted
           if (Math.random() > 0.4) {
             setCharacterExpressions(prev => ({ ...prev, [char.id]: 'distracted' }))
           } else {
             setCharacterExpressions(prev => ({ ...prev, [char.id]: 'listening' }))
           }
         } else if (char.archetype === 'silent_observer') {
-          // Silent observer takes notes periodically
           setCharacterExpressions(prev => ({
             ...prev,
             [char.id]: Math.random() > 0.5 ? 'writing_notes' : 'listening',
           }))
         } else {
-          // Other non-speaking characters: listening, occasional nodding
           if (Math.random() > 0.8) {
             setCharacterExpressions(prev => ({ ...prev, [char.id]: 'nodding' }))
-            // Reset after nod animation
             setTimeout(() => {
               setCharacterExpressions(prev => ({
                 ...prev,
@@ -577,18 +577,15 @@ export default function InterviewRoomPage() {
       setSessionData(prev => prev ? { ...prev, ...updated, characters: updated.characters } : prev)
       setPhase('interview')
 
-      // Generate opening lines
       const characters = updated.characters || sessionData.characters
       for (let i = 0; i < characters.length; i++) {
         const char = characters[i]
         const lines = getOpeningLines(char.archetype, sessionData.application?.companyName, sessionData.application?.jobTitle)
         const line = randomFrom(lines)
 
-        // Character speaks → expression: speaking
         setSpeakingCharacterId(char.id)
         setCharacterExpressions(prev => ({ ...prev, [char.id]: 'speaking' }))
 
-        // Set non-speaking characters to listening
         for (const otherChar of characters) {
           if (otherChar.id !== char.id) {
             setCharacterExpressions(prev => ({ ...prev, [otherChar.id]: 'listening' }))
@@ -612,7 +609,6 @@ export default function InterviewRoomPage() {
         }
         setExchanges(prev => [...prev, openingExchange])
 
-        // After speaking → expression: neutral
         setSpeakingCharacterId(null)
         setCharacterExpressions(prev => ({ ...prev, [char.id]: 'neutral' }))
 
@@ -621,7 +617,6 @@ export default function InterviewRoomPage() {
         }
       }
 
-      // Start listening for candidate — all characters set to listening
       for (const char of characters) {
         setCharacterExpressions(prev => ({ ...prev, [char.id]: 'listening' }))
       }
@@ -651,7 +646,6 @@ export default function InterviewRoomPage() {
     setIsSending(true)
     stopListening()
 
-    // Add candidate exchange
     const tempCandidateExchange: Exchange = {
       id: `temp_${Date.now()}`,
       sequenceNumber: exchanges.length + 1,
@@ -662,17 +656,14 @@ export default function InterviewRoomPage() {
     }
     setExchanges(prev => [...prev, tempCandidateExchange])
 
-    // V4 Step 3: Candidate finishes → archetype silence expression
     const silenceExpression = getSilenceExpression(respondingChar.archetype)
     setCharacterExpressions(prev => ({ ...prev, [respondingChar.id]: silenceExpression }))
     setSpeakingCharacterId(respondingChar.id)
 
     try {
-      // V4: Archetype-specific silence before responding
       const silenceDuration = getSilenceDuration(respondingChar.archetype, sessionData.intensity)
       await new Promise(resolve => setTimeout(resolve, silenceDuration * 1000))
 
-      // V4 Step 4: After silence → thinking
       setCharacterExpressions(prev => ({ ...prev, [respondingChar.id]: 'thinking' }))
 
       const res = await fetch(`/api/sessions/${sessionId}/exchange`, {
@@ -688,10 +679,8 @@ export default function InterviewRoomPage() {
 
       const data = await res.json()
 
-      // V4 Step 1: Character speaks → expression: speaking + TTS + lip sync
       setCharacterExpressions(prev => ({ ...prev, [respondingChar.id]: 'speaking' }))
 
-      // Set non-speaking characters to listening/writing_notes
       for (const otherChar of characters) {
         if (otherChar.id !== respondingChar.id) {
           if (otherChar.archetype === 'silent_observer') {
@@ -702,24 +691,20 @@ export default function InterviewRoomPage() {
         }
       }
 
-      // Speak the response
       if (isSpeakerOn) {
         const voiceConfig = VOICE_CONFIG[respondingChar.archetype]
         await speak(data.interviewerExchange.messageText, voiceConfig)
       }
 
-      // Update exchanges
       setExchanges(prev => {
         const withoutTemp = prev.filter(e => e.id !== tempCandidateExchange.id)
         return [...withoutTemp, data.candidateExchange, data.interviewerExchange]
       })
 
-      // V4 Step 2: TTS ends → expression: listening for all
       for (const char of characters) {
         setCharacterExpressions(prev => ({ ...prev, [char.id]: 'listening' }))
       }
 
-      // Resume listening
       if (!textMode && isMicOn) startListening()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send message')
@@ -800,18 +785,10 @@ export default function InterviewRoomPage() {
     setIsMicOn(!isMicOn)
   }
 
-  // -------------------------------------------
-  // Toggle speaker
-  // -------------------------------------------
-
   const toggleSpeaker = () => {
     if (isSpeakerOn) stopSpeech()
     setIsSpeakerOn(!isSpeakerOn)
   }
-
-  // -------------------------------------------
-  // Key handler
-  // -------------------------------------------
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -819,10 +796,6 @@ export default function InterviewRoomPage() {
       handleSend()
     }
   }
-
-  // -------------------------------------------
-  // Get character by ID
-  // -------------------------------------------
 
   const getCharacter = (charId: string | null): Character | undefined => {
     if (!charId || !sessionData) return undefined
@@ -835,10 +808,10 @@ export default function InterviewRoomPage() {
 
   if (phase === 'loading') {
     return (
-      <div className="fixed inset-0 bg-[#0a0a1a] flex items-center justify-center z-50">
+      <div className="fixed inset-0 bg-[#1b1b1b] flex items-center justify-center z-50">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-400 mx-auto mb-4" />
-          <p className="text-gray-400 text-sm">Loading interview room...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-[#5b5fc7] mx-auto mb-4" />
+          <p className="text-gray-400 text-sm">Joining meeting...</p>
         </div>
       </div>
     )
@@ -846,10 +819,10 @@ export default function InterviewRoomPage() {
 
   if (error && !sessionData) {
     return (
-      <div className="fixed inset-0 bg-[#0a0a1a] flex items-center justify-center z-50">
+      <div className="fixed inset-0 bg-[#1b1b1b] flex items-center justify-center z-50">
         <div className="text-center max-w-md">
           <MessageSquare className="w-12 h-12 text-red-400 mx-auto mb-4" />
-          <h2 className="text-xl font-semibold text-white mb-2">Unable to load session</h2>
+          <h2 className="text-xl font-semibold text-white mb-2">Unable to join meeting</h2>
           <p className="text-gray-400 mb-6">{error}</p>
           <Button variant="outline" onClick={() => router.push('/dashboard')}>
             Back to Dashboard
@@ -863,32 +836,35 @@ export default function InterviewRoomPage() {
   const { characters, application } = sessionData
 
   // -------------------------------------------
-  // RENDER: Briefing (Pre-Interview)
+  // RENDER: Briefing (Pre-Interview Lobby)
   // -------------------------------------------
 
   if (phase === 'briefing') {
     return (
-      <div className="fixed inset-0 bg-[#0a0a1a] flex items-center justify-center p-4 overflow-y-auto z-50">
-        <div className="max-w-2xl w-full space-y-6">
-          <div className="text-center">
-            <div className="inline-flex items-center gap-2 bg-blue-500/10 border border-blue-500/20 rounded-full px-4 py-1.5 mb-4">
-              <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-              <span className="text-blue-400 text-xs font-medium">Interview Scheduled</span>
-            </div>
-            <h1 className="text-3xl font-bold text-white mb-1">
-              {application.companyName}
-            </h1>
-            <p className="text-gray-400">{application.jobTitle}</p>
-          </div>
-
-          <div className="bg-[#111127] border border-[#1e1e3a] rounded-xl p-6 space-y-4">
-            <div className="grid grid-cols-3 gap-4 text-center">
-              <div>
-                <p className="text-xs text-gray-500 mb-1">Type</p>
-                <p className="text-white text-sm font-medium">{sessionData.stage}</p>
+      <div className="fixed inset-0 bg-[#1b1b1b] flex items-center justify-center p-4 overflow-y-auto z-50">
+        <div className="max-w-lg w-full space-y-6">
+          {/* Meeting card */}
+          <div className="bg-[#292929] rounded-2xl p-8 space-y-6">
+            <div className="text-center">
+              {/* Company avatar */}
+              <div className="w-16 h-16 rounded-2xl bg-[#5b5fc7] flex items-center justify-center mx-auto mb-4">
+                <span className="text-white text-xl font-bold">{application.companyName.charAt(0)}</span>
               </div>
-              <div>
-                <p className="text-xs text-gray-500 mb-1">Intensity</p>
+              <h1 className="text-xl font-semibold text-white mb-1">
+                {application.companyName}
+              </h1>
+              <p className="text-gray-400 text-sm">{application.jobTitle} Interview</p>
+            </div>
+
+            {/* Meeting details */}
+            <div className="flex items-center justify-center gap-6 text-sm">
+              <div className="text-center">
+                <p className="text-gray-500 text-xs mb-1">Stage</p>
+                <p className="text-white text-sm">{sessionData.stage}</p>
+              </div>
+              <div className="w-px h-8 bg-[#3d3d3d]" />
+              <div className="text-center">
+                <p className="text-gray-500 text-xs mb-1">Intensity</p>
                 <Badge variant={
                   sessionData.intensity === 'high-pressure' ? 'danger' :
                   sessionData.intensity === 'warmup' ? 'success' : 'info'
@@ -896,58 +872,74 @@ export default function InterviewRoomPage() {
                   {sessionData.intensity}
                 </Badge>
               </div>
-              <div>
-                <p className="text-xs text-gray-500 mb-1">Duration</p>
-                <p className="text-white text-sm font-medium">{sessionData.durationMinutes} min</p>
+              <div className="w-px h-8 bg-[#3d3d3d]" />
+              <div className="text-center">
+                <p className="text-gray-500 text-xs mb-1">Duration</p>
+                <p className="text-white text-sm">{sessionData.durationMinutes} min</p>
               </div>
             </div>
-          </div>
 
-          <div>
-            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">
-              Your Interview Panel
-            </h2>
-            <div className="space-y-2">
-              {characters.map(char => {
-                const color = ARCHETYPE_COLORS[char.archetype] || '#6b7280'
-                return (
-                  <div key={char.id} className="bg-[#111127] border border-[#1e1e3a] rounded-xl p-4 flex items-center gap-4">
-                    <div
-                      className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0"
-                      style={{ backgroundColor: color }}
-                    >
-                      {getInitials(char.name)}
+            {/* Participants */}
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <Users className="w-4 h-4 text-gray-400" />
+                <span className="text-gray-400 text-xs font-medium">
+                  {characters.length + 1} participants
+                </span>
+              </div>
+              <div className="space-y-1.5">
+                {characters.map(char => {
+                  const color = ARCHETYPE_COLORS[char.archetype] || '#6b7280'
+                  return (
+                    <div key={char.id} className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-[#333] transition-colors">
+                      <div
+                        className="w-8 h-8 rounded-full flex items-center justify-center text-white font-semibold text-xs shrink-0"
+                        style={{ backgroundColor: color }}
+                      >
+                        {getInitials(char.name)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white text-sm">{char.name}</p>
+                        <p className="text-gray-500 text-xs truncate">{char.title}</p>
+                      </div>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-white font-medium">{char.name}</p>
-                      <p className="text-gray-400 text-sm truncate">{char.title}</p>
-                    </div>
+                  )
+                })}
+                {/* You */}
+                <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-[#5b5fc7]/10">
+                  <div className="w-8 h-8 rounded-full bg-[#5b5fc7] flex items-center justify-center text-white text-xs font-semibold shrink-0">
+                    <User className="w-4 h-4" />
                   </div>
-                )
-              })}
+                  <div>
+                    <p className="text-white text-sm">You</p>
+                    <p className="text-gray-500 text-xs">Candidate</p>
+                  </div>
+                </div>
+              </div>
             </div>
-          </div>
 
-          {!cameraActive ? (
-            <div className="bg-[#111127] border border-[#1e1e3a] rounded-xl p-6 text-center space-y-3">
-              <Video className="w-8 h-8 text-blue-400 mx-auto" />
-              <p className="text-white text-sm font-medium">Camera & Microphone Required</p>
-              <p className="text-gray-400 text-xs">Your camera and microphone will be active during the interview.</p>
-              <Button onClick={startCamera} className="!bg-blue-600 hover:!bg-blue-700">
-                <Video className="w-4 h-4 mr-2" />
-                Enable Camera & Mic
-              </Button>
-            </div>
-          ) : (
-            <div className="bg-green-900/20 border border-green-700/30 rounded-xl p-4 flex items-center gap-3">
-              <Mic className="w-5 h-5 text-green-400" />
-              <p className="text-green-300 text-sm">Camera and microphone connected</p>
-            </div>
-          )}
+            {/* Camera/Mic preview */}
+            {!cameraActive ? (
+              <div className="bg-[#1b1b1b] rounded-xl p-4 text-center space-y-3">
+                <div className="flex items-center justify-center gap-4">
+                  <button onClick={startCamera} className="w-10 h-10 rounded-full bg-[#3d3d3d] text-white flex items-center justify-center hover:bg-[#4d4d4d] transition-colors">
+                    <Video className="w-5 h-5" />
+                  </button>
+                  <button onClick={startCamera} className="w-10 h-10 rounded-full bg-[#3d3d3d] text-white flex items-center justify-center hover:bg-[#4d4d4d] transition-colors">
+                    <Mic className="w-5 h-5" />
+                  </button>
+                </div>
+                <p className="text-gray-500 text-xs">Click to enable camera and microphone</p>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 px-3 py-2 bg-green-900/20 rounded-lg">
+                <div className="w-2 h-2 rounded-full bg-green-500" />
+                <p className="text-green-400 text-sm">Camera and microphone ready</p>
+              </div>
+            )}
 
-          <div className="text-center pt-2">
-            <Button
-              size="lg"
+            {/* Join button */}
+            <button
               onClick={() => {
                 if (!cameraActive) {
                   startCamera().then(() => {
@@ -961,10 +953,10 @@ export default function InterviewRoomPage() {
                   setPhase('countdown')
                 }
               }}
-              className="!bg-blue-600 hover:!bg-blue-700 !px-12"
+              className="w-full py-3 rounded-lg bg-[#5b5fc7] text-white font-semibold text-sm hover:bg-[#4e52b5] transition-colors"
             >
-              Enter Interview Room
-            </Button>
+              Join Interview
+            </button>
           </div>
         </div>
       </div>
@@ -977,27 +969,18 @@ export default function InterviewRoomPage() {
 
   if (phase === 'countdown') {
     return (
-      <div className="fixed inset-0 bg-[#0a0a1a] flex items-center justify-center z-50">
+      <div className="fixed inset-0 bg-[#1b1b1b] flex items-center justify-center z-50">
         <div className="text-center space-y-6">
-          <div className="bg-[#111127] border border-blue-500/30 rounded-2xl p-6 max-w-sm mx-auto">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center">
-                <Video className="w-5 h-5 text-white" />
-              </div>
-              <div className="text-left">
-                <p className="text-white text-sm font-medium">Interview Starting</p>
-                <p className="text-gray-400 text-xs">{application.companyName} — {application.jobTitle}</p>
-              </div>
-            </div>
+          <div className="w-16 h-16 rounded-2xl bg-[#5b5fc7] flex items-center justify-center mx-auto">
+            <span className="text-white text-lg font-bold">{application.companyName.charAt(0)}</span>
           </div>
-
-          <p className="text-gray-400 text-lg">
-            Your interview starts in...
-          </p>
-          <div className="text-8xl font-bold text-white tabular-nums">
-            {countdown}
+          <div>
+            <p className="text-white text-lg font-medium">{application.companyName}</p>
+            <p className="text-gray-400 text-sm">{application.jobTitle} Interview</p>
           </div>
-          <p className="text-gray-500 text-sm">Take a deep breath and relax</p>
+          <p className="text-gray-500 text-sm">Starting in</p>
+          <div className="text-7xl font-bold text-white tabular-nums">{countdown}</div>
+          <p className="text-gray-600 text-sm">Take a deep breath</p>
         </div>
       </div>
     )
@@ -1010,290 +993,355 @@ export default function InterviewRoomPage() {
   if (phase === 'complete') {
     const totalExchanges = exchanges.filter(e => e.speaker === 'candidate').length
     return (
-      <div className="fixed inset-0 bg-[#0a0a1a] flex items-center justify-center p-4 z-50">
+      <div className="fixed inset-0 bg-[#1b1b1b] flex items-center justify-center p-4 z-50">
         <div className="max-w-md w-full text-center space-y-6">
           <div className="w-20 h-20 rounded-full bg-green-600/20 flex items-center justify-center mx-auto">
-            <MessageSquare className="w-10 h-10 text-green-400" />
+            <PhoneOff className="w-10 h-10 text-green-400" />
           </div>
-          <h1 className="text-3xl font-bold text-white">Interview Complete</h1>
+          <h1 className="text-2xl font-semibold text-white">Meeting ended</h1>
           <p className="text-gray-400">
-            Great job completing your interview for{' '}
+            Your interview for{' '}
             <span className="text-white font-medium">{application.jobTitle}</span> at{' '}
-            <span className="text-white font-medium">{application.companyName}</span>.
+            <span className="text-white font-medium">{application.companyName}</span> has ended.
           </p>
 
-          <div className="flex items-center justify-center gap-6 text-sm">
+          <div className="flex items-center justify-center gap-8 text-sm">
             <div className="text-center">
-              <div className="flex items-center justify-center gap-1 text-gray-300 mb-1">
+              <div className="flex items-center justify-center gap-1.5 text-gray-300 mb-1">
                 <Clock className="w-4 h-4" />
                 <span className="font-mono">{formatTime(elapsedSeconds)}</span>
               </div>
               <p className="text-gray-500 text-xs">Duration</p>
             </div>
             <div className="text-center">
-              <div className="flex items-center justify-center gap-1 text-gray-300 mb-1">
+              <div className="flex items-center justify-center gap-1.5 text-gray-300 mb-1">
                 <MessageSquare className="w-4 h-4" />
                 <span>{totalExchanges}</span>
               </div>
-              <p className="text-gray-500 text-xs">Exchanges</p>
+              <p className="text-gray-500 text-xs">Responses</p>
             </div>
           </div>
 
           <div className="flex flex-col gap-3 pt-4">
-            <Button
-              size="lg"
+            <button
               onClick={() => router.push(`/debrief/${sessionId}`)}
-              className="!bg-blue-600 hover:!bg-blue-700"
+              className="w-full py-3 rounded-lg bg-[#5b5fc7] text-white font-semibold text-sm hover:bg-[#4e52b5] transition-colors"
             >
-              View Your Debrief
-            </Button>
-            <Button
-              variant="ghost"
+              View Debrief
+            </button>
+            <button
               onClick={() => router.push('/dashboard')}
-              className="!text-gray-400 hover:!text-white"
+              className="w-full py-2.5 rounded-lg text-gray-400 text-sm hover:text-white hover:bg-[#292929] transition-colors"
             >
               Return to Dashboard
-            </Button>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  // -------------------------------------------
-  // RENDER: Interview Room (Main Phase)
-  // -------------------------------------------
-
-  const renderSelfView = () => (
-    <div className="relative w-full h-full rounded-xl overflow-hidden bg-[#0d0d20]">
-      {cameraActive && isCameraOn ? (
-        <video
-          ref={selfViewRef}
-          autoPlay
-          muted
-          playsInline
-          className="w-full h-full object-cover"
-          style={{ transform: 'scaleX(-1)' }}
-        />
-      ) : (
-        <div className="w-full h-full flex flex-col items-center justify-center gap-2" style={{ background: 'linear-gradient(135deg, #0d1b2a 0%, #1b263b 100%)' }}>
-          <div className="w-16 h-16 rounded-full bg-blue-600/30 flex items-center justify-center">
-            <User className="w-8 h-8 text-blue-300" />
-          </div>
-          {!cameraActive && <p className="text-gray-500 text-xs">Camera off</p>}
-        </div>
-      )}
-      <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/60 to-transparent">
-        <p className="text-white text-sm font-medium">You</p>
-      </div>
-      {isMicOn && isListening && (
-        <div className="absolute top-2 right-2 flex items-center gap-1 bg-green-500/20 rounded-full px-2 py-0.5">
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
-          </span>
-        </div>
-      )}
-      {cameraActive && !isCameraOn && (
-        <div className="absolute inset-0 bg-[#0d0d20] flex flex-col items-center justify-center gap-2">
-          <div className="w-16 h-16 rounded-full bg-blue-600/30 flex items-center justify-center">
-            <User className="w-8 h-8 text-blue-300" />
-          </div>
-        </div>
-      )}
-    </div>
-  )
-
-  const renderCharacterGrid = () => {
-    const totalTiles = characters.length + 1
-    const cols = totalTiles <= 2 ? 2 : totalTiles <= 4 ? 2 : 3
-
-    return (
-      <div className="flex-1 min-h-0 p-2">
-        <div
-          className="w-full h-full gap-2 max-w-6xl mx-auto"
-          style={{
-            display: 'grid',
-            gridTemplateColumns: `repeat(${cols}, 1fr)`,
-            gridAutoRows: '1fr',
-          }}
-        >
-          {characters.map(char => {
-            const color = ARCHETYPE_COLORS[char.archetype] || '#6b7280'
-            const isCharSpeaking = speakingCharacterId === char.id
-            const expression = characterExpressions[char.id] || 'neutral'
-
-            return (
-              <div key={char.id} className="min-h-0 relative group">
-                <CharacterVideo
-                  name={char.name}
-                  title={char.title}
-                  expression={expression}
-                  audioAnalyser={isCharSpeaking ? audioAnalyser : null}
-                  isSpeaking={isCharSpeaking}
-                  accentColor={color}
-                />
-                {/* Archetype label on hover */}
-                <div className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                  <span
-                    className="text-[10px] font-medium px-2 py-0.5 rounded-full backdrop-blur-sm"
-                    style={{ backgroundColor: color + '30', color: color }}
-                  >
-                    {ARCHETYPE_LABELS[char.archetype] || char.archetype}
-                  </span>
-                </div>
-              </div>
-            )
-          })}
-          <div className="min-h-0">
-            {renderSelfView()}
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="fixed inset-0 bg-[#0a0a1a] flex flex-col z-50">
-      {/* Top bar */}
-      <div className="flex items-center justify-between px-4 py-2 bg-[#060610] border-b border-[#1a1a35]">
-        <div>
-          <p className="text-white text-sm font-medium">{application.companyName}</p>
-          <p className="text-gray-500 text-xs">{application.jobTitle} · {sessionData.stage}</p>
-        </div>
-        <div className="flex items-center gap-2 text-gray-300">
-          <Clock className="w-4 h-4" />
-          <span className="font-mono text-sm tabular-nums">{formatTime(elapsedSeconds)}</span>
-        </div>
-      </div>
-
-      {/* Main content: video grid + chat */}
-      <div className="flex-1 flex min-h-0 overflow-hidden">
-        <div className="flex-1 flex flex-col min-h-0">
-          {renderCharacterGrid()}
-        </div>
-
-        {/* Chat / Transcript sidebar */}
-        <div className="w-80 lg:w-96 flex flex-col min-h-0 border-l border-[#1a1a35] bg-[#060610]">
-          <div className="px-3 py-2 border-b border-[#1a1a35] flex items-center gap-2">
-            <MessageSquare className="w-4 h-4 text-gray-400" />
-            <span className="text-gray-300 text-xs font-medium">Transcript</span>
-          </div>
-          <div className="flex-1 overflow-y-auto space-y-2 p-3 min-h-0">
-            {exchanges.map(exchange => {
-              const isCandidate = exchange.speaker === 'candidate'
-              const char = getCharacter(exchange.characterId)
-              const color = char ? ARCHETYPE_COLORS[char.archetype] || '#6b7280' : '#3b82f6'
-
-              return (
-                <div key={exchange.id} className={`flex ${isCandidate ? 'justify-end' : 'justify-start'}`}>
-                  {!isCandidate && char && (
-                    <div
-                      className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[9px] font-bold shrink-0 mr-1.5 mt-1"
-                      style={{ backgroundColor: color }}
-                    >
-                      {getInitials(char.name)}
-                    </div>
-                  )}
-                  <div className={`max-w-[85%] rounded-xl px-3 py-2 ${
-                    isCandidate
-                      ? 'bg-blue-600 text-white rounded-br-sm'
-                      : 'bg-[#111127] text-gray-200 rounded-bl-sm'
-                  }`}>
-                    {!isCandidate && char && (
-                      <p className="text-[10px] font-medium mb-0.5" style={{ color }}>
-                        {char.name}
-                      </p>
-                    )}
-                    <p className="text-xs leading-relaxed">{exchange.messageText}</p>
-                  </div>
-                </div>
-              )
-            })}
-
-            {isSending && speakingCharacterId && (
-              <div className="flex justify-start">
-                <div className="bg-[#111127] rounded-xl rounded-bl-sm px-3 py-2">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] text-gray-400 mr-1">thinking</span>
-                    <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                    <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                    <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div ref={chatEndRef} />
-          </div>
-
-          {isListening && (
-            <div className="mx-3 mb-2 flex items-center justify-center gap-2 py-1.5">
-              <div className="flex items-center gap-1">
-                {[0, 1, 2, 3, 4].map(i => (
-                  <div
-                    key={i}
-                    className="w-1 bg-red-500 rounded-full animate-pulse"
-                    style={{
-                      height: `${12 + Math.random() * 16}px`,
-                      animationDelay: `${i * 100}ms`,
-                      animationDuration: '0.5s',
-                    }}
-                  />
-                ))}
-              </div>
-              <span className="text-red-400 text-xs font-medium">Listening...</span>
-            </div>
-          )}
-
-          {error && (
-            <div className="mx-3 mb-2 px-3 py-2 bg-red-900/40 border border-red-700/50 rounded-lg flex items-center gap-2">
-              <p className="text-red-300 text-xs flex-1">{error}</p>
-              <button onClick={() => setError(null)} className="text-red-400 hover:text-red-300 text-xs">Dismiss</button>
-            </div>
-          )}
-
-          <div className="flex items-center gap-2 px-3 pb-3">
-            <input
-              type="text"
-              value={inputText}
-              onChange={e => setInputText(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={textMode ? 'Type your response...' : 'Type or speak...'}
-              disabled={isSending}
-              className="flex-1 bg-[#111127] text-white placeholder-gray-500 border border-[#1e1e3a] rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
-            />
-            <button
-              onClick={handleSend}
-              disabled={isSending || !inputText.trim()}
-              className="w-9 h-9 rounded-lg bg-blue-600 text-white flex items-center justify-center hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
-            >
-              <Send className="w-4 h-4" />
             </button>
           </div>
         </div>
       </div>
+    )
+  }
 
-      {/* Bottom controls bar */}
-      <div className="flex items-center justify-center gap-3 px-4 py-3 bg-[#060610] border-t border-[#1a1a35]">
-        <button
-          onClick={toggleMic}
-          className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${
-            isMicOn
-              ? 'bg-[#1e1e3a] text-white hover:bg-[#2a2a4a]'
-              : 'bg-red-600 text-white hover:bg-red-700'
-          }`}
-          title={isMicOn ? 'Mute microphone' : 'Unmute microphone'}
-        >
-          {isMicOn ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
-        </button>
+  // -------------------------------------------
+  // RENDER: Interview Room — MS Teams-Style
+  // -------------------------------------------
 
+  // Teams-style video tile for interviewers (camera off)
+  const renderInterviewerTile = (char: Character) => {
+    const color = ARCHETYPE_COLORS[char.archetype] || '#6b7280'
+    const isCharSpeaking = speakingCharacterId === char.id
+    const expression = characterExpressions[char.id] || 'neutral'
+
+    return (
+      <div key={char.id} className="relative rounded-lg overflow-hidden bg-[#292929] group">
+        <CharacterVideo
+          name={char.name}
+          title={char.title}
+          expression={expression}
+          audioAnalyser={isCharSpeaking ? audioAnalyser : null}
+          isSpeaking={isCharSpeaking}
+          accentColor={color}
+        />
+
+        {/* Speaking indicator ring */}
+        {isCharSpeaking && (
+          <div className="absolute inset-0 rounded-lg border-2 border-[#5b5fc7] pointer-events-none" />
+        )}
+
+        {/* Name bar at bottom — Teams style */}
+        <div className="absolute bottom-0 left-0 right-0 px-3 py-2 bg-gradient-to-t from-black/70 to-transparent">
+          <div className="flex items-center gap-2">
+            <span className="text-white text-xs font-medium truncate">{char.name}</span>
+            {isCharSpeaking && (
+              <div className="flex items-center gap-0.5">
+                {[0, 1, 2].map(i => (
+                  <div
+                    key={i}
+                    className="w-0.5 bg-[#5b5fc7] rounded-full animate-pulse"
+                    style={{ height: `${6 + Math.random() * 6}px`, animationDelay: `${i * 100}ms` }}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Archetype label on hover */}
+        <div className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+          <span
+            className="text-[10px] font-medium px-2 py-0.5 rounded backdrop-blur-sm"
+            style={{ backgroundColor: color + '40', color: color }}
+          >
+            {ARCHETYPE_LABELS[char.archetype] || char.archetype}
+          </span>
+        </div>
+
+        {/* Muted mic icon — Teams style */}
+        <div className="absolute top-2 right-2">
+          <div className="w-6 h-6 rounded bg-[#292929]/80 backdrop-blur-sm flex items-center justify-center">
+            <MicOff className="w-3 h-3 text-gray-400" />
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const totalTiles = characters.length
+  const cols = totalTiles <= 2 ? 2 : totalTiles <= 4 ? 2 : 3
+
+  return (
+    <div className="fixed inset-0 bg-[#1b1b1b] flex flex-col z-50">
+      {/* ===== TOP BAR — Teams style ===== */}
+      <div className="flex items-center justify-between px-4 h-12 bg-[#292929] border-b border-[#3d3d3d]">
+        <div className="flex items-center gap-3">
+          {/* Company logo */}
+          <div className="w-7 h-7 rounded bg-[#5b5fc7] flex items-center justify-center">
+            <span className="text-white text-xs font-bold">{application.companyName.charAt(0)}</span>
+          </div>
+          <div>
+            <p className="text-white text-sm font-medium leading-tight">{application.companyName}</p>
+            <p className="text-gray-500 text-[11px] leading-tight">{application.jobTitle}</p>
+          </div>
+        </div>
+
+        {/* Timer + participants */}
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1.5 text-gray-400">
+            <Users className="w-3.5 h-3.5" />
+            <span className="text-xs">{characters.length + 1}</span>
+          </div>
+          <div className="flex items-center gap-1.5 text-gray-300 bg-[#3d3d3d] rounded px-2.5 py-1">
+            <Clock className="w-3.5 h-3.5" />
+            <span className="font-mono text-xs tabular-nums">{formatTime(elapsedSeconds)}</span>
+          </div>
+          <button
+            onClick={() => setIsChatOpen(!isChatOpen)}
+            className={`w-8 h-8 rounded flex items-center justify-center transition-colors ${
+              isChatOpen ? 'bg-[#5b5fc7] text-white' : 'text-gray-400 hover:bg-[#3d3d3d]'
+            }`}
+            title="Toggle chat"
+          >
+            <MessageSquare className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      {/* ===== MAIN CONTENT ===== */}
+      <div className="flex-1 flex min-h-0 overflow-hidden">
+        {/* Video grid area */}
+        <div className="flex-1 flex flex-col min-h-0 relative">
+          {/* Character video grid */}
+          <div className="flex-1 p-3">
+            <div
+              className="w-full h-full gap-2 max-w-5xl mx-auto"
+              style={{
+                display: 'grid',
+                gridTemplateColumns: `repeat(${cols}, 1fr)`,
+                gridAutoRows: '1fr',
+              }}
+            >
+              {characters.map(char => renderInterviewerTile(char))}
+            </div>
+          </div>
+
+          {/* PiP self-view — bottom right overlay */}
+          <div className="absolute bottom-16 right-5 w-48 h-32 rounded-lg overflow-hidden shadow-2xl border border-[#3d3d3d] z-20">
+            {cameraActive && isCameraOn ? (
+              <video
+                ref={selfViewRef}
+                autoPlay
+                muted
+                playsInline
+                className="w-full h-full object-cover"
+                style={{ transform: 'scaleX(-1)' }}
+              />
+            ) : (
+              <div className="w-full h-full bg-[#292929] flex flex-col items-center justify-center gap-1">
+                <div className="w-10 h-10 rounded-full bg-[#5b5fc7] flex items-center justify-center">
+                  <User className="w-5 h-5 text-white" />
+                </div>
+              </div>
+            )}
+            {/* PiP name label */}
+            <div className="absolute bottom-0 left-0 right-0 px-2 py-1 bg-gradient-to-t from-black/60 to-transparent">
+              <div className="flex items-center gap-1.5">
+                <span className="text-white text-[10px] font-medium">You</span>
+                {isListening && (
+                  <div className="flex items-center gap-0.5">
+                    {[0, 1, 2].map(i => (
+                      <div
+                        key={i}
+                        className="w-0.5 bg-green-500 rounded-full animate-pulse"
+                        style={{ height: `${4 + Math.random() * 4}px`, animationDelay: `${i * 80}ms` }}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+            {/* Mic status */}
+            <div className="absolute top-1.5 right-1.5">
+              <div className={`w-5 h-5 rounded flex items-center justify-center ${isMicOn ? 'bg-transparent' : 'bg-red-600'}`}>
+                {!isMicOn && <MicOff className="w-3 h-3 text-white" />}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ===== CHAT SIDEBAR — Teams meeting chat ===== */}
+        {isChatOpen && (
+          <div className="w-80 lg:w-96 flex flex-col min-h-0 border-l border-[#3d3d3d] bg-[#292929]">
+            {/* Chat header */}
+            <div className="px-4 py-3 border-b border-[#3d3d3d] flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <MessageSquare className="w-4 h-4 text-gray-400" />
+                <span className="text-white text-sm font-medium">Meeting chat</span>
+              </div>
+              <button
+                onClick={() => setIsChatOpen(false)}
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Chat messages */}
+            <div className="flex-1 overflow-y-auto p-3 space-y-3 min-h-0">
+              {exchanges.map(exchange => {
+                const isCandidate = exchange.speaker === 'candidate'
+                const char = getCharacter(exchange.characterId)
+                const color = char ? ARCHETYPE_COLORS[char.archetype] || '#6b7280' : '#5b5fc7'
+
+                return (
+                  <div key={exchange.id} className={`flex gap-2 ${isCandidate ? 'flex-row-reverse' : ''}`}>
+                    {!isCandidate && char && (
+                      <div
+                        className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] font-bold shrink-0 mt-0.5"
+                        style={{ backgroundColor: color }}
+                      >
+                        {getInitials(char.name)}
+                      </div>
+                    )}
+                    {isCandidate && (
+                      <div className="w-7 h-7 rounded-full bg-[#5b5fc7] flex items-center justify-center text-white shrink-0 mt-0.5">
+                        <User className="w-3.5 h-3.5" />
+                      </div>
+                    )}
+                    <div className={`max-w-[80%] ${isCandidate ? 'text-right' : ''}`}>
+                      <p className="text-[11px] font-medium mb-0.5" style={{ color: isCandidate ? '#5b5fc7' : color }}>
+                        {isCandidate ? 'You' : char?.name}
+                      </p>
+                      <div className={`rounded-lg px-3 py-2 ${
+                        isCandidate
+                          ? 'bg-[#5b5fc7]/20 text-gray-200'
+                          : 'bg-[#1b1b1b] text-gray-200'
+                      }`}>
+                        <p className="text-xs leading-relaxed">{exchange.messageText}</p>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+
+              {/* Typing indicator */}
+              {isSending && speakingCharacterId && (
+                <div className="flex gap-2">
+                  <div className="w-7 h-7 rounded-full bg-[#3d3d3d] flex items-center justify-center shrink-0">
+                    <MoreHorizontal className="w-3.5 h-3.5 text-gray-400" />
+                  </div>
+                  <div className="bg-[#1b1b1b] rounded-lg px-3 py-2">
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                      <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                      <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div ref={chatEndRef} />
+            </div>
+
+            {/* Listening indicator */}
+            {isListening && (
+              <div className="mx-3 mb-2 flex items-center justify-center gap-2 py-1.5 bg-[#1b1b1b] rounded-lg">
+                <div className="flex items-center gap-0.5">
+                  {[0, 1, 2, 3, 4].map(i => (
+                    <div
+                      key={i}
+                      className="w-1 bg-red-500 rounded-full animate-pulse"
+                      style={{
+                        height: `${10 + Math.random() * 12}px`,
+                        animationDelay: `${i * 100}ms`,
+                        animationDuration: '0.5s',
+                      }}
+                    />
+                  ))}
+                </div>
+                <span className="text-red-400 text-xs font-medium">Listening...</span>
+              </div>
+            )}
+
+            {/* Error */}
+            {error && (
+              <div className="mx-3 mb-2 px-3 py-2 bg-red-900/30 border border-red-800/50 rounded-lg flex items-center gap-2">
+                <p className="text-red-300 text-xs flex-1">{error}</p>
+                <button onClick={() => setError(null)} className="text-red-400 hover:text-red-300 text-xs">Dismiss</button>
+              </div>
+            )}
+
+            {/* Chat input */}
+            <div className="p-3 border-t border-[#3d3d3d]">
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={inputText}
+                  onChange={e => setInputText(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder={textMode ? 'Type your response...' : 'Type or speak...'}
+                  disabled={isSending}
+                  className="flex-1 bg-[#1b1b1b] text-white placeholder-gray-500 border border-[#3d3d3d] rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-[#5b5fc7] focus:ring-1 focus:ring-[#5b5fc7] disabled:opacity-50"
+                />
+                <button
+                  onClick={handleSend}
+                  disabled={isSending || !inputText.trim()}
+                  className="w-8 h-8 rounded-lg bg-[#5b5fc7] text-white flex items-center justify-center hover:bg-[#4e52b5] transition-colors disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ===== BOTTOM CONTROLS BAR — Teams style ===== */}
+      <div className="flex items-center justify-center gap-2 px-4 py-3 bg-[#292929] border-t border-[#3d3d3d]">
         <button
           onClick={toggleCamera}
-          className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${
+          className={`w-11 h-11 rounded-lg flex items-center justify-center transition-colors ${
             isCameraOn
-              ? 'bg-[#1e1e3a] text-white hover:bg-[#2a2a4a]'
-              : 'bg-red-600 text-white hover:bg-red-700'
+              ? 'bg-[#3d3d3d] text-white hover:bg-[#4d4d4d]'
+              : 'bg-[#c4314b] text-white hover:bg-[#b02a42]'
           }`}
           title={isCameraOn ? 'Turn off camera' : 'Turn on camera'}
         >
@@ -1301,26 +1349,39 @@ export default function InterviewRoomPage() {
         </button>
 
         <button
+          onClick={toggleMic}
+          className={`w-11 h-11 rounded-lg flex items-center justify-center transition-colors ${
+            isMicOn
+              ? 'bg-[#3d3d3d] text-white hover:bg-[#4d4d4d]'
+              : 'bg-[#c4314b] text-white hover:bg-[#b02a42]'
+          }`}
+          title={isMicOn ? 'Mute' : 'Unmute'}
+        >
+          {isMicOn ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
+        </button>
+
+        <button
           onClick={toggleSpeaker}
-          className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${
+          className={`w-11 h-11 rounded-lg flex items-center justify-center transition-colors ${
             isSpeakerOn
-              ? 'bg-[#1e1e3a] text-white hover:bg-[#2a2a4a]'
+              ? 'bg-[#3d3d3d] text-white hover:bg-[#4d4d4d]'
               : 'bg-orange-600 text-white hover:bg-orange-700'
           }`}
-          title={isSpeakerOn ? 'Mute interviewer voice' : 'Unmute interviewer voice'}
+          title={isSpeakerOn ? 'Mute speakers' : 'Unmute speakers'}
         >
           {isSpeakerOn ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
         </button>
 
+        <div className="w-px h-8 bg-[#3d3d3d] mx-1" />
+
         <button
           onClick={handleEndInterview}
-          className="h-12 px-6 rounded-full bg-red-600 text-white flex items-center justify-center gap-2 hover:bg-red-700 transition-colors font-medium text-sm"
+          className="h-11 px-5 rounded-lg bg-[#c4314b] text-white flex items-center justify-center gap-2 hover:bg-[#b02a42] transition-colors font-medium text-sm"
         >
-          <PhoneOff className="w-5 h-5" />
-          End Interview
+          <PhoneOff className="w-4 h-4" />
+          Leave
         </button>
       </div>
-
 
       {/* Hidden video element for camera stream */}
       {cameraActive && (
