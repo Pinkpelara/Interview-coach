@@ -91,6 +91,7 @@ export async function POST(
         },
       },
     })
+    // Note: unexpectedEvents (which stores questionPlan) is included by default as a scalar field
 
     if (!interviewSession) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 })
@@ -136,6 +137,21 @@ export async function POST(
       .map((ex) => `${ex.speaker === 'candidate' ? 'Candidate' : respondingCharacter!.name}: ${ex.messageText}`)
       .join('\n')
 
+    // Extract question plan from session data
+    const sessionEvents = interviewSession.unexpectedEvents as Record<string, unknown> | null
+    const questionPlan = (sessionEvents?.questionPlan as Array<{ questionText: string; questionType: string; priority: number }>) || []
+
+    // Estimate which question we're on based on interviewer exchange count
+    // Each main question typically gets ~2-3 exchanges (question + follow-ups)
+    const interviewerExchangeCount = interviewSession.exchanges.filter(e => e.speaker === 'interviewer').length
+    const estimatedQuestionIndex = Math.min(
+      Math.floor(interviewerExchangeCount / 2),
+      questionPlan.length - 1
+    )
+    const currentQuestion = questionPlan[Math.max(0, estimatedQuestionIndex)]
+    const nextQuestion = questionPlan[Math.min(estimatedQuestionIndex + 1, questionPlan.length - 1)]
+    const exchangesSinceLastNewQuestion = interviewerExchangeCount % 2
+
     // Create candidate exchange
     const candidateExchange = await prisma.sessionExchange.create({
       data: {
@@ -155,15 +171,44 @@ export async function POST(
         const archDesc = ARCHETYPE_DESCRIPTIONS[respondingCharacter.archetype] || ARCHETYPE_DESCRIPTIONS.friendly_champion
         const app = interviewSession.application
 
+        // Build question plan context for the prompt
+        let questionPlanSection = ''
+        if (questionPlan.length > 0) {
+          const questionList = questionPlan
+            .map((q, i) => {
+              const marker = i === estimatedQuestionIndex ? '→ CURRENT' :
+                            i < estimatedQuestionIndex ? '✓ ASKED' : ''
+              return `  ${i + 1}. [${q.questionType.toUpperCase()}] ${q.questionText} ${marker}`
+            })
+            .join('\n')
+
+          questionPlanSection = `
+INTERVIEW QUESTION PLAN (follow this order):
+${questionList}
+
+QUESTION FLOW RULES:
+- You are currently on question ${estimatedQuestionIndex + 1} of ${questionPlan.length}: "${currentQuestion?.questionText || ''}"
+- You have had ${exchangesSinceLastNewQuestion} follow-up exchange(s) on this question
+- If the candidate has answered the current question adequately (or after 2-3 follow-ups), naturally transition to the next question: "${nextQuestion?.questionText || ''}"
+- You may ask 1-2 follow-up questions to dig deeper before moving on, especially if the answer was vague
+- Transition naturally — don't say "next question" or "moving on". Use phrases like "That's helpful. I'd also like to understand..." or "Great. Shifting gears a bit..." or "Thanks for sharing that. Let me ask you about..."
+- If the candidate asks YOU a question, answer it briefly and in-character, then steer back to the interview plan
+- Do NOT skip questions or jump ahead. Follow the order.
+- If this is the closing question, wrap up warmly.`
+        }
+
         const systemPrompt = `You are ${respondingCharacter.name}, ${respondingCharacter.title}, conducting a job interview at ${app.companyName} for the ${app.jobTitle} position. ${archDesc}
 
 ${conversationHistory ? `\nCONVERSATION SO FAR:\n${conversationHistory}` : ''}
+${questionPlanSection}
 
 Rules:
 - Stay in character at all times
 - Respond with 1-3 sentences only
 - React to what the candidate actually said
-- Never break character or mention you are an AI`
+- Never break character or mention you are an AI
+- Follow the question plan but keep the conversation natural
+- Ask follow-ups when the candidate's answer lacks depth or specifics`
 
         responseText = await chatCompletion(systemPrompt, `The candidate just said: "${messageText}"`, {
           temperature: 0.85,

@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { pickPersonaForArchetype, type InterviewArchetype } from '@/lib/interviewerPersonas'
+import { chatCompletionJSON, isAIConfigured } from '@/lib/ai-gateway'
 
 export const dynamic = 'force-dynamic'
 
@@ -116,6 +117,102 @@ function generateCharacterPanel(
 }
 
 // ---------------------------------------------------------------------------
+// Question plan generation
+// ---------------------------------------------------------------------------
+
+interface QuestionPlanItem {
+  questionText: string
+  questionType: string
+  priority: number
+}
+
+const STAGE_QUESTION_COUNTS: Record<string, number> = {
+  'Phone Screen': 5,
+  'First Round': 7,
+  'Panel Interview': 8,
+  'Final Round': 8,
+  'Case Interview': 6,
+  'Stress Interview': 6,
+}
+
+const DEFAULT_QUESTION_PLANS: Record<string, QuestionPlanItem[]> = {
+  'Phone Screen': [
+    { questionText: 'Tell me about yourself and why you\'re interested in this role.', questionType: 'behavioral', priority: 1 },
+    { questionText: 'Walk me through your most relevant experience for this position.', questionType: 'behavioral', priority: 2 },
+    { questionText: 'What do you know about our company and what interests you about working here?', questionType: 'culture', priority: 3 },
+    { questionText: 'Describe a challenging project you worked on and how you handled it.', questionType: 'behavioral', priority: 4 },
+    { questionText: 'Do you have any questions for me about the role or the team?', questionType: 'closing', priority: 5 },
+  ],
+  'First Round': [
+    { questionText: 'Tell me about yourself and your background.', questionType: 'behavioral', priority: 1 },
+    { questionText: 'Walk me through a technical challenge you solved recently.', questionType: 'technical', priority: 2 },
+    { questionText: 'Tell me about a time you had a disagreement with a teammate and how you resolved it.', questionType: 'behavioral', priority: 3 },
+    { questionText: 'How do you approach breaking down a large, ambiguous problem?', questionType: 'technical', priority: 4 },
+    { questionText: 'Describe a time you had to learn something new quickly to deliver on a project.', questionType: 'behavioral', priority: 5 },
+    { questionText: 'What\'s your approach to balancing code quality with delivery speed?', questionType: 'technical', priority: 6 },
+    { questionText: 'Do you have any questions for us?', questionType: 'closing', priority: 7 },
+  ],
+  default: [
+    { questionText: 'Tell me about yourself.', questionType: 'behavioral', priority: 1 },
+    { questionText: 'What interests you about this role?', questionType: 'behavioral', priority: 2 },
+    { questionText: 'Describe a challenging project you worked on.', questionType: 'behavioral', priority: 3 },
+    { questionText: 'How do you handle working under pressure?', questionType: 'behavioral', priority: 4 },
+    { questionText: 'Where do you see yourself in 5 years?', questionType: 'behavioral', priority: 5 },
+    { questionText: 'Do you have any questions for us?', questionType: 'closing', priority: 6 },
+  ],
+}
+
+async function generateQuestionPlan(
+  companyName: string,
+  jobTitle: string,
+  jdText: string | null,
+  stage: string,
+  intensity: string,
+  archetypes: string[]
+): Promise<QuestionPlanItem[]> {
+  // Try AI generation first
+  if (isAIConfigured() && jdText) {
+    try {
+      const count = STAGE_QUESTION_COUNTS[stage] || 6
+      const result = await chatCompletionJSON<{ questions: QuestionPlanItem[] }>(
+        `You are an expert interview coach. Generate exactly ${count} interview questions for a ${stage} interview.
+The questions should be ordered from opening/icebreaker to closing, mimicking a real interview flow.
+The interviewer archetypes on this panel are: ${archetypes.join(', ')}.
+Intensity level: ${intensity}.
+
+Return JSON: { "questions": [{ "questionText": "...", "questionType": "behavioral|technical|situational|culture|closing", "priority": 1 }] }
+
+Rules:
+- Question 1 should always be an opening/intro question like "Tell me about yourself"
+- Last question should be "Do you have any questions for us?" or similar closing
+- Mix behavioral, technical, and situational questions based on the role
+- For technical roles, include system design or coding approach questions
+- For ${intensity === 'high-pressure' ? 'high-pressure: include harder, more probing questions' : intensity === 'warmup' ? 'warmup: keep questions conversational and approachable' : 'standard: balanced difficulty'}
+- Questions should be specific to the company and role when possible`,
+        `Company: ${companyName}
+Job Title: ${jobTitle}
+Job Description: ${jdText?.slice(0, 2000) || 'Not provided'}
+Stage: ${stage}
+Number of questions: ${count}`,
+        { taskType: 'question_generation', temperature: 0.7, maxTokens: 1500 }
+      )
+      if (result.questions?.length > 0) {
+        return result.questions.map((q, i) => ({
+          questionText: q.questionText,
+          questionType: q.questionType || 'behavioral',
+          priority: i + 1,
+        }))
+      }
+    } catch (err) {
+      console.error('Failed to generate question plan with AI:', err)
+    }
+  }
+
+  // Fallback to defaults
+  return DEFAULT_QUESTION_PLANS[stage] || DEFAULT_QUESTION_PLANS.default
+}
+
+// ---------------------------------------------------------------------------
 // Route handlers
 // ---------------------------------------------------------------------------
 
@@ -174,6 +271,17 @@ export async function POST(
       intensity
     )
 
+    // Generate structured question plan for this interview
+    const archetypes = characters.map(c => c.archetype)
+    const questionPlan = await generateQuestionPlan(
+      application.companyName,
+      application.jobTitle,
+      application.jdText,
+      stage,
+      intensity || 'standard',
+      archetypes
+    )
+
     const interviewSession = await prisma.interviewSession.create({
       data: {
         userId,
@@ -183,6 +291,7 @@ export async function POST(
         targetDurationMin: targetDurationMin || 45,
         status: 'pending',
         characters,
+        unexpectedEvents: JSON.parse(JSON.stringify({ questionPlan })),
       },
       include: {
         application: {

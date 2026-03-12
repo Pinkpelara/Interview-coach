@@ -55,12 +55,33 @@ interface SessionData {
 // TTS helper — tries server TTS, falls back to browser speechSynthesis
 // ---------------------------------------------------------------------------
 
+// Voice style instructions per archetype to make TTS sound more natural/human
+const ARCHETYPE_VOICE_INSTRUCTIONS: Record<string, string> = {
+  skeptic: 'Speak in a measured, deliberate tone. Slightly slower pace. Occasional pauses for emphasis. Professional and serious.',
+  friendly_champion: 'Speak warmly and conversationally. Natural pace with slight enthusiasm. Friendly and encouraging tone.',
+  technical_griller: 'Speak precisely and directly. Moderate pace. Matter-of-fact tone. Clear enunciation.',
+  distracted_senior: 'Speak casually with natural pace variations. Sometimes trail off slightly. Executive, slightly impatient tone.',
+  culture_fit: 'Speak in a warm, approachable tone. Genuine curiosity in voice. Conversational and relaxed.',
+  silent_observer: 'Speak quietly and briefly. Low energy. Minimal inflection. Reserved.',
+}
+
+// Preferred voice IDs for more natural-sounding output per archetype
+const ARCHETYPE_PREFERRED_VOICES: Record<string, string> = {
+  skeptic: 'onyx',        // deeper, authoritative male voice
+  friendly_champion: 'nova',  // warm, friendly female voice
+  technical_griller: 'echo',  // clear, precise male voice
+  distracted_senior: 'fable', // mature male voice
+  culture_fit: 'shimmer',     // warm, approachable female voice
+  silent_observer: 'alloy',   // neutral voice
+}
+
 async function speakText(
   text: string,
   voiceId: string,
   speakerEnabled: boolean,
   onStart: () => void,
-  onEnd: () => void
+  onEnd: () => void,
+  archetype?: string
 ): Promise<void> {
   if (!speakerEnabled) {
     onStart()
@@ -70,12 +91,23 @@ async function speakText(
     return
   }
 
+  // Use archetype-specific voice instructions for more natural speech
+  const instructions = archetype ? ARCHETYPE_VOICE_INSTRUCTIONS[archetype] || '' : ''
+  // Use archetype-preferred voice if the assigned voice is generic
+  const effectiveVoice = archetype && ARCHETYPE_PREFERRED_VOICES[archetype]
+    ? ARCHETYPE_PREFERRED_VOICES[archetype]
+    : voiceId
+
   // Try server TTS first
   try {
     const res = await fetch('/api/tts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, voice: voiceId }),
+      body: JSON.stringify({
+        text,
+        voice: effectiveVoice,
+        instructions,
+      }),
     })
     if (res.ok && res.headers.get('content-type')?.includes('audio/')) {
       const blob = await res.blob()
@@ -92,12 +124,64 @@ async function speakText(
     // Server TTS not available, fall through to browser
   }
 
-  // Fallback: browser speechSynthesis
+  // Fallback: browser speechSynthesis with improved settings
   if ('speechSynthesis' in window) {
     return new Promise<void>((resolve) => {
       const utterance = new SpeechSynthesisUtterance(text)
-      utterance.rate = 0.95
-      utterance.pitch = 1.0
+
+      // Try to pick a more natural-sounding voice from available browser voices
+      const voices = window.speechSynthesis.getVoices()
+      const preferredVoices = voices.filter(v =>
+        v.lang.startsWith('en') && (
+          v.name.includes('Google') ||
+          v.name.includes('Natural') ||
+          v.name.includes('Neural') ||
+          v.name.includes('Samantha') ||
+          v.name.includes('Daniel') ||
+          v.name.includes('Karen') ||
+          v.name.includes('Moira')
+        )
+      )
+      if (preferredVoices.length > 0) {
+        // Pick different voices for different archetypes
+        const voiceIndex = archetype
+          ? Object.keys(ARCHETYPE_VOICE_INSTRUCTIONS).indexOf(archetype) % preferredVoices.length
+          : 0
+        utterance.voice = preferredVoices[voiceIndex]
+      }
+
+      // Archetype-specific speech tuning for browser fallback
+      switch (archetype) {
+        case 'skeptic':
+          utterance.rate = 0.88
+          utterance.pitch = 0.9
+          break
+        case 'friendly_champion':
+          utterance.rate = 1.0
+          utterance.pitch = 1.1
+          break
+        case 'technical_griller':
+          utterance.rate = 0.92
+          utterance.pitch = 0.95
+          break
+        case 'distracted_senior':
+          utterance.rate = 1.05
+          utterance.pitch = 0.95
+          break
+        case 'culture_fit':
+          utterance.rate = 0.95
+          utterance.pitch = 1.05
+          break
+        case 'silent_observer':
+          utterance.rate = 0.85
+          utterance.pitch = 0.85
+          utterance.volume = 0.7
+          break
+        default:
+          utterance.rate = 0.95
+          utterance.pitch = 1.0
+      }
+
       utterance.onstart = onStart
       utterance.onend = () => { onEnd(); resolve() }
       utterance.onerror = () => { onEnd(); resolve() }
@@ -338,13 +422,14 @@ export default function InterviewRoomPage() {
         isCandidate: false,
       })
 
-      // Speak the response via TTS
+      // Speak the response via TTS (with archetype for voice styling)
       await speakText(
         responseText,
         respondingChar.voiceId,
         speakerEnabledRef.current,
         () => setActiveSpeakerId(respondingChar.id),
-        () => setActiveSpeakerId(null)
+        () => setActiveSpeakerId(null),
+        respondingChar.archetype
       )
     } catch (err) {
       console.error('Exchange failed:', err)
@@ -488,10 +573,32 @@ export default function InterviewRoomPage() {
       isCandidate: false,
     })
 
-    // Opening greeting from first character
+    // Opening greeting from first character — use first question from plan if available
     if (sessionData.characters.length > 0) {
       const char = sessionData.characters[0]
-      const greeting = `Hi, thanks for joining us today. I'm ${char.name}, ${char.title}. Let's get started — tell me a little about yourself and why you're interested in this role.`
+
+      // Fetch the session to get the question plan
+      let firstQuestion = 'tell me a little about yourself and why you\'re interested in this role.'
+      try {
+        const sessionRes = await fetch(`/api/sessions/${sessionId}`)
+        if (sessionRes.ok) {
+          const sessionJson = await sessionRes.json()
+          const events = sessionJson.unexpectedEvents
+          if (events?.questionPlan?.length > 0) {
+            firstQuestion = events.questionPlan[0].questionText.toLowerCase()
+            // Remove leading "tell me" etc. if it starts with that, to flow naturally after intro
+            if (!firstQuestion.startsWith('tell') && !firstQuestion.startsWith('walk') && !firstQuestion.startsWith('describe')) {
+              firstQuestion = `I'd like to start by asking: ${events.questionPlan[0].questionText}`
+            } else {
+              firstQuestion = events.questionPlan[0].questionText
+            }
+          }
+        }
+      } catch {
+        // Use default first question
+      }
+
+      const greeting = `Hi, thanks for joining us today. I'm ${char.name}, ${char.title}. Let's get started — ${firstQuestion}`
 
       // Short delay then speak greeting
       setTimeout(async () => {
@@ -508,7 +615,8 @@ export default function InterviewRoomPage() {
           char.voiceId,
           speakerEnabledRef.current,
           () => setActiveSpeakerId(char.id),
-          () => setActiveSpeakerId(null)
+          () => setActiveSpeakerId(null),
+          char.archetype
         )
 
         // Start listening for candidate response
