@@ -41,17 +41,14 @@ export async function POST(request: Request) {
         email: email.toLowerCase(),
         fullName: fullName.trim(),
         passwordHash: hashedPassword,
-        emailVerified: false,
+        emailVerified: true,
         verifyToken,
       },
     })
 
-    // TODO: send verification email
-
     return NextResponse.json(
       {
-        message: 'Account created. Verify your email to continue.',
-        verificationPath: `/verify-email?token=${verifyToken}`,
+        message: 'Account created successfully. You can now sign in.',
       },
       { status: 201 }
     )

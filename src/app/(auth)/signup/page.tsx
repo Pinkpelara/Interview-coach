@@ -63,25 +63,21 @@ export default function SignupPage() {
   if (success) {
     return (
       <div className="rounded-xl border border-gray-700 p-8 text-center" style={{ backgroundColor: '#292929' }}>
-        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full" style={{ backgroundColor: 'rgba(91, 95, 199, 0.15)' }}>
-          <svg className="h-6 w-6" style={{ color: '#5b5fc7' }} fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
+        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-green-500/15">
+          <svg className="h-6 w-6 text-green-400" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
           </svg>
         </div>
-        <h2 className="text-xl font-semibold text-white">Check your email</h2>
+        <h2 className="text-xl font-semibold text-white">Account created!</h2>
         <p className="mt-2 text-sm text-gray-400">
-          We sent a verification link to <span className="font-medium text-gray-300">{email}</span>.
-          Please check your inbox and click the link to verify your account.
-        </p>
-        <p className="mt-4 text-xs text-gray-500">
-          Didn&apos;t receive the email? Check your spam folder.
+          Your account has been created successfully. You can now sign in.
         </p>
         <Link
           href="/signin"
-          className="mt-6 inline-block text-sm font-medium hover:underline"
-          style={{ color: '#5b5fc7' }}
+          className="mt-6 inline-block rounded-lg px-6 py-2.5 text-sm font-medium text-white transition-colors"
+          style={{ backgroundColor: '#5b5fc7' }}
         >
-          Back to sign in
+          Sign in
         </Link>
       </div>
     );
