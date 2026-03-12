@@ -63,6 +63,9 @@ export default function SettingsPage() {
   const [dailyReminders, setDailyReminders] = useState(false)
   const [weeklyProgress, setWeeklyProgress] = useState(true)
   const [reEngagement, setReEngagement] = useState(true)
+  const [interviewMorning, setInterviewMorning] = useState(true)
+  const [notificationsLoading, setNotificationsLoading] = useState(false)
+  const [notificationsSaved, setNotificationsSaved] = useState(false)
 
   // Subscription state
   const [currentPlan, setCurrentPlan] = useState('free')
@@ -93,6 +96,7 @@ export default function SettingsPage() {
             setDailyReminders(data.notifications.dailyReminders ?? false)
             setWeeklyProgress(data.notifications.weeklyProgress ?? true)
             setReEngagement(data.notifications.reEngagement ?? true)
+            setInterviewMorning(data.notifications.interviewMorning ?? true)
           }
         }
       } catch {
@@ -169,6 +173,33 @@ export default function SettingsPage() {
       setPasswordError('Something went wrong')
     } finally {
       setPasswordLoading(false)
+    }
+  }
+
+  async function handleNotificationsSave() {
+    setNotificationsLoading(true)
+    setNotificationsSaved(false)
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          section: 'notifications',
+          notifications: {
+            sessionSummaries,
+            dailyReminders,
+            weeklyProgress,
+            reEngagement,
+            interviewMorning,
+          },
+        }),
+      })
+      if (res.ok) {
+        setNotificationsSaved(true)
+        setTimeout(() => setNotificationsSaved(false), 2500)
+      }
+    } finally {
+      setNotificationsLoading(false)
     }
   }
 
@@ -352,6 +383,21 @@ export default function SettingsPage() {
             checked={reEngagement}
             onChange={setReEngagement}
           />
+          <NotificationToggle
+            label="Interview Morning Reminder"
+            description="Receive a same-day motivation and focus reminder on interview day"
+            checked={interviewMorning}
+            onChange={setInterviewMorning}
+          />
+          <div className="flex items-center gap-3 pt-2">
+            <Button onClick={handleNotificationsSave} loading={notificationsLoading}>
+              <Save className="mr-2 h-4 w-4" />
+              Save Notifications
+            </Button>
+            {notificationsSaved && (
+              <span className="text-sm text-green-600">Notification preferences updated</span>
+            )}
+          </div>
         </CardContent>
       </Card>
 

@@ -9,11 +9,9 @@ import {
   MessageSquare,
   Users,
   BarChart3,
-  Video,
   UserCheck,
   Gauge,
   Map,
-  Monitor,
   Check,
   ChevronRight,
   ArrowRight,
@@ -44,7 +42,7 @@ function Hero() {
           </h1>
           <p className="mt-6 max-w-xl text-lg leading-relaxed text-gray-600 sm:text-xl lg:mx-0 mx-auto">
             Practice with AI interviewers who look, sound, and behave like real
-            people. Build confidence before the stakes are real.
+            people in a live video-call simulation before the stakes are real.
           </p>
 
           <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row lg:justify-start justify-center">
@@ -65,7 +63,7 @@ function Hero() {
           </div>
         </div>
 
-        {/* Mock Video-Call Illustration */}
+        {/* Mock interview room illustration */}
         <div className="w-full max-w-lg flex-1 lg:max-w-xl">
           <MockVideoCall />
         </div>
@@ -74,7 +72,7 @@ function Hero() {
   )
 }
 
-/* ── Mock Video Call UI ── */
+/* ── Mock Audio Room UI ── */
 function MockVideoCall() {
   return (
     <div className="relative mx-auto w-full">
@@ -96,7 +94,7 @@ function MockVideoCall() {
           </span>
         </div>
 
-        {/* Video grid */}
+        {/* Interview tiles */}
         <div className="grid grid-cols-2 gap-2 p-3">
           {/* AI Interviewer 1 */}
           <div className="relative flex aspect-video items-center justify-center rounded-lg bg-gradient-to-br from-brand-800 to-brand-950">
@@ -104,7 +102,12 @@ function MockVideoCall() {
               <div className="flex h-14 w-14 items-center justify-center rounded-full bg-brand-600 text-xl font-bold text-white ring-2 ring-brand-400/50">
                 SK
               </div>
-              <div className="h-1.5 w-16 animate-pulse rounded-full bg-brand-400/60" />
+              <div className="flex items-end gap-0.5">
+                <span className="h-2 w-1 animate-pulse rounded bg-brand-300" />
+                <span className="h-4 w-1 animate-pulse rounded bg-brand-300" />
+                <span className="h-3 w-1 animate-pulse rounded bg-brand-300" />
+                <span className="h-5 w-1 animate-pulse rounded bg-brand-300" />
+              </div>
             </div>
             <span className="absolute bottom-2 left-2 rounded bg-black/50 px-2 py-0.5 text-[10px] font-medium text-white">
               Sarah K. — Technical Lead
@@ -117,7 +120,7 @@ function MockVideoCall() {
               <div className="flex h-14 w-14 items-center justify-center rounded-full bg-accent-600 text-xl font-bold text-white ring-2 ring-accent-400/50">
                 MR
               </div>
-              <div className="h-1.5 w-10 rounded-full bg-gray-600" />
+              <div className="h-1.5 w-10 rounded-full bg-emerald-400/40" />
             </div>
             <span className="absolute bottom-2 left-2 rounded bg-black/50 px-2 py-0.5 text-[10px] font-medium text-white">
               Mike R. — HR Manager
@@ -144,10 +147,7 @@ function MockVideoCall() {
             <Mic className="h-4 w-4" />
           </button>
           <button className="rounded-full bg-gray-800 p-2.5 text-gray-400 hover:text-white transition">
-            <Video className="h-4 w-4" />
-          </button>
-          <button className="rounded-full bg-gray-800 p-2.5 text-gray-400 hover:text-white transition">
-            <Monitor className="h-4 w-4" />
+            <MessageSquare className="h-4 w-4" />
           </button>
           <button className="rounded-full bg-red-600 p-2.5 text-white hover:bg-red-700 transition">
             <span className="block h-4 w-4 rounded-sm bg-white" />
@@ -314,7 +314,7 @@ const features = [
     title: 'Real-Time Animated AI Interviewers',
     description:
       'Each interviewer has a distinct visual presence, voice cadence, and personality that adapts in real time.',
-    icon: Video,
+    icon: Mic,
   },
   {
     title: 'Panel Interviews',

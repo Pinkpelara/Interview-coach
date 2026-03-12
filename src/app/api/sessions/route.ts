@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { pickPersonaForArchetype, type InterviewArchetype } from '@/lib/interviewerPersonas'
+import { checkRateLimit } from '@/lib/rate-limit'
+import { checkFeature, getSessionLimit, getMaxCharacters } from '@/lib/feature-gate'
+import { getEffectivePlan } from '@/lib/subscription'
 
 interface Character {
   id: string
@@ -9,19 +13,8 @@ interface Character {
   title: string
   archetype: string
   silenceDuration: number
+  avatarKey: string
 }
-
-const FIRST_NAMES = [
-  'Sarah', 'Michael', 'Jennifer', 'David', 'Rachel', 'James',
-  'Emily', 'Robert', 'Amanda', 'Christopher', 'Lisa', 'Daniel',
-  'Karen', 'Andrew', 'Michelle', 'Thomas', 'Jessica', 'Brian',
-]
-
-const LAST_NAMES = [
-  'Chen', 'Patel', 'Williams', 'Garcia', 'Kim', 'Johnson',
-  'Martinez', 'Thompson', 'Anderson', 'Lee', 'Taylor', 'Brown',
-  'Nakamura', 'O\'Brien', 'Vasquez', 'Singh', 'Weber', 'Rossi',
-]
 
 const TITLE_TEMPLATES: Record<string, string[]> = {
   skeptic: ['VP of Engineering', 'Director of Product', 'Senior Engineering Manager', 'CTO'],
@@ -40,15 +33,6 @@ function generateCharacterId(): string {
   return `char_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 }
 
-function generateName(usedNames: Set<string>): string {
-  let name: string
-  do {
-    name = `${randomFrom(FIRST_NAMES)} ${randomFrom(LAST_NAMES)}`
-  } while (usedNames.has(name))
-  usedNames.add(name)
-  return name
-}
-
 function generateTitle(archetype: string, companyName: string): string {
   const templates = TITLE_TEMPLATES[archetype] || TITLE_TEMPLATES.friendly_champion
   const baseTitle = randomFrom(templates)
@@ -57,27 +41,43 @@ function generateTitle(archetype: string, companyName: string): string {
 
 function silenceDurationForArchetype(archetype: string): number {
   switch (archetype) {
-    case 'skeptic': return 3000
+    case 'skeptic': return 3500
     case 'friendly_champion': return 1500
-    case 'technical_griller': return 2500
-    case 'distracted_senior': return 4000
-    case 'culture_fit': return 2000
+    case 'technical_griller': return 4500
+    case 'distracted_senior': return 2000
+    case 'culture_fit': return 2500
     case 'silent_observer': return 5000
     default: return 2000
   }
 }
 
-function generatePanel(stage: string, companyName: string): Character[] {
-  const usedNames = new Set<string>()
+function generatePanel(
+  stage: string,
+  companyName: string,
+  forcedArchetypes?: InterviewArchetype[]
+): Character[] {
+  const usedPersonaIds = new Set<string>()
   const characters: Character[] = []
 
-  const createChar = (archetype: string): Character => ({
-    id: generateCharacterId(),
-    name: generateName(usedNames),
-    title: generateTitle(archetype, companyName),
-    archetype,
-    silenceDuration: silenceDurationForArchetype(archetype),
-  })
+  const createChar = (archetype: InterviewArchetype): Character => {
+    const seed = `${companyName}:${stage}:${characters.length}`
+    const persona = pickPersonaForArchetype(archetype, usedPersonaIds, seed)
+    return {
+      id: generateCharacterId(),
+      name: persona.name,
+      title: generateTitle(archetype, companyName),
+      archetype,
+      silenceDuration: silenceDurationForArchetype(archetype),
+      avatarKey: `${persona.portraitGender}-${persona.portraitIndex}`,
+    }
+  }
+
+  if (forcedArchetypes && forcedArchetypes.length > 0) {
+    forcedArchetypes.forEach((archetype) => {
+      characters.push(createChar(archetype))
+    })
+    return characters
+  }
 
   switch (stage) {
     case 'Phone Screen':
@@ -133,6 +133,14 @@ const VALID_STAGES = [
 ]
 
 const VALID_INTENSITIES = ['warmup', 'standard', 'high-pressure']
+const VALID_ARCHETYPES: InterviewArchetype[] = [
+  'skeptic',
+  'friendly_champion',
+  'technical_griller',
+  'distracted_senior',
+  'culture_fit',
+  'silent_observer',
+]
 
 export async function GET() {
   try {
@@ -169,8 +177,25 @@ export async function POST(request: Request) {
     }
 
     const userId = (session.user as { id: string }).id
+    const limiter = await checkRateLimit(`sessions:create:${userId}`, 20, 60_000)
+    if (!limiter.allowed) {
+      return NextResponse.json(
+        { error: 'Too many session requests. Please retry shortly.' },
+        { status: 429, headers: { 'Retry-After': String(Math.ceil(limiter.retryAfterMs / 1000)) } }
+      )
+    }
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { onboarded: true },
+    })
+    if (!user?.onboarded) {
+      return NextResponse.json(
+        { error: 'Complete onboarding before starting interview sessions.' },
+        { status: 403 }
+      )
+    }
     const body = await request.json()
-    const { applicationId, stage, intensity, durationMinutes } = body
+    const { applicationId, stage, intensity, durationMinutes, forcedArchetypes } = body
 
     if (!applicationId?.trim()) {
       return NextResponse.json({ error: 'Application ID is required' }, { status: 400 })
@@ -187,6 +212,19 @@ export async function POST(request: Request) {
         { status: 400 }
       )
     }
+    if (forcedArchetypes !== undefined) {
+      if (
+        !Array.isArray(forcedArchetypes) ||
+        forcedArchetypes.length === 0 ||
+        forcedArchetypes.length > 3 ||
+        forcedArchetypes.some((a) => !VALID_ARCHETYPES.includes(a))
+      ) {
+        return NextResponse.json(
+          { error: `forcedArchetypes must be 1-3 values from: ${VALID_ARCHETYPES.join(', ')}` },
+          { status: 400 }
+        )
+      }
+    }
 
     const application = await prisma.application.findFirst({
       where: { id: applicationId, userId },
@@ -196,7 +234,44 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Application not found' }, { status: 404 })
     }
 
-    const characters = generatePanel(stage, application.companyName)
+    const plan = await getEffectivePlan(userId)
+    const sessionLimit = getSessionLimit(plan)
+    if (Number.isFinite(sessionLimit)) {
+      const monthStart = new Date()
+      monthStart.setDate(1)
+      monthStart.setHours(0, 0, 0, 0)
+      const currentMonthCount = await prisma.interviewSession.count({
+        where: { userId, createdAt: { gte: monthStart } },
+      })
+      if (currentMonthCount >= sessionLimit) {
+        return NextResponse.json(
+          { error: `Your ${plan} plan includes ${sessionLimit} sessions per month. Upgrade to continue.` },
+          { status: 403 }
+        )
+      }
+    }
+
+    if (plan === 'free') {
+      if (stage !== 'Phone Screen') {
+        return NextResponse.json(
+          { error: 'Free plan supports Phone Screen simulations only. Upgrade for all stages.' },
+          { status: 403 }
+        )
+      }
+    } else {
+      const stageGate = checkFeature(plan, 'all_stages')
+      if (!stageGate.allowed) {
+        return NextResponse.json({ error: stageGate.message }, { status: 403 })
+      }
+    }
+
+    const characters = generatePanel(
+      stage,
+      application.companyName,
+      Array.isArray(forcedArchetypes) ? (forcedArchetypes as InterviewArchetype[]) : undefined
+    )
+    const maxCharacters = getMaxCharacters(plan)
+    const finalCharacters = characters.slice(0, maxCharacters)
 
     const interviewSession = await prisma.interviewSession.create({
       data: {
@@ -206,7 +281,7 @@ export async function POST(request: Request) {
         intensity: intensity || 'standard',
         durationMinutes: durationMinutes || 45,
         status: 'pending',
-        characters: JSON.stringify(characters),
+        characters: JSON.stringify(finalCharacters),
       },
       include: {
         application: {

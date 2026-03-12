@@ -1,0 +1,42 @@
+name: Seatvio CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Next.js app
+        run: npx next build
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Validate Python service entrypoints
+        run: |
+          python -m py_compile services/interview-conductor/src/main.py
+          python -m py_compile services/gpu-workers/src/main.py
+          python -m py_compile services/ai-engine/src/main.py
+
+      - name: Validate Node service entrypoints
+        run: |
+          node --check services/media-relay/src/server.js
+          node --check services/api-server/src/server.js

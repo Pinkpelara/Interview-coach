@@ -31,6 +31,16 @@ interface Application {
   readinessScore: number
   interviewStage: string | null
   _count: { sessions: number; questions: number }
+  sessions?: Array<{
+    id: string
+    analysis: {
+      answerQuality: number | null
+      deliveryConfidence: number | null
+      pressureRecovery: number | null
+      companyFitLanguage: number | null
+      listeningAccuracy: number | null
+    } | null
+  }>
 }
 
 interface DayPlan {
@@ -41,6 +51,14 @@ interface DayPlan {
   type: 'session' | 'prepare' | 'lab' | 'rest' | 'warmup' | 'review'
   icon: React.ElementType
   done: boolean
+}
+
+type ScoreAnalysis = {
+  answerQuality: number | null
+  deliveryConfidence: number | null
+  pressureRecovery: number | null
+  companyFitLanguage: number | null
+  listeningAccuracy: number | null
 }
 
 function getDaysUntil(dateStr: string): number {
@@ -59,11 +77,38 @@ function formatDate(dateStr: string): string {
   })
 }
 
-function generatePlan(daysLeft: number, sessionCount: number): DayPlan[] {
+function deriveWeakDimensions(application: Application): string[] {
+  const analyses = (application.sessions || [])
+    .map((s) => s.analysis)
+    .filter((a): a is ScoreAnalysis => Boolean(a))
+  if (analyses.length === 0) return ['pressureRecovery', 'deliveryConfidence']
+
+  const avg = {
+    answerQuality: 0,
+    deliveryConfidence: 0,
+    pressureRecovery: 0,
+    companyFitLanguage: 0,
+    listeningAccuracy: 0,
+  }
+  analyses.forEach((a) => {
+    avg.answerQuality += a.answerQuality ?? 0
+    avg.deliveryConfidence += a.deliveryConfidence ?? 0
+    avg.pressureRecovery += a.pressureRecovery ?? 0
+    avg.companyFitLanguage += a.companyFitLanguage ?? 0
+    avg.listeningAccuracy += a.listeningAccuracy ?? 0
+  })
+  const denom = analyses.length
+  const ranked = Object.entries(avg)
+    .map(([key, total]) => ({ key, score: Math.round(total / denom) }))
+    .sort((a, b) => a.score - b.score)
+  return ranked.slice(0, 2).map((r) => r.key)
+}
+
+function generatePlan(daysLeft: number, sessionCount: number, weakDimensions: string[]): DayPlan[] {
   const plan: DayPlan[] = []
   const today = new Date()
 
-  const activities = [
+  const baseActivities = [
     { focus: 'Question Bank Review', activity: 'Review all questions and refine answers with low confidence ratings.', type: 'prepare' as const, icon: BookOpen },
     { focus: 'Full Interview Simulation', activity: 'Run a full session at Standard intensity. Focus on STAR structure.', type: 'session' as const, icon: Mic },
     { focus: 'Curveball Recovery Lab', activity: 'Practice handling unexpected questions. Build recovery confidence.', type: 'lab' as const, icon: Zap },
@@ -75,24 +120,57 @@ function generatePlan(daysLeft: number, sessionCount: number): DayPlan[] {
     { focus: 'Conflict & Weakness Questions', activity: 'Dedicated practice on the two most common stumbling blocks.', type: 'lab' as const, icon: AlertTriangle },
     { focus: 'Rest & Light Review', activity: 'Light review of your best answers. No intense practice today.', type: 'rest' as const, icon: Moon },
   ]
+  const targetedActivities: typeof baseActivities = []
 
-  for (let i = 0; i < daysLeft; i++) {
+  if (weakDimensions.includes('pressureRecovery')) {
+    targetedActivities.push({
+      focus: 'Pressure Recovery Priority',
+      activity: 'Run Curveball Recovery Lab and one high-pressure simulation. Focus on holding position under pushback.',
+      type: 'lab',
+      icon: Zap,
+    })
+  }
+  if (weakDimensions.includes('deliveryConfidence')) {
+    targetedActivities.push({
+      focus: 'Delivery Confidence Priority',
+      activity: 'Record 5 responses. Remove uncertainty language and tighten pace to 90–120 seconds.',
+      type: 'prepare',
+      icon: Target,
+    })
+  }
+  if (weakDimensions.includes('companyFitLanguage')) {
+    targetedActivities.push({
+      focus: 'Company Language Priority',
+      activity: 'Practice integrating company values language naturally into behavioral answers.',
+      type: 'prepare',
+      icon: Brain,
+    })
+  }
+  if (weakDimensions.includes('listeningAccuracy')) {
+    targetedActivities.push({
+      focus: 'Listening Accuracy Priority',
+      activity: 'Do a focused simulation where every answer starts by restating the question intent.',
+      type: 'session',
+      icon: Mic,
+    })
+  }
+  if (weakDimensions.includes('answerQuality')) {
+    targetedActivities.push({
+      focus: 'Answer Quality Priority',
+      activity: 'Rebuild weak answers with STAR + measurable outcomes and explicit ownership.',
+      type: 'prepare',
+      icon: BookOpen,
+    })
+  }
+
+  const activities = [...targetedActivities, ...baseActivities]
+
+  for (let i = 0; i <= daysLeft; i++) {
     const date = new Date(today)
     date.setDate(date.getDate() + i)
     const dateStr = date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
 
-    if (i === daysLeft - 1) {
-      // Day before interview
-      plan.push({
-        day: i + 1,
-        date: dateStr,
-        focus: 'Light Warmup & Confidence Boost',
-        activity: 'Quick warmup session with your opening question and two strongest answers. Review company values one more time. Get a good night\'s sleep.',
-        type: 'warmup',
-        icon: Sun,
-        done: false,
-      })
-    } else if (i === daysLeft) {
+    if (i === daysLeft) {
       // Interview day
       plan.push({
         day: i + 1,
@@ -103,8 +181,19 @@ function generatePlan(daysLeft: number, sessionCount: number): DayPlan[] {
         icon: Target,
         done: false,
       })
+    } else if (i === daysLeft - 1) {
+      // Day before interview
+      plan.push({
+        day: i + 1,
+        date: dateStr,
+        focus: 'Light Warmup & Confidence Boost',
+        activity: 'Quick warmup session with your opening question and two strongest answers. Review company values one more time. Get a good night\'s sleep.',
+        type: 'warmup',
+        icon: Sun,
+        done: false,
+      })
     } else {
-      const activityIdx = i % activities.length
+      const activityIdx = (i + Math.max(0, 4 - sessionCount)) % activities.length
       const act = activities[activityIdx]
       plan.push({
         day: i + 1,
@@ -129,8 +218,32 @@ export default function CountdownPage() {
 
   const [application, setApplication] = useState<Application | null>(null)
   const [loading, setLoading] = useState(true)
+  const [savingDate, setSavingDate] = useState(false)
   const [interviewDate, setInterviewDate] = useState('')
   const [showDatePicker, setShowDatePicker] = useState(false)
+  const [plan, setPlan] = useState('free')
+
+  const persistInterviewDate = async (dateValue: string) => {
+    if (!dateValue) return
+    setSavingDate(true)
+    try {
+      const res = await fetch(`/api/applications/${applicationId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ realInterviewDate: dateValue }),
+      })
+      if (!res.ok) throw new Error('Failed to save date')
+      const updated = await res.json()
+      setApplication(updated)
+      if (updated.realInterviewDate) {
+        setInterviewDate(updated.realInterviewDate.split('T')[0])
+      }
+    } catch {
+      // Keep UI stable; user can retry.
+    } finally {
+      setSavingDate(false)
+    }
+  }
 
   useEffect(() => {
     async function fetchApp() {
@@ -152,6 +265,17 @@ export default function CountdownPage() {
     fetchApp()
   }, [applicationId])
 
+  useEffect(() => {
+    async function fetchPlan() {
+      const res = await fetch('/api/settings')
+      if (res.ok) {
+        const data = await res.json()
+        setPlan(data.plan || 'free')
+      }
+    }
+    void fetchPlan()
+  }, [])
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[50vh]">
@@ -164,15 +288,37 @@ export default function CountdownPage() {
     return (
       <div className="text-center py-16">
         <p className="text-gray-500">Application not found.</p>
-        <Link href="/applications">
-          <Button className="mt-4">Back to Applications</Button>
+        <Link href="/dashboard">
+          <Button className="mt-4">Back to Dashboard</Button>
         </Link>
       </div>
     )
   }
 
+  if (plan !== 'pro' && plan !== 'crunch') {
+    return (
+      <div className="space-y-6">
+        <Link href={`/applications/${applicationId}`} className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
+          <ArrowLeft className="h-4 w-4" /> Back to Application
+        </Link>
+        <Card>
+          <CardContent className="py-10 text-center space-y-3">
+            <h2 className="text-xl font-semibold text-gray-900">Countdown Mode is a Pro feature</h2>
+            <p className="text-sm text-gray-600">
+              Upgrade to unlock day-by-day interview countdown planning and reminder notifications.
+            </p>
+            <Link href="/pricing">
+              <Button>View plans</Button>
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
   const daysLeft = interviewDate ? getDaysUntil(interviewDate) : 0
-  const plan = interviewDate ? generatePlan(daysLeft, application._count.sessions) : []
+  const weakDimensions = deriveWeakDimensions(application)
+  const dayPlan = interviewDate ? generatePlan(daysLeft, application._count.sessions, weakDimensions) : []
 
   // No date set
   if (!interviewDate) {
@@ -196,7 +342,7 @@ export default function CountdownPage() {
               min={new Date().toISOString().split('T')[0]}
               className="border border-gray-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
             />
-            <Button onClick={() => setInterviewDate(interviewDate)} disabled={!interviewDate}>
+            <Button onClick={() => persistInterviewDate(interviewDate)} disabled={!interviewDate || savingDate}>
               Set Date
             </Button>
           </div>
@@ -245,9 +391,13 @@ export default function CountdownPage() {
           <Calendar className="h-5 w-5 text-brand-600" />
           Your Practice Plan
         </h3>
+        <p className="text-xs text-gray-500 mb-4">
+          Plan priorities were calibrated from your latest weak dimensions:{' '}
+          <span className="font-medium">{weakDimensions.join(', ')}</span>.
+        </p>
 
         <div className="space-y-3">
-          {plan.map((day, idx) => {
+          {dayPlan.map((day, idx) => {
             const Icon = day.icon
             const isToday = idx === 0
             const typeBadge: Record<string, { label: string; variant: 'default' | 'success' | 'warning' | 'info' | 'danger' }> = {
@@ -329,7 +479,16 @@ export default function CountdownPage() {
                   min={new Date().toISOString().split('T')[0]}
                   className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
                 />
-                <Button size="sm" onClick={() => setShowDatePicker(false)}>Save</Button>
+                <Button
+                  size="sm"
+                  onClick={async () => {
+                    await persistInterviewDate(interviewDate)
+                    setShowDatePicker(false)
+                  }}
+                  disabled={savingDate}
+                >
+                  Save
+                </Button>
               </>
             ) : (
               <Button size="sm" variant="outline" onClick={() => setShowDatePicker(true)}>
@@ -337,6 +496,18 @@ export default function CountdownPage() {
               </Button>
             )}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-gray-800">After your real interview</p>
+            <p className="text-xs text-gray-500">Log what was asked and compare against Seatvio predictions.</p>
+          </div>
+          <Link href={`/reflections/${applicationId}`}>
+            <Button size="sm" variant="outline">Open Reflection</Button>
+          </Link>
         </CardContent>
       </Card>
     </div>

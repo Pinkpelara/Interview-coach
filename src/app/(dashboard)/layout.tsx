@@ -51,6 +51,11 @@ export default function DashboardLayout({
     return null
   }
 
+  if (status === 'authenticated' && !(session?.user as { onboarded?: boolean } | undefined)?.onboarded) {
+    router.push('/onboarding')
+    return null
+  }
+
   const currentPage = navLinks.find((link) => pathname.startsWith(link.href))
 
   return (

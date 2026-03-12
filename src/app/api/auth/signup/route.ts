@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
+import { sendNotificationEmail } from "@/lib/notifications";
 
 export async function POST(request: Request) {
   try {
@@ -45,17 +47,34 @@ export async function POST(request: Request) {
 
     const hashedPassword = await bcrypt.hash(password, 12);
 
-    await prisma.user.create({
+    const verifyToken = crypto.randomBytes(24).toString("hex");
+
+    const created = await prisma.user.create({
       data: {
         email: email.toLowerCase(),
         fullName,
         passwordHash: hashedPassword,
-        emailVerified: true,
+        emailVerified: false,
+        verifyToken,
+        notificationPreferences: {
+          create: {},
+        },
       },
     });
 
+    void sendNotificationEmail({
+      userId: created.id,
+      type: "welcome",
+      recipientEmail: created.email,
+      subject: "Welcome to Seatvio",
+      body: `Welcome to Seatvio, ${fullName}.\n\nYour account is ready. Verify your email, complete onboarding, and start your first interview simulation.`,
+    });
+
     return NextResponse.json(
-      { message: "Account created successfully." },
+      {
+        message: "Account created. Verify your email to continue.",
+        verificationPath: `/verify-email?token=${verifyToken}`,
+      },
       { status: 201 }
     );
   } catch (error) {

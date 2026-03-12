@@ -225,7 +225,7 @@ export default async function DashboardPage() {
                       variant={
                         s.status === 'completed'
                           ? 'success'
-                          : s.status === 'in_progress'
+                          : s.status === 'active'
                           ? 'warning'
                           : 'default'
                       }

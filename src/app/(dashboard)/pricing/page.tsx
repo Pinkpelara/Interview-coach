@@ -7,6 +7,7 @@ import { Check, Star, Zap, Rocket, Clock } from 'lucide-react'
 import { Card, CardContent, CardHeader } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
+import { getEffectivePlan } from '@/lib/subscription'
 
 const plans = [
   {
@@ -79,7 +80,11 @@ const plans = [
   },
 ]
 
-export default async function PricingPage() {
+export default async function PricingPage({
+  searchParams,
+}: {
+  searchParams?: { checkout?: string }
+}) {
   const session = await getServerSession(authOptions)
 
   if (!session?.user) {
@@ -88,14 +93,19 @@ export default async function PricingPage() {
 
   const userId = (session.user as { id: string }).id
 
-  const subscription = await prisma.subscription.findUnique({
+  await prisma.subscription.findUnique({
     where: { userId },
   })
-
-  const currentPlan = subscription?.plan || 'free'
+  const currentPlan = await getEffectivePlan(userId)
+  const checkoutSuccess = searchParams?.checkout === 'success'
 
   return (
     <div className="space-y-8">
+      {checkoutSuccess && (
+        <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+          Plan updated successfully.
+        </div>
+      )}
       <div className="text-center">
         <h2 className="text-2xl font-bold text-gray-900">
           Choose Your Plan

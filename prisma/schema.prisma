@@ -23,6 +23,9 @@ model User {
   userAnswers   UserAnswer[]
   sessions      InterviewSession[]
   subscription  Subscription?
+  notificationPreferences NotificationPreference?
+  notificationEvents NotificationEvent[]
+  reflections   InterviewReflection[]
   onboarded     Boolean   @default(false)
 }
 
@@ -72,6 +75,7 @@ model Application {
   questions         Question[]
   sessions          InterviewSession[]
   countdownPlans    CountdownPlan[]
+  reflections       InterviewReflection[]
 
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -270,4 +274,51 @@ model CountdownPlan {
 
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
+}
+
+model NotificationPreference {
+  id                   String   @id @default(cuid())
+  userId               String   @unique
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  welcomeEmail         Boolean  @default(true)
+  sessionSummaryEmail  Boolean  @default(true)
+  dailyCountdownEmail  Boolean  @default(false)
+  weeklyProgressEmail  Boolean  @default(true)
+  reengagementEmail    Boolean  @default(true)
+  interviewMorningEmail Boolean @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+model NotificationEvent {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type       String
+  channel    String   @default("email")
+  recipient  String?
+  subject    String?
+  payload    String?
+  status     String   @default("queued")
+  sentAt     DateTime?
+  createdAt  DateTime @default(now())
+}
+
+model InterviewReflection {
+  id                 String      @id @default(cuid())
+  userId             String
+  user               User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  applicationId      String
+  application        Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  interviewDate      DateTime
+  outcome            String?
+  selfRating         Int?
+  actualQuestions    String?
+  whatWentWell       String?
+  whatToImprove      String?
+  notes              String?
+  predictedStrengths String?
+  predictedRisks     String?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
 }

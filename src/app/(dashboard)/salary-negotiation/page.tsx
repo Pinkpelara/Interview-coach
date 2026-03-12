@@ -1,16 +1,14 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { useSession } from 'next-auth/react'
-import { Card, CardContent, CardHeader } from '@/components/ui/Card'
+import { useSearchParams, useRouter } from 'next/navigation'
+import { Card, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
-import { Textarea } from '@/components/ui/Textarea'
 import {
   DollarSign,
   Send,
   ArrowLeft,
-  MessageSquare,
   Target,
   CheckCircle,
   AlertTriangle,
@@ -25,6 +23,12 @@ interface NegotiationMessage {
   speaker: 'candidate' | 'hiring_manager'
   text: string
   annotation?: string
+}
+
+interface ApplicationContext {
+  id: string
+  companyName: string
+  jobTitle: string
 }
 
 const DIFFICULTY_CONFIG: Record<Difficulty, { label: string; description: string; badge: 'success' | 'warning' | 'danger' }> = {
@@ -76,15 +80,54 @@ const MANAGER_RESPONSES: Record<Difficulty, string[]> = {
 }
 
 export default function SalaryNegotiationPage() {
-  const { data: session } = useSession()
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const applicationId = searchParams.get('applicationId') || ''
   const [difficulty, setDifficulty] = useState<Difficulty | null>(null)
   const [messages, setMessages] = useState<NegotiationMessage[]>([])
   const [inputText, setInputText] = useState('')
   const [isSending, setIsSending] = useState(false)
   const [exchangeCount, setExchangeCount] = useState(0)
   const [sessionComplete, setSessionComplete] = useState(false)
+  const [application, setApplication] = useState<ApplicationContext | null>(null)
+  const [loadingApplication, setLoadingApplication] = useState(true)
+  const [contextError, setContextError] = useState<string | null>(null)
+  const [plan, setPlan] = useState('free')
   const chatEndRef = useRef<HTMLDivElement>(null)
   const responseIndexRef = useRef(0)
+
+  useEffect(() => {
+    async function loadContext() {
+      if (!applicationId) {
+        setContextError('Select an application from Pressure Lab before starting Salary Negotiation.')
+        setLoadingApplication(false)
+        return
+      }
+      try {
+        const res = await fetch(`/api/applications/${applicationId}`)
+        if (!res.ok) throw new Error('Failed to load application')
+        const data = await res.json()
+        setApplication({
+          id: data.id,
+          companyName: data.companyName,
+          jobTitle: data.jobTitle,
+        })
+      } catch {
+        setContextError('Unable to load application context for this negotiation drill.')
+      } finally {
+        setLoadingApplication(false)
+      }
+    }
+    async function loadPlan() {
+      const res = await fetch('/api/settings')
+      if (res.ok) {
+        const data = await res.json()
+        setPlan(data.plan || 'free')
+      }
+    }
+    void loadContext()
+    void loadPlan()
+  }, [applicationId])
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -165,6 +208,21 @@ export default function SalaryNegotiationPage() {
             Salary Negotiation Simulator
           </h2>
           <p className="mt-1 text-gray-500">Practice the full negotiation arc from initial offer to close.</p>
+          {!loadingApplication && application && (
+            <p className="mt-2 text-sm text-gray-700">
+              Context: <span className="font-medium">{application.companyName}</span> — {application.jobTitle}
+            </p>
+          )}
+          {!loadingApplication && contextError && (
+            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+              {contextError}
+            </div>
+          )}
+          {plan !== 'pro' && plan !== 'crunch' && (
+            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+              Salary negotiation simulator is available on Pro and Crunch plans. <Link href="/pricing" className="underline">Upgrade</Link>
+            </div>
+          )}
         </div>
 
         <div className="grid gap-4 md:grid-cols-3">
@@ -174,7 +232,9 @@ export default function SalaryNegotiationPage() {
                 <Badge variant={config.badge}>{config.label}</Badge>
                 <p className="text-sm text-gray-600">{config.description}</p>
                 <p className="text-xs text-gray-400">Initial offer: {INITIAL_OFFERS[key].base} base</p>
-                <Button size="sm">Start Negotiation</Button>
+                <Button size="sm" disabled={Boolean(contextError) || (plan !== 'pro' && plan !== 'crunch')}>
+                  Start Negotiation
+                </Button>
               </CardContent>
             </Card>
           ))}
@@ -197,6 +257,11 @@ export default function SalaryNegotiationPage() {
             </Badge>
             Round {exchangeCount + 1}
           </p>
+          {application && (
+            <p className="text-xs text-gray-500 mt-1">
+              {application.companyName} — {application.jobTitle}
+            </p>
+          )}
         </div>
         <Button variant="outline" size="sm" onClick={() => { setDifficulty(null); setMessages([]) }}>
           New Session
@@ -300,6 +365,9 @@ export default function SalaryNegotiationPage() {
               <div className="flex gap-3">
                 <Button size="sm" onClick={() => startSession(difficulty)}>Practice Again</Button>
                 <Button size="sm" variant="outline" onClick={() => { setDifficulty(null); setMessages([]) }}>Change Difficulty</Button>
+                <Button size="sm" variant="ghost" onClick={() => router.push('/pressure-lab')}>
+                  Back to Pressure Lab
+                </Button>
               </div>
             </div>
           )}

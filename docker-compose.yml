@@ -1,0 +1,120 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: seatvio-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: seatvio
+      POSTGRES_USER: seatvio
+      POSTGRES_PASSWORD: seatvio
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U seatvio -d seatvio"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  web-app:
+    image: node:20
+    container_name: seatvio-web-app
+    restart: unless-stopped
+    working_dir: /app
+    command: >
+      bash -lc "npm install && npm run dev"
+    volumes:
+      - ./:/app
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://seatvio:seatvio@postgres:5432/seatvio
+      DIRECT_URL: postgresql://seatvio:seatvio@postgres:5432/seatvio
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: dev-only-secret-change-me
+      NEXT_PUBLIC_INTERVIEW_WS_URL: ws://localhost:8787/ws/interview
+      INTERVIEW_CONDUCTOR_URL: http://interview-conductor:8091
+      MEDIA_RELAY_HEALTH_URL: http://media-relay:8787/healthz
+      INTERVIEW_CONDUCTOR_HEALTH_URL: http://interview-conductor:8091/healthz
+      GPU_WORKERS_HEALTH_URL: http://gpu-workers:8092/healthz
+      AI_ENGINE_HEALTH_URL: http://ai-engine:8093/healthz
+      API_SERVER_HEALTH_URL: http://api-server:8094/healthz
+    depends_on:
+      postgres:
+        condition: service_healthy
+      media-relay:
+        condition: service_started
+      interview-conductor:
+        condition: service_started
+      gpu-workers:
+        condition: service_started
+      ai-engine:
+        condition: service_started
+      api-server:
+        condition: service_started
+
+  media-relay:
+    image: node:20
+    container_name: seatvio-media-relay
+    restart: unless-stopped
+    working_dir: /app/services/media-relay
+    command: >
+      bash -lc "npm install && npm run dev"
+    volumes:
+      - ./:/app
+    ports:
+      - "8787:8787"
+    environment:
+      PORT: 8787
+      WS_PATH: /ws/audio
+      API_BASE_URL: http://api-server:8094
+      CONDUCTOR_WS_BASE: ws://interview-conductor:8091/ws/interview
+
+  interview-conductor:
+    build:
+      context: ./services/interview-conductor
+      dockerfile: Dockerfile
+    container_name: seatvio-interview-conductor
+    restart: unless-stopped
+    ports:
+      - "8091:8091"
+    environment:
+      STT_URL: http://gpu-workers:8092
+      LLM_URL: http://gpu-workers:8092
+      TTS_URL: http://gpu-workers:8092
+      REQUEST_TIMEOUT_S: 12
+
+  gpu-workers:
+    build:
+      context: ./services/gpu-workers
+      dockerfile: Dockerfile
+    container_name: seatvio-gpu-workers
+    restart: unless-stopped
+    ports:
+      - "8092:8092"
+
+  ai-engine:
+    build:
+      context: ./services/ai-engine
+      dockerfile: Dockerfile
+    container_name: seatvio-ai-engine
+    restart: unless-stopped
+    ports:
+      - "8093:8093"
+
+  api-server:
+    build:
+      context: ./services/api-server
+      dockerfile: Dockerfile
+    container_name: seatvio-api-server
+    restart: unless-stopped
+    ports:
+      - "8094:8094"
+    environment:
+      PORT: 8094
+
+volumes:
+  postgres_data:

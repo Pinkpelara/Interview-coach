@@ -1,8 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams } from 'next/navigation'
-import { useSession } from 'next-auth/react'
 import { Card, CardHeader, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { ScoreGauge } from '@/components/ui/ScoreGauge'
@@ -18,6 +17,8 @@ import {
   XCircle,
   Eye,
   ChevronRight,
+  Download,
+  Share2,
 } from 'lucide-react'
 import {
   LineChart,
@@ -56,6 +57,27 @@ interface AnalysisData {
   hiringProbability: number
   nextTargets: NextTarget[]
   coachScript: string
+  scoreDetails?: Record<
+    string,
+    {
+      observations: string[]
+      weakness: string
+    }
+  >
+  hiringAssessment?: {
+    wouldAdvance: boolean
+    reasonsYes: string[]
+    reasonsNo: string[]
+    comparisonToRoleRequirements: string
+  }
+  progressSeries?: Array<{
+    sessionId: string
+    label: string
+    probability: number
+    createdAt: string
+  }>
+  gatedMessage?: string
+  requiredPlan?: string
 }
 
 interface SessionData {
@@ -107,13 +129,18 @@ const segmentBadgeVariants = {
 export default function DebriefPage() {
   const params = useParams()
   const sessionId = params.sessionId as string
-  const { data: authSession } = useSession()
 
   const [data, setData] = useState<DebriefResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedSegment, setSelectedSegment] = useState<MomentSegment | null>(null)
   const [audioPlaying, setAudioPlaying] = useState(false)
+  const [audioLoading, setAudioLoading] = useState(false)
+  const [audioUrl, setAudioUrl] = useState<string | null>(null)
+  const [generatingCard, setGeneratingCard] = useState(false)
+  const [hideRoleOnCard, setHideRoleOnCard] = useState(false)
+  const [plan, setPlan] = useState('free')
+  const audioRef = useRef<HTMLAudioElement | null>(null)
 
   useEffect(() => {
     async function fetchDebrief() {
@@ -136,6 +163,28 @@ export default function DebriefPage() {
       fetchDebrief()
     }
   }, [sessionId])
+
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause()
+      }
+      if (audioUrl) {
+        URL.revokeObjectURL(audioUrl)
+      }
+    }
+  }, [audioUrl])
+
+  useEffect(() => {
+    async function fetchPlan() {
+      const res = await fetch('/api/settings')
+      if (res.ok) {
+        const json = await res.json()
+        setPlan(json.plan || 'free')
+      }
+    }
+    void fetchPlan()
+  }, [])
 
   if (loading) {
     return (
@@ -164,44 +213,219 @@ export default function DebriefPage() {
     )
   }
 
-  const { session: interviewSession, analysis } = data
+  const { analysis } = data
+  const sessionData = data.session
 
   const scores = [
-    { name: 'Answer Quality', score: analysis.answerQuality, observations: ['Used STAR framework in 4/6 behavioral questions', 'Provided specific metrics in leadership answers', 'Weakness answer lacked authenticity'], weakness: 'Generic weakness response needs complete rework' },
-    { name: 'Delivery Confidence', score: analysis.deliveryConfidence, observations: ['Strong eye contact during opening', 'Voice pitch rose under pressure questions', 'Good pacing on rehearsed answers'], weakness: 'Filler words increase 3x during unexpected follow-ups' },
-    { name: 'Pressure Recovery', score: analysis.pressureRecovery, observations: ['Recovered well after the failure question', 'Maintained composure during rapid-fire segment', 'Paused effectively before answering twice'], weakness: 'Silence-filling tendency when caught off guard' },
-    { name: 'Company Fit Language', score: analysis.companyFitLanguage, observations: ['Referenced company mission once', 'Used industry-specific terminology', 'Aligned growth goals with role trajectory'], weakness: 'Only 2 direct references to JD language vs. target of 5+' },
-    { name: 'Listening Accuracy', score: analysis.listeningAccuracy, observations: ['Answered the question asked in 8/10 exchanges', 'Picked up on interviewer cues for elaboration', 'Adapted answer length based on interviewer engagement'], weakness: 'Missed a clarifying sub-question in the prioritization exchange' },
+    { key: 'answerQuality', name: 'Answer Quality', score: analysis.answerQuality },
+    { key: 'deliveryConfidence', name: 'Delivery Confidence', score: analysis.deliveryConfidence },
+    { key: 'pressureRecovery', name: 'Pressure Recovery', score: analysis.pressureRecovery },
+    { key: 'companyFitLanguage', name: 'Company Fit Language', score: analysis.companyFitLanguage },
+    { key: 'listeningAccuracy', name: 'Listening Accuracy', score: analysis.listeningAccuracy },
   ]
 
   const hiringProb = analysis.hiringProbability
-  const wouldAdvance = hiringProb >= 65
+  const wouldAdvance = analysis.hiringAssessment?.wouldAdvance ?? hiringProb >= 65
 
-  const reasonsYes = [
-    'Strong technical storytelling with specific metrics',
-    'Demonstrated leadership with cross-functional examples',
-    'Growth trajectory aligns with role requirements',
+  const reasonsYes = analysis.hiringAssessment?.reasonsYes || [
+    'Clear ownership in key examples',
+    'Good role-relevant experience signals',
+    'Consistent effort under pressure',
+  ]
+  const reasonsNo = analysis.hiringAssessment?.reasonsNo || [
+    'Needs tighter specificity in weaker moments',
+    'Some confidence dips under pressure',
+    'Can better mirror company language',
   ]
 
-  const reasonsNo = [
-    'Weakness answer signals low self-awareness',
-    'Filler words under pressure may concern senior interviewers',
-    'Insufficient company-specific language for culture fit',
-  ]
+  const progressData = (analysis.progressSeries || []).map((p) => ({
+    session: p.label,
+    probability: p.probability,
+  }))
+  const hasFullDebrief = !analysis.gatedMessage
 
-  // Mock progress data for chart
-  const progressData = [
-    { session: 'S1', probability: Math.max(35, hiringProb - 28) },
-    { session: 'S2', probability: Math.max(40, hiringProb - 20) },
-    { session: 'S3', probability: Math.max(45, hiringProb - 14) },
-    { session: 'S4', probability: Math.max(50, hiringProb - 8) },
-    { session: 'S5', probability: hiringProb },
-  ]
+  async function handleDownloadDebriefCard() {
+    try {
+      setGeneratingCard(true)
+      const canvas = document.createElement('canvas')
+      canvas.width = 1080
+      canvas.height = 1080
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return
 
-  function handlePlayAudio() {
-    setAudioPlaying(true)
-    setTimeout(() => setAudioPlaying(false), 3000)
+      // Background
+      const grad = ctx.createLinearGradient(0, 0, 1080, 1080)
+      grad.addColorStop(0, '#0b1020')
+      grad.addColorStop(1, '#1f1040')
+      ctx.fillStyle = grad
+      ctx.fillRect(0, 0, 1080, 1080)
+
+      const pad = 72
+      // Card panel
+      ctx.fillStyle = 'rgba(255,255,255,0.06)'
+      ctx.fillRect(pad, pad, 1080 - pad * 2, 1080 - pad * 2)
+      ctx.strokeStyle = 'rgba(255,255,255,0.15)'
+      ctx.lineWidth = 2
+      ctx.strokeRect(pad, pad, 1080 - pad * 2, 1080 - pad * 2)
+
+      // Title
+      ctx.fillStyle = '#e5e7eb'
+      ctx.font = '700 42px Inter, Arial, sans-serif'
+      ctx.fillText('Seatvio', pad + 28, pad + 64)
+      ctx.font = '500 22px Inter, Arial, sans-serif'
+      ctx.fillStyle = '#93c5fd'
+      ctx.fillText('Debrief Card', pad + 28, pad + 98)
+
+      const roleText = hideRoleOnCard
+        ? 'Role hidden'
+        : `${sessionData.application.companyName} — ${sessionData.application.jobTitle}`
+      ctx.fillStyle = '#cbd5e1'
+      ctx.font = '500 24px Inter, Arial, sans-serif'
+      ctx.fillText(roleText, pad + 28, pad + 142)
+
+      // Hiring probability
+      ctx.fillStyle = '#ffffff'
+      ctx.font = '800 112px Inter, Arial, sans-serif'
+      ctx.fillText(`${hiringProb}`, pad + 24, pad + 294)
+      ctx.font = '600 30px Inter, Arial, sans-serif'
+      ctx.fillStyle = '#a7f3d0'
+      ctx.fillText('Hiring Probability', pad + 34, pad + 336)
+
+      // Three compact dimensions
+      const compact = scores.slice(0, 3)
+      compact.forEach((item, idx) => {
+        const x = pad + 34
+        const y = pad + 406 + idx * 96
+        ctx.fillStyle = '#d1d5db'
+        ctx.font = '600 24px Inter, Arial, sans-serif'
+        ctx.fillText(item.name, x, y)
+        ctx.fillStyle = '#60a5fa'
+        ctx.font = '700 28px Inter, Arial, sans-serif'
+        ctx.fillText(`${item.score}/100`, x + 420, y)
+      })
+
+      // Top target
+      const topTarget = analysis.nextTargets[0]
+      ctx.fillStyle = '#fef3c7'
+      ctx.font = '700 28px Inter, Arial, sans-serif'
+      ctx.fillText('Top Next Target', pad + 32, pad + 730)
+      ctx.fillStyle = '#f9fafb'
+      ctx.font = '600 30px Inter, Arial, sans-serif'
+      ctx.fillText(topTarget?.title || 'Keep practicing with focused drills', pad + 32, pad + 772)
+
+      const drawWrappedText = (
+        text: string,
+        x: number,
+        y: number,
+        maxWidth: number,
+        lineHeight: number,
+        maxLines: number
+      ) => {
+        const words = text.split(/\s+/)
+        let line = ''
+        let lineCount = 0
+        for (let i = 0; i < words.length; i++) {
+          const test = line ? `${line} ${words[i]}` : words[i]
+          const width = ctx.measureText(test).width
+          if (width > maxWidth && line) {
+            ctx.fillText(line, x, y + lineCount * lineHeight)
+            line = words[i]
+            lineCount += 1
+            if (lineCount >= maxLines) break
+          } else {
+            line = test
+          }
+        }
+        if (lineCount < maxLines && line) {
+          ctx.fillText(line, x, y + lineCount * lineHeight)
+        }
+      }
+
+      ctx.fillStyle = '#cbd5e1'
+      ctx.font = '500 22px Inter, Arial, sans-serif'
+      drawWrappedText(topTarget?.action || 'Run one focused session and measure improvement.', pad + 32, pad + 812, 820, 32, 3)
+
+      // Footer
+      ctx.fillStyle = '#94a3b8'
+      ctx.font = '500 20px Inter, Arial, sans-serif'
+      ctx.fillText('practiced on seatvio.app', pad + 32, 1080 - pad - 24)
+
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
+      if (!blob) return
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `seatvio-debrief-${sessionId}.png`
+      a.click()
+      URL.revokeObjectURL(url)
+    } finally {
+      setGeneratingCard(false)
+    }
   }
+
+  function shareToLinkedIn() {
+    const topTarget = analysis.nextTargets[0]?.title || 'Focused interview improvements'
+    const rolePart = hideRoleOnCard
+      ? ''
+      : ` for ${sessionData.application.jobTitle} at ${sessionData.application.companyName}`
+    const text = `Just completed a Seatvio interview simulation${rolePart}. Hiring Probability: ${hiringProb}/100. Next focus: ${topTarget}. practiced on seatvio.app`
+    const url = `https://www.linkedin.com/feed/?shareActive=true&text=${encodeURIComponent(text)}`
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
+
+  async function handlePlayAudio(autoplay = false) {
+    if (audioRef.current && audioPlaying) {
+      audioRef.current.pause()
+      return
+    }
+
+    try {
+      setAudioLoading(true)
+      let url = audioUrl
+
+      if (!url) {
+        const ttsRes = await fetch('/api/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: analysis.coachScript,
+            voice: 'nova',
+            instructions: 'Speak as a direct but encouraging interview coach.',
+          }),
+        })
+
+        if (!ttsRes.ok) {
+          return
+        }
+
+        const blob = await ttsRes.blob()
+        url = URL.createObjectURL(blob)
+        setAudioUrl(url)
+      }
+
+      if (!audioRef.current) {
+        audioRef.current = new Audio(url)
+        audioRef.current.onplay = () => setAudioPlaying(true)
+        audioRef.current.onpause = () => setAudioPlaying(false)
+        audioRef.current.onended = () => setAudioPlaying(false)
+      } else if (audioRef.current.src !== url) {
+        audioRef.current.src = url
+      }
+
+      await audioRef.current.play()
+    } catch {
+      // Non-blocking: written coach summary remains visible.
+    } finally {
+      setAudioLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (analysis?.coachScript) {
+      void handlePlayAudio(true)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [analysis?.coachScript])
 
   return (
     <div className="space-y-8 pb-12">
@@ -223,15 +447,21 @@ export default function DebriefPage() {
                 &ldquo;Okay — let&apos;s talk about what just happened in there.&rdquo;
               </blockquote>
               <p className="text-sm text-gray-600 leading-relaxed">{analysis.coachScript}</p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handlePlayAudio}
-                disabled={audioPlaying}
-              >
-                <Play className="h-4 w-4 mr-2" />
-                {audioPlaying ? 'Playing...' : 'Play Coach Audio'}
-              </Button>
+              {hasFullDebrief ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void handlePlayAudio(false)}
+                  disabled={audioLoading}
+                >
+                  <Play className="h-4 w-4 mr-2" />
+                  {audioLoading ? 'Loading audio...' : audioPlaying ? 'Pause Coach Audio' : 'Play Coach Audio'}
+                </Button>
+              ) : (
+                <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  {analysis.gatedMessage} <Link href="/pricing" className="underline font-medium">Upgrade</Link>
+                </div>
+              )}
             </div>
           </div>
         </CardContent>
@@ -259,55 +489,63 @@ export default function DebriefPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {/* Timeline */}
-          <div className="relative">
-            <div className="flex w-full h-10 rounded-lg overflow-hidden gap-0.5">
-              {analysis.momentMap.map((segment) => (
-                <button
-                  key={segment.id}
-                  className={`relative h-full transition-all hover:opacity-80 ${segmentColors[segment.type]} ${
-                    selectedSegment?.id === segment.id ? 'ring-2 ring-offset-1 ring-gray-900' : ''
-                  }`}
-                  style={{ width: `${segment.end - segment.start}%` }}
-                  onClick={() =>
-                    setSelectedSegment(
-                      selectedSegment?.id === segment.id ? null : segment
-                    )
-                  }
-                  title={`${segmentLabels[segment.type]} (${formatTimestamp(segment.timestampMs)})`}
-                >
-                  {segment.hasInterviewerReaction && (
-                    <Zap className="absolute top-0.5 right-0.5 h-3 w-3 text-white drop-shadow" />
-                  )}
-                </button>
-              ))}
-            </div>
-            <div className="flex justify-between mt-1 text-xs text-gray-400">
-              <span>0:00</span>
-              <span>{formatTimestamp(analysis.momentMap[analysis.momentMap.length - 1]?.timestampMs || 0)}</span>
-            </div>
-          </div>
+          {hasFullDebrief ? (
+            <>
+              {/* Timeline */}
+              <div className="relative">
+                <div className="flex w-full h-10 rounded-lg overflow-hidden gap-0.5">
+                  {analysis.momentMap.map((segment) => (
+                    <button
+                      key={segment.id}
+                      className={`relative h-full transition-all hover:opacity-80 ${segmentColors[segment.type]} ${
+                        selectedSegment?.id === segment.id ? 'ring-2 ring-offset-1 ring-gray-900' : ''
+                      }`}
+                      style={{ width: `${segment.end - segment.start}%` }}
+                      onClick={() =>
+                        setSelectedSegment(
+                          selectedSegment?.id === segment.id ? null : segment
+                        )
+                      }
+                      title={`${segmentLabels[segment.type]} (${formatTimestamp(segment.timestampMs)})`}
+                    >
+                      {segment.hasInterviewerReaction && (
+                        <Zap className="absolute top-0.5 right-0.5 h-3 w-3 text-white drop-shadow" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex justify-between mt-1 text-xs text-gray-400">
+                  <span>0:00</span>
+                  <span>{formatTimestamp(analysis.momentMap[analysis.momentMap.length - 1]?.timestampMs || 0)}</span>
+                </div>
+              </div>
 
-          {/* Selected Segment Detail */}
-          {selectedSegment && (
-            <div
-              className={`mt-4 rounded-lg border-2 p-4 space-y-3 ${segmentBorderColors[selectedSegment.type]}`}
-            >
-              <div className="flex items-center justify-between">
-                <Badge variant={segmentBadgeVariants[selectedSegment.type]}>
-                  {segmentLabels[selectedSegment.type]}
-                </Badge>
-                <span className="text-xs text-gray-500">
-                  {formatTimestamp(selectedSegment.timestampMs)}
-                </span>
-              </div>
-              <div className="bg-gray-50 rounded-md p-3 text-sm text-gray-700 whitespace-pre-line font-mono">
-                {selectedSegment.transcript}
-              </div>
-              <div className="flex items-start gap-2 text-sm">
-                <Eye className="h-4 w-4 text-brand-600 mt-0.5 flex-shrink-0" />
-                <p className="text-gray-600">{selectedSegment.coachingNote}</p>
-              </div>
+              {/* Selected Segment Detail */}
+              {selectedSegment && (
+                <div
+                  className={`mt-4 rounded-lg border-2 p-4 space-y-3 ${segmentBorderColors[selectedSegment.type]}`}
+                >
+                  <div className="flex items-center justify-between">
+                    <Badge variant={segmentBadgeVariants[selectedSegment.type]}>
+                      {segmentLabels[selectedSegment.type]}
+                    </Badge>
+                    <span className="text-xs text-gray-500">
+                      {formatTimestamp(selectedSegment.timestampMs)}
+                    </span>
+                  </div>
+                  <div className="bg-gray-50 rounded-md p-3 text-sm text-gray-700 whitespace-pre-line font-mono">
+                    {selectedSegment.transcript}
+                  </div>
+                  <div className="flex items-start gap-2 text-sm">
+                    <Eye className="h-4 w-4 text-brand-600 mt-0.5 flex-shrink-0" />
+                    <p className="text-gray-600">{selectedSegment.coachingNote}</p>
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800">
+              Moment Map is available on Prep and Pro plans. <Link href="/pricing" className="underline font-medium">Upgrade</Link>
             </div>
           )}
         </CardContent>
@@ -325,7 +563,7 @@ export default function DebriefPage() {
                   <h4 className="font-semibold text-gray-900">{dim.name}</h4>
                 </div>
                 <ul className="space-y-1.5 mb-3">
-                  {dim.observations.map((obs, i) => (
+                  {(analysis.scoreDetails?.[dim.key]?.observations || []).map((obs, i) => (
                     <li key={i} className="flex items-start gap-2 text-sm text-gray-600">
                       <CheckCircle className="h-3.5 w-3.5 text-green-500 mt-0.5 flex-shrink-0" />
                       {obs}
@@ -334,7 +572,9 @@ export default function DebriefPage() {
                 </ul>
                 <div className="flex items-start gap-2 text-sm border-t border-gray-100 pt-2">
                   <AlertTriangle className="h-3.5 w-3.5 text-amber-500 mt-0.5 flex-shrink-0" />
-                  <span className="text-gray-500">{dim.weakness}</span>
+                  <span className="text-gray-500">
+                    {analysis.scoreDetails?.[dim.key]?.weakness || 'Keep improving this dimension with focused practice.'}
+                  </span>
                 </div>
               </CardContent>
             </Card>
@@ -357,6 +597,11 @@ export default function DebriefPage() {
               >
                 Would Advance: {wouldAdvance ? 'Yes' : 'No'}
               </div>
+              {analysis.hiringAssessment?.comparisonToRoleRequirements && (
+                <p className="text-sm text-gray-600">
+                  {analysis.hiringAssessment.comparisonToRoleRequirements}
+                </p>
+              )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
@@ -397,28 +642,34 @@ export default function DebriefPage() {
           <Target className="h-5 w-5 text-brand-600" />
           Next Session Targets
         </h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {analysis.nextTargets.map((target, i) => (
-            <Card key={i}>
-              <CardHeader>
-                <h4 className="font-semibold text-gray-900">{target.title}</h4>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  <p className="text-sm text-gray-600">{target.description}</p>
-                  <div className="bg-brand-50 rounded-md p-3">
-                    <p className="text-sm font-medium text-brand-800">Action</p>
-                    <p className="text-sm text-brand-700 mt-1">{target.action}</p>
+        {hasFullDebrief ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {analysis.nextTargets.map((target, i) => (
+              <Card key={i}>
+                <CardHeader>
+                  <h4 className="font-semibold text-gray-900">{target.title}</h4>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    <p className="text-sm text-gray-600">{target.description}</p>
+                    <div className="bg-brand-50 rounded-md p-3">
+                      <p className="text-sm font-medium text-brand-800">Action</p>
+                      <p className="text-sm text-brand-700 mt-1">{target.action}</p>
+                    </div>
+                    <div className="bg-gray-50 rounded-md p-3">
+                      <p className="text-sm font-medium text-gray-700">Success Metric</p>
+                      <p className="text-sm text-gray-600 mt-1">{target.successMetric}</p>
+                    </div>
                   </div>
-                  <div className="bg-gray-50 rounded-md p-3">
-                    <p className="text-sm font-medium text-gray-700">Success Metric</p>
-                    <p className="text-sm text-gray-600 mt-1">{target.successMetric}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800">
+            Detailed next-session targets are included in Prep and Pro.
+          </div>
+        )}
       </div>
 
       {/* Section F: Progress Tracking */}
@@ -467,7 +718,7 @@ export default function DebriefPage() {
       </Card>
 
       {/* Section G: Actions */}
-      <div className="flex items-center justify-center gap-4">
+      <div className="flex flex-wrap items-center justify-center gap-4">
         <Link href="/perform">
           <Button variant="primary" size="lg">
             Practice Again
@@ -480,7 +731,37 @@ export default function DebriefPage() {
             View Observe
           </Button>
         </Link>
+        {(plan === 'pro' || plan === 'crunch') ? (
+          <>
+            <Button variant="outline" size="lg" onClick={() => void handleDownloadDebriefCard()} disabled={generatingCard}>
+              <Download className="h-4 w-4 mr-2" />
+              {generatingCard ? 'Generating Card...' : 'Download Debrief Card'}
+            </Button>
+            <Button variant="ghost" size="lg" onClick={shareToLinkedIn}>
+              <Share2 className="h-4 w-4 mr-2" />
+              Share to LinkedIn
+            </Button>
+          </>
+        ) : (
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            Debrief Card sharing is available on Pro. <Link href="/pricing" className="underline font-medium">Upgrade</Link>
+          </div>
+        )}
       </div>
+
+      {(plan === 'pro' || plan === 'crunch') && (
+        <div className="flex justify-center">
+          <label className="inline-flex items-center gap-2 text-xs text-gray-500">
+            <input
+              type="checkbox"
+              checked={hideRoleOnCard}
+              onChange={(e) => setHideRoleOnCard(e.target.checked)}
+              className="rounded border-gray-300"
+            />
+            Hide company/role details on share card
+          </label>
+        </div>
+      )}
     </div>
   )
 }
