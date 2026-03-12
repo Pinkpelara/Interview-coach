@@ -39,7 +39,7 @@ services:
       INTERVIEW_CONDUCTOR_URL: http://interview-conductor:8091
       MEDIA_RELAY_HEALTH_URL: http://media-relay:8787/healthz
       INTERVIEW_CONDUCTOR_HEALTH_URL: http://interview-conductor:8091/healthz
-      GPU_WORKERS_HEALTH_URL: http://gpu-workers:8092/healthz
+      AI_GATEWAY_HEALTH_URL: http://ai-gateway:8095/healthz
       AI_ENGINE_HEALTH_URL: http://ai-engine:8093/healthz
       API_SERVER_HEALTH_URL: http://api-server:8094/healthz
     depends_on:
@@ -49,7 +49,7 @@ services:
         condition: service_started
       interview-conductor:
         condition: service_started
-      gpu-workers:
+      ai-gateway:
         condition: service_started
       ai-engine:
         condition: service_started
@@ -82,19 +82,17 @@ services:
     ports:
       - "8091:8091"
     environment:
-      STT_URL: http://gpu-workers:8092
-      LLM_URL: http://gpu-workers:8092
-      TTS_URL: http://gpu-workers:8092
+      AI_GATEWAY_URL: http://ai-gateway:8095
       REQUEST_TIMEOUT_S: 12
 
-  gpu-workers:
+  ai-gateway:
     build:
-      context: ./services/gpu-workers
+      context: ./services/ai-gateway
       dockerfile: Dockerfile
-    container_name: seatvio-gpu-workers
+    container_name: seatvio-ai-gateway
     restart: unless-stopped
     ports:
-      - "8092:8092"
+      - "8095:8095"
 
   ai-engine:
     build:

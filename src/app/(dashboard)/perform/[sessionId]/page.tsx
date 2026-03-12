@@ -5,14 +5,11 @@ import { useParams } from 'next/navigation'
 import {
   Mic,
   MicOff,
-  Volume2,
-  VolumeX,
   Video,
   VideoOff,
   PhoneOff,
   MessageSquare,
   Clock,
-  Loader2,
 } from 'lucide-react'
 
 // ---------------------------------------------------------------------------
@@ -193,6 +190,52 @@ async function speakText(
   onStart()
   await new Promise(r => setTimeout(r, Math.min(text.length * 50, 5000)))
   onEnd()
+}
+
+// ---------------------------------------------------------------------------
+// Archetype silence delay — dead air before responding, per spec
+// ---------------------------------------------------------------------------
+
+const ARCHETYPE_SILENCE_MS: Record<string, [number, number]> = {
+  skeptic: [3000, 4000],
+  friendly_champion: [1000, 2000],
+  technical_griller: [4000, 5000],
+  distracted_senior: [1000, 8000],
+  culture_fit: [2000, 3000],
+  silent_observer: [0, 0],
+}
+
+function getArchetypeSilenceMs(archetype: string): number {
+  const range = ARCHETYPE_SILENCE_MS[archetype] || [2000, 3000]
+  return range[0] + Math.random() * (range[1] - range[0])
+}
+
+// ---------------------------------------------------------------------------
+// Join sound helper — short tone when interviewers join
+// ---------------------------------------------------------------------------
+
+function playJoinSound(): Promise<void> {
+  return new Promise((resolve) => {
+    try {
+      const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)()
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.type = 'sine'
+      osc.frequency.value = 880
+      gain.gain.value = 0.15
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3)
+      osc.start(ctx.currentTime)
+      osc.stop(ctx.currentTime + 0.3)
+      osc.onended = () => {
+        ctx.close()
+        resolve()
+      }
+    } catch {
+      resolve()
+    }
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -413,6 +456,12 @@ export default function InterviewRoomPage() {
       const responseText = data.interviewerExchange?.messageText || 'Could you elaborate on that?'
       const respChar = data.character || respondingChar
 
+      // Archetype silence delay — dead air before responding, like a real interview
+      const silenceMs = getArchetypeSilenceMs(respondingChar.archetype)
+      if (silenceMs > 0) {
+        await new Promise(r => setTimeout(r, silenceMs))
+      }
+
       // Add interviewer message to chat
       addMessage({
         speaker: respChar.id,
@@ -478,7 +527,7 @@ export default function InterviewRoomPage() {
       // Reset silence timer on new speech
       if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current)
       silenceTimerRef.current = setTimeout(() => {
-        // User stopped speaking for 2 seconds — send the exchange
+        // User stopped speaking for 1.5 seconds — send the exchange
         const text = finalTranscriptRef.current.trim()
         if (text && phaseRef.current === 'live' && !isProcessingRef.current) {
           recognition.stop()
@@ -493,7 +542,7 @@ export default function InterviewRoomPage() {
             }
           })
         }
-      }, 2000)
+      }, 1500)
     }
 
     recognition.onend = () => {
@@ -565,13 +614,18 @@ export default function InterviewRoomPage() {
     setPhase('live')
     charactersRef.current = sessionData.characters
 
-    // System message
-    addMessage({
-      speaker: 'system',
-      speakerName: 'System',
-      text: 'Interview started. Good luck!',
-      isCandidate: false,
-    })
+    // Staggered join sounds and messages for each interviewer
+    for (let i = 0; i < sessionData.characters.length; i++) {
+      const joinChar = sessionData.characters[i]
+      await new Promise(r => setTimeout(r, 800 + i * 1200))
+      await playJoinSound()
+      addMessage({
+        speaker: 'system',
+        speakerName: 'System',
+        text: `${joinChar.name} joined the meeting`,
+        isCandidate: false,
+      })
+    }
 
     // Opening greeting from first character — use first question from plan if available
     if (sessionData.characters.length > 0) {
@@ -799,18 +853,6 @@ export default function InterviewRoomPage() {
           </span>
         </div>
         <div className="flex items-center gap-4">
-          {isListening && (
-            <span className="text-xs text-emerald-400 flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              Listening
-            </span>
-          )}
-          {isProcessing && (
-            <span className="text-xs text-[#5b5fc7] flex items-center gap-1">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              Thinking
-            </span>
-          )}
           <span className="text-xs text-gray-400 flex items-center gap-1">
             <Clock className="h-3.5 w-3.5" />
             {formatTime(elapsedMs)}
@@ -972,16 +1014,6 @@ export default function InterviewRoomPage() {
           {micEnabled ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}
         </button>
 
-        <button
-          onClick={() => setSpeakerEnabled(prev => !prev)}
-          className={`rounded-full p-3 transition-colors ${
-            speakerEnabled ? 'bg-[#292929] text-white hover:bg-[#333]' : 'bg-red-500 text-white'
-          }`}
-          title={speakerEnabled ? 'Mute speaker' : 'Unmute speaker'}
-        >
-          {speakerEnabled ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
-        </button>
-
         {!chatOpen && (
           <button
             onClick={() => setChatOpen(true)}
@@ -991,13 +1023,6 @@ export default function InterviewRoomPage() {
             <MessageSquare className="h-5 w-5" />
           </button>
         )}
-
-        <button
-          onClick={leaveInterview}
-          className="rounded-full px-5 py-3 bg-red-500 text-white hover:bg-red-600 transition-colors text-sm font-medium"
-        >
-          Leave
-        </button>
       </div>
     </div>
   )

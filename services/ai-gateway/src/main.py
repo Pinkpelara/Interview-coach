@@ -7,32 +7,31 @@ import json
 import wave
 from typing import Any
 
-from fastapi import FastAPI, File, Form, UploadFile
+from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 
-APP_NAME = "seatvio-gpu-workers"
+APP_NAME = "seatvio-ai-gateway"
 
 app = FastAPI(title=APP_NAME)
 
 
-class GenerateRequest(BaseModel):
+class GatewayLLMRequest(BaseModel):
     messages: list[dict[str, str]] = Field(default_factory=list)
     system_prompt: str = Field(min_length=1)
     max_tokens: int = 220
 
 
-class SynthesizeRequest(BaseModel):
+class GatewayTTSRequest(BaseModel):
     text: str = Field(min_length=1)
     voice_id: str = "alloy"
+    instructions: str = ""
     format: str = "wav"
 
 
-class AnimateRequest(BaseModel):
-    audio_chunk: str = Field(min_length=1)
-    reference_image_id: str = Field(min_length=1)
-    expression_state: str = "neutral"
+class GatewaySTTRequest(BaseModel):
+    pass
 
 
 def _silence_wav_bytes(duration_s: float = 2.0, sample_rate: int = 16000) -> bytes:
@@ -48,20 +47,21 @@ def _silence_wav_bytes(duration_s: float = 2.0, sample_rate: int = 16000) -> byt
 
 @app.get("/healthz")
 async def healthz() -> dict[str, Any]:
-    return {"ok": True, "service": APP_NAME, "mode": "mock-v4"}
+    return {"ok": True, "service": APP_NAME, "mode": "mock-v5"}
 
 
-@app.post("/transcribe")
-async def transcribe(audio: UploadFile = File(...)) -> dict[str, Any]:
-    _ = await audio.read()
+@app.get("/api/gateway/health")
+async def gateway_health() -> dict[str, Any]:
     return {
-        "text": "Mock transcription of candidate speech",
-        "segments": [],
+        "ok": True,
+        "service": APP_NAME,
+        "provider": "openrouter",
+        "endpoints": ["llm", "tts", "stt"],
     }
 
 
-@app.post("/generate")
-async def generate(payload: GenerateRequest) -> StreamingResponse:
+@app.post("/gateway/llm")
+async def gateway_llm(payload: GatewayLLMRequest) -> StreamingResponse:
     text = "Thanks. Walk me through your specific role and the measurable outcome."
     tokens = text.split(" ")
 
@@ -75,25 +75,35 @@ async def generate(payload: GenerateRequest) -> StreamingResponse:
     return StreamingResponse(token_stream(), media_type="text/event-stream")
 
 
-@app.post("/synthesize")
-async def synthesize(payload: SynthesizeRequest) -> Response:
+@app.post("/gateway/tts")
+async def gateway_tts(payload: GatewayTTSRequest) -> Response:
     wav_bytes = _silence_wav_bytes(duration_s=2.0)
-    phoneme_mock = json.dumps(
-        [
-            {"phoneme": "sil", "start_ms": 0, "end_ms": 2000},
-        ]
-    )
     return Response(
         content=wav_bytes,
         media_type="audio/wav",
-        headers={"X-Phoneme-Timestamps": phoneme_mock},
     )
 
 
-@app.post("/animate")
-async def animate(payload: AnimateRequest) -> dict[str, Any]:
+@app.post("/gateway/stt")
+async def gateway_stt(audio: UploadFile = File(...)) -> dict[str, Any]:
+    _ = await audio.read()
     return {
-        "frames": [payload.reference_image_id],
-        "fps": 25,
-        "expression_state": payload.expression_state,
+        "text": "Mock transcription of candidate speech",
+        "segments": [],
     }
+
+
+# Legacy endpoints kept for backward compatibility during migration
+@app.post("/transcribe")
+async def transcribe(audio: UploadFile = File(...)) -> dict[str, Any]:
+    return await gateway_stt(audio)
+
+
+@app.post("/generate")
+async def generate(payload: GatewayLLMRequest) -> StreamingResponse:
+    return await gateway_llm(payload)
+
+
+@app.post("/synthesize")
+async def synthesize(payload: GatewayTTSRequest) -> Response:
+    return await gateway_tts(payload)

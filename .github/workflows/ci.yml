@@ -33,7 +33,7 @@ jobs:
       - name: Validate Python service entrypoints
         run: |
           python -m py_compile services/interview-conductor/src/main.py
-          python -m py_compile services/gpu-workers/src/main.py
+          python -m py_compile services/ai-gateway/src/main.py
           python -m py_compile services/ai-engine/src/main.py
 
       - name: Validate Node service entrypoints

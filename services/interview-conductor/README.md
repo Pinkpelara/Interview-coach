@@ -1,4 +1,4 @@
-# Seatvio Interview Conductor (Unified v4)
+# Seatvio Interview Conductor (v5)
 
 Real-time interview orchestrator.
 
@@ -8,15 +8,9 @@ Real-time interview orchestrator.
 - HTTP compatibility: `POST /turn`
 - Health: `GET /healthz`
 
-The conductor coordinates:
-- STT upstream (`STT_URL`)
-- LLM streaming upstream (`LLM_URL`)
-- TTS upstream (`TTS_URL`)
-
-and emits real-time messages:
+The conductor routes all AI requests through `AI_GATEWAY_URL` and emits real-time messages:
 - `session_start`
 - `interviewer_speaking`
-- `expression_update`
 - `session_end`
 
 ## Local run

@@ -16,24 +16,10 @@ export type InterviewerSpeakingMessage = {
   audio_base64: string;
 };
 
-export type ExpressionUpdateMessage = {
-  type: "expression_update";
-  character_id: string;
-  state:
-    | "neutral"
-    | "listening"
-    | "thinking"
-    | "nodding"
-    | "skeptical"
-    | "writing_notes"
-    | "distracted"
-    | "speaking";
-};
-
 export type SessionStateMessage =
   | { type: "session_start"; session_id: string }
   | { type: "session_end"; session_id: string }
-  | { type: "video_freeze"; character_id: string; duration_ms: number };
+  | { type: "audio_glitch"; character_id: string; duration_ms: number };
 
 export type RelayControlMessage =
   | { type: "relay_ready"; relay_id: string; session_id: string }
@@ -44,6 +30,5 @@ export type RelayControlMessage =
 export type RealtimeMessage =
   | CandidateTurnMessage
   | InterviewerSpeakingMessage
-  | ExpressionUpdateMessage
   | SessionStateMessage
   | RelayControlMessage;

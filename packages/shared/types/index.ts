@@ -22,16 +22,6 @@ export type CharacterArchetype =
   | "culture_fit"
   | "silent_observer";
 
-export type CharacterExpression =
-  | "neutral"
-  | "listening"
-  | "thinking"
-  | "nodding"
-  | "skeptical"
-  | "writing_notes"
-  | "distracted"
-  | "speaking";
-
 export type QuestionType =
   | "behavioral"
   | "technical"
@@ -47,12 +37,12 @@ export interface CharacterPanelMember {
   name: string;
   title: string;
   voice_id: string;
-  portrait_url: string;
-  portrait_open_url: string;
+  avatar_color: string;
+  initials: string;
 }
 
 export interface UnexpectedEvent {
-  type: "late_join" | "video_freeze" | "curveball_question" | "one_more_question" | "long_silence";
+  type: "late_join" | "audio_glitch" | "curveball_question" | "one_more_question" | "long_silence";
   trigger_time_ms: number;
 }
 
@@ -94,18 +84,11 @@ export interface InterviewSessionEnvelope {
 export interface RelayInterviewSpeakingMessage {
   type: "interviewer_speaking";
   character_id: string;
-  expression_state: CharacterExpression;
   audio_base64: string;
 }
 
-export interface RelayExpressionUpdateMessage {
-  type: "expression_update";
-  character_id: string;
-  state: CharacterExpression;
-}
-
 export interface RelaySessionEventMessage {
-  type: "session_start" | "session_end" | "video_freeze";
+  type: "session_start" | "session_end" | "audio_glitch";
   character_id?: string;
   duration_ms?: number;
 }

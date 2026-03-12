@@ -209,3 +209,20 @@ CREATE TABLE IF NOT EXISTS countdown_plans (
   plan_data JSONB NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS ai_metrics (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  request_id VARCHAR(255),
+  task_type VARCHAR(50) NOT NULL,
+  model_id VARCHAR(255) NOT NULL,
+  provider VARCHAR(255),
+  latency_ms INTEGER,
+  input_tokens INTEGER,
+  output_tokens INTEGER,
+  total_tokens INTEGER,
+  cost_usd DECIMAL(10,6),
+  error_code VARCHAR(100),
+  fallback_triggered BOOLEAN DEFAULT FALSE,
+  cache_hit BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
