@@ -102,12 +102,12 @@ export default async function PricingPage({
   return (
     <div className="space-y-8">
       {checkoutSuccess && (
-        <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+        <div className="rounded-lg border border-green-700 bg-green-900/30 px-4 py-3 text-sm text-green-300">
           Plan updated successfully.
         </div>
       )}
       <div className="text-center">
-        <h2 className="text-2xl font-bold text-gray-900">
+        <h2 className="text-2xl font-bold text-white">
           Choose Your Plan
         </h2>
         <p className="mt-2 text-gray-500">
@@ -125,27 +125,27 @@ export default async function PricingPage({
               key={plan.id}
               className={
                 plan.highlighted
-                  ? 'relative border-2 border-brand-700 shadow-md'
+                  ? 'relative border-2 border-[#5b5fc7] shadow-md'
                   : ''
               }
             >
               {plan.highlighted && (
                 <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                  <Badge variant="info" className="bg-brand-700 text-white px-3 py-1 text-xs">
+                  <Badge variant="info" className="bg-[#5b5fc7] text-white px-3 py-1 text-xs">
                     Most Popular
                   </Badge>
                 </div>
               )}
 
               <CardHeader className="text-center">
-                <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-brand-700/10">
-                  <Icon className="h-5 w-5 text-brand-700" />
+                <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-[#5b5fc7]/10">
+                  <Icon className="h-5 w-5 text-[#5b5fc7]" />
                 </div>
-                <h3 className="text-lg font-semibold text-gray-900">
+                <h3 className="text-lg font-semibold text-white">
                   {plan.name}
                 </h3>
                 <div className="mt-2">
-                  <span className="text-3xl font-bold text-gray-900">
+                  <span className="text-3xl font-bold text-white">
                     {plan.price}
                   </span>
                   <span className="text-sm text-gray-500">{plan.period}</span>
@@ -156,7 +156,7 @@ export default async function PricingPage({
               <CardContent className="space-y-4">
                 <ul className="space-y-3">
                   {plan.features.map((feature, i) => (
-                    <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
+                    <li key={i} className="flex items-start gap-2 text-sm text-gray-400">
                       <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-green-600" />
                       <span>{feature}</span>
                     </li>
@@ -192,7 +192,7 @@ export default async function PricingPage({
       <div className="text-center">
         <p className="text-sm text-gray-500">
           All plans include secure data handling and can be cancelled anytime.{' '}
-          <Link href="/settings" className="font-medium text-brand-700 hover:text-brand-800">
+          <Link href="/settings" className="font-medium text-[#5b5fc7] hover:text-[#4a4eb5]">
             Manage your subscription
           </Link>
         </p>

@@ -31,7 +31,7 @@ export function ScoreGauge({ score, size = 'md', label, className }: ScoreGaugeP
           cy={s.width / 2}
           r={radius}
           fill="none"
-          stroke="#e5e7eb"
+          stroke="#333"
           strokeWidth={s.stroke}
         />
         <circle
@@ -49,7 +49,7 @@ export function ScoreGauge({ score, size = 'md', label, className }: ScoreGaugeP
       </svg>
       <div className="absolute flex flex-col items-center">
         <span className={cn('font-bold', s.text)} style={{ color }}>{score}</span>
-        {label && <span className={cn('text-gray-500', s.labelText)}>{label}</span>}
+        {label && <span className={cn('text-gray-400', s.labelText)}>{label}</span>}
       </div>
     </div>
   )

@@ -200,26 +200,26 @@ export default function SalaryNegotiationPage() {
     return (
       <div className="space-y-6">
         <div>
-          <Link href="/pressure-lab" className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 mb-4">
+          <Link href="/pressure-lab" className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-400 mb-4">
             <ArrowLeft className="h-4 w-4" /> Back to Pressure Lab
           </Link>
-          <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <h2 className="text-2xl font-bold text-white flex items-center gap-2">
             <DollarSign className="h-6 w-6 text-green-600" />
             Salary Negotiation Simulator
           </h2>
           <p className="mt-1 text-gray-500">Practice the full negotiation arc from initial offer to close.</p>
           {!loadingApplication && application && (
-            <p className="mt-2 text-sm text-gray-700">
+            <p className="mt-2 text-sm text-gray-400">
               Context: <span className="font-medium">{application.companyName}</span> — {application.jobTitle}
             </p>
           )}
           {!loadingApplication && contextError && (
-            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+            <div className="mt-3 rounded-lg border border-amber-200/30 bg-amber-900/20 px-3 py-2 text-xs text-amber-400">
               {contextError}
             </div>
           )}
           {plan !== 'pro' && plan !== 'crunch' && (
-            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+            <div className="mt-3 rounded-lg border border-amber-200/30 bg-amber-900/20 px-3 py-2 text-xs text-amber-400">
               Salary negotiation simulator is available on Pro and Crunch plans. <Link href="/pricing" className="underline">Upgrade</Link>
             </div>
           )}
@@ -230,7 +230,7 @@ export default function SalaryNegotiationPage() {
             <Card key={key} className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => startSession(key)}>
               <CardContent className="text-center py-8 space-y-3">
                 <Badge variant={config.badge}>{config.label}</Badge>
-                <p className="text-sm text-gray-600">{config.description}</p>
+                <p className="text-sm text-gray-400">{config.description}</p>
                 <p className="text-xs text-gray-400">Initial offer: {INITIAL_OFFERS[key].base} base</p>
                 <Button size="sm" disabled={Boolean(contextError) || (plan !== 'pro' && plan !== 'crunch')}>
                   Start Negotiation
@@ -247,7 +247,7 @@ export default function SalaryNegotiationPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+          <h2 className="text-xl font-bold text-white flex items-center gap-2">
             <DollarSign className="h-5 w-5 text-green-600" />
             Salary Negotiation
           </h2>
@@ -284,7 +284,7 @@ export default function SalaryNegotiationPage() {
                     <div className={`rounded-2xl px-4 py-3 ${
                       msg.speaker === 'candidate'
                         ? 'bg-blue-600 text-white rounded-br-md'
-                        : 'bg-gray-100 text-gray-800 rounded-bl-md'
+                        : 'bg-[#333] text-gray-200 rounded-bl-md'
                     }`}>
                       <p className="text-sm leading-relaxed">{msg.text}</p>
                     </div>
@@ -292,7 +292,7 @@ export default function SalaryNegotiationPage() {
                 </div>
                 {msg.annotation && (
                   <div className={`mt-1 ${msg.speaker === 'candidate' ? 'text-right' : 'ml-11'}`}>
-                    <span className="inline-block text-xs bg-amber-50 text-amber-700 border border-amber-200 rounded-lg px-3 py-1.5">
+                    <span className="inline-block text-xs bg-amber-900/20 text-amber-400 border border-amber-200/30 rounded-lg px-3 py-1.5">
                       {msg.annotation}
                     </span>
                   </div>
@@ -302,7 +302,7 @@ export default function SalaryNegotiationPage() {
 
             {isSending && (
               <div className="flex justify-start">
-                <div className="bg-gray-100 rounded-2xl px-4 py-3 ml-11">
+                <div className="bg-[#333] rounded-2xl px-4 py-3 ml-11">
                   <div className="flex items-center gap-1">
                     <span className="text-xs text-gray-400">thinking</span>
                     <div className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce" />
@@ -318,7 +318,7 @@ export default function SalaryNegotiationPage() {
 
           {/* Input */}
           {!sessionComplete ? (
-            <div className="border-t border-gray-100 p-4 flex items-center gap-2">
+            <div className="border-t border-[#333] p-4 flex items-center gap-2">
               <input
                 type="text"
                 value={inputText}
@@ -326,7 +326,7 @@ export default function SalaryNegotiationPage() {
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
                 placeholder="Type your negotiation response..."
                 disabled={isSending}
-                className="flex-1 border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
+                className="flex-1 border border-[#333] bg-[#1b1b1b] text-white rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#5b5fc7] focus:border-transparent disabled:opacity-50"
               />
               <button
                 onClick={handleSend}
@@ -337,29 +337,29 @@ export default function SalaryNegotiationPage() {
               </button>
             </div>
           ) : (
-            <div className="border-t border-gray-100 p-6 space-y-4">
-              <h3 className="font-semibold text-gray-900 flex items-center gap-2">
-                <Target className="h-5 w-5 text-brand-600" />
+            <div className="border-t border-[#333] p-6 space-y-4">
+              <h3 className="font-semibold text-white flex items-center gap-2">
+                <Target className="h-5 w-5 text-[#5b5fc7]" />
                 Negotiation Debrief
               </h3>
               <div className="grid gap-3 md:grid-cols-3">
-                <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-                  <p className="text-xs font-semibold text-green-700 mb-1 flex items-center gap-1">
+                <div className="bg-green-900/20 border border-green-500/30 rounded-lg p-3">
+                  <p className="text-xs font-semibold text-green-400 mb-1 flex items-center gap-1">
                     <CheckCircle className="h-3.5 w-3.5" /> What Worked
                   </p>
-                  <p className="text-xs text-green-600">You engaged in the negotiation rather than accepting immediately. This signals confidence.</p>
+                  <p className="text-xs text-green-400/80">You engaged in the negotiation rather than accepting immediately. This signals confidence.</p>
                 </div>
-                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-                  <p className="text-xs font-semibold text-amber-700 mb-1 flex items-center gap-1">
+                <div className="bg-amber-900/20 border border-amber-500/30 rounded-lg p-3">
+                  <p className="text-xs font-semibold text-amber-400 mb-1 flex items-center gap-1">
                     <AlertTriangle className="h-3.5 w-3.5" /> To Improve
                   </p>
-                  <p className="text-xs text-amber-600">Always anchor to market data. Use specific numbers and ranges rather than vague requests.</p>
+                  <p className="text-xs text-amber-400/80">Always anchor to market data. Use specific numbers and ranges rather than vague requests.</p>
                 </div>
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                  <p className="text-xs font-semibold text-blue-700 mb-1 flex items-center gap-1">
+                <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-3">
+                  <p className="text-xs font-semibold text-blue-400 mb-1 flex items-center gap-1">
                     <TrendingUp className="h-3.5 w-3.5" /> Next Time
                   </p>
-                  <p className="text-xs text-blue-600">Consider total compensation: equity, bonus, PTO, remote flexibility, and professional development budget.</p>
+                  <p className="text-xs text-blue-400/80">Consider total compensation: equity, bonus, PTO, remote flexibility, and professional development budget.</p>
                 </div>
               </div>
               <div className="flex gap-3">

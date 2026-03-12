@@ -27,8 +27,8 @@ export function Slider({
     <div className={cn('space-y-2', className)}>
       {label && (
         <div className="flex items-center justify-between">
-          <label className="block text-sm font-medium text-gray-700">{label}</label>
-          <span className="text-sm font-semibold text-brand-700">{value}</span>
+          <label className="block text-sm font-medium text-gray-300">{label}</label>
+          <span className="text-sm font-semibold text-[#5b5fc7]">{value}</span>
         </div>
       )}
       <input
@@ -37,7 +37,7 @@ export function Slider({
         max={max}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-brand-700"
+        className="w-full h-2 bg-[#333] rounded-lg appearance-none cursor-pointer accent-[#5b5fc7]"
       />
       {(leftLabel || rightLabel) && (
         <div className="flex justify-between text-xs text-gray-500">

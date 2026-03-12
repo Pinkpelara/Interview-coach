@@ -279,7 +279,7 @@ export default function CountdownPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[50vh]">
-        <div className="animate-spin rounded-full h-8 w-8 border-4 border-brand-700 border-t-transparent" />
+        <div className="animate-spin rounded-full h-8 w-8 border-4 border-[#5b5fc7] border-t-transparent" />
       </div>
     )
   }
@@ -298,13 +298,13 @@ export default function CountdownPage() {
   if (plan !== 'pro' && plan !== 'crunch') {
     return (
       <div className="space-y-6">
-        <Link href={`/applications/${applicationId}`} className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
+        <Link href={`/applications/${applicationId}`} className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-white">
           <ArrowLeft className="h-4 w-4" /> Back to Application
         </Link>
         <Card>
           <CardContent className="py-10 text-center space-y-3">
-            <h2 className="text-xl font-semibold text-gray-900">Countdown Mode is a Pro feature</h2>
-            <p className="text-sm text-gray-600">
+            <h2 className="text-xl font-semibold text-white">Countdown Mode is a Pro feature</h2>
+            <p className="text-sm text-gray-400">
               Upgrade to unlock day-by-day interview countdown planning and reminder notifications.
             </p>
             <Link href="/pricing">
@@ -324,13 +324,13 @@ export default function CountdownPage() {
   if (!interviewDate) {
     return (
       <div className="space-y-6">
-        <Link href={`/applications/${applicationId}`} className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
+        <Link href={`/applications/${applicationId}`} className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-white">
           <ArrowLeft className="h-4 w-4" /> Back to Application
         </Link>
 
         <div className="text-center py-16 space-y-4">
-          <Calendar className="h-16 w-16 text-brand-700 mx-auto" />
-          <h2 className="text-2xl font-bold text-gray-900">Interview Countdown Mode</h2>
+          <Calendar className="h-16 w-16 text-[#5b5fc7] mx-auto" />
+          <h2 className="text-2xl font-bold text-white">Interview Countdown Mode</h2>
           <p className="text-gray-500 max-w-md mx-auto">
             Set your real interview date and get a personalized day-by-day practice plan to maximize your readiness.
           </p>
@@ -340,7 +340,7 @@ export default function CountdownPage() {
               value={interviewDate}
               onChange={e => setInterviewDate(e.target.value)}
               min={new Date().toISOString().split('T')[0]}
-              className="border border-gray-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+              className="border border-[#444] bg-[#292929] text-white rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#5b5fc7]"
             />
             <Button onClick={() => persistInterviewDate(interviewDate)} disabled={!interviewDate || savingDate}>
               Set Date
@@ -353,19 +353,19 @@ export default function CountdownPage() {
 
   return (
     <div className="space-y-6">
-      <Link href={`/applications/${applicationId}`} className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
+      <Link href={`/applications/${applicationId}`} className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-white">
         <ArrowLeft className="h-4 w-4" /> Back to Application
       </Link>
 
       {/* Header with countdown */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900">{application.companyName}</h2>
+          <h2 className="text-2xl font-bold text-white">{application.companyName}</h2>
           <p className="text-gray-500">{application.jobTitle}</p>
         </div>
-        <div className="text-center bg-brand-50 border border-brand-200 rounded-xl px-8 py-4">
-          <p className="text-5xl font-bold text-brand-700">{daysLeft}</p>
-          <p className="text-sm text-brand-600 font-medium">days until interview</p>
+        <div className="text-center bg-[#5b5fc7]/20 border border-[#5b5fc7] rounded-xl px-8 py-4">
+          <p className="text-5xl font-bold text-[#5b5fc7]">{daysLeft}</p>
+          <p className="text-sm text-[#5b5fc7] font-medium">days until interview</p>
           <p className="text-xs text-gray-500 mt-1">{formatDate(interviewDate)}</p>
         </div>
       </div>
@@ -374,8 +374,8 @@ export default function CountdownPage() {
       <Card>
         <CardContent>
           <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium text-gray-700">Interview Readiness</span>
-            <span className="text-sm font-bold text-brand-700">{application.readinessScore}%</span>
+            <span className="text-sm font-medium text-gray-400">Interview Readiness</span>
+            <span className="text-sm font-bold text-[#5b5fc7]">{application.readinessScore}%</span>
           </div>
           <ProgressBar value={application.readinessScore} showPercent={false} />
           <div className="flex items-center justify-between mt-2 text-xs text-gray-500">
@@ -387,8 +387,8 @@ export default function CountdownPage() {
 
       {/* Day-by-day plan */}
       <div>
-        <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-          <Calendar className="h-5 w-5 text-brand-600" />
+        <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+          <Calendar className="h-5 w-5 text-[#5b5fc7]" />
           Your Practice Plan
         </h3>
         <p className="text-xs text-gray-500 mb-4">
@@ -414,11 +414,11 @@ export default function CountdownPage() {
             return (
               <Card
                 key={idx}
-                className={`transition-shadow ${isToday ? 'border-brand-300 bg-brand-50/30 shadow-md' : 'hover:shadow-sm'}`}
+                className={`transition-shadow ${isToday ? 'border-[#5b5fc7] bg-[#5b5fc7]/10 shadow-md' : ''}`}
               >
                 <CardContent className="flex items-start gap-4">
                   <div className={`flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center ${
-                    isToday ? 'bg-brand-700 text-white' : 'bg-gray-100 text-gray-600'
+                    isToday ? 'bg-[#5b5fc7] text-white' : 'bg-[#333] text-gray-400'
                   }`}>
                     <Icon className="h-5 w-5" />
                   </div>
@@ -428,8 +428,8 @@ export default function CountdownPage() {
                       {isToday && <Badge variant="info">Today</Badge>}
                       <Badge variant={badge.variant}>{badge.label}</Badge>
                     </div>
-                    <p className="text-sm font-semibold text-gray-900">{day.focus}</p>
-                    <p className="text-sm text-gray-600 mt-0.5">{day.activity}</p>
+                    <p className="text-sm font-semibold text-white">{day.focus}</p>
+                    <p className="text-sm text-gray-400 mt-0.5">{day.activity}</p>
                   </div>
                   {isToday && day.type === 'session' && (
                     <Link href={`/perform?applicationId=${applicationId}&stage=${application.interviewStage || 'screening'}`}>
@@ -465,7 +465,7 @@ export default function CountdownPage() {
           <div className="flex items-center gap-3">
             <Calendar className="h-5 w-5 text-gray-400" />
             <div>
-              <p className="text-sm font-medium text-gray-700">Interview Date</p>
+              <p className="text-sm font-medium text-gray-300">Interview Date</p>
               <p className="text-xs text-gray-500">{formatDate(interviewDate)}</p>
             </div>
           </div>
@@ -477,7 +477,7 @@ export default function CountdownPage() {
                   value={interviewDate}
                   onChange={e => setInterviewDate(e.target.value)}
                   min={new Date().toISOString().split('T')[0]}
-                  className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm"
+                  className="border border-[#444] bg-[#292929] text-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#5b5fc7]"
                 />
                 <Button
                   size="sm"
@@ -502,7 +502,7 @@ export default function CountdownPage() {
       <Card>
         <CardContent className="flex items-center justify-between">
           <div>
-            <p className="text-sm font-medium text-gray-800">After your real interview</p>
+            <p className="text-sm font-medium text-gray-200">After your real interview</p>
             <p className="text-xs text-gray-500">Log what was asked and compare against Seatvio predictions.</p>
           </div>
           <Link href={`/reflections/${applicationId}`}>
