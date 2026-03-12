@@ -8,7 +8,6 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-// V4 Spec 1.1: users
 model User {
   id            String    @id @default(cuid())
   email         String    @unique
@@ -16,7 +15,6 @@ model User {
   fullName      String?
   emailVerified Boolean   @default(false)
   verifyToken   String?
-  onboarded     Boolean   @default(false)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -25,9 +23,9 @@ model User {
   userAnswers   UserAnswer[]
   sessions      InterviewSession[]
   subscription  Subscription?
+  onboarded     Boolean   @default(false)
 }
 
-// V4 Spec 1.2: user_profiles
 model UserProfile {
   id              String  @id @default(cuid())
   userId          String  @unique
@@ -47,7 +45,6 @@ model UserProfile {
   updatedAt       DateTime @updatedAt
 }
 
-// V4 Spec 1.3: applications
 model Application {
   id                String   @id @default(cuid())
   userId            String
@@ -62,13 +59,13 @@ model Application {
   interviewStage    String?
   realInterviewDate DateTime?
   alignmentScore    Int?
-  readinessScore    Int      @default(0)
   status            String   @default("active")
 
   skillGaps         String?
   strengths         String?
   missingKeywords   String?
   probeAreas        String?
+  readinessScore    Int      @default(0)
 
   parsedResume      ParsedResume?
   parsedJD          ParsedJD?
@@ -80,40 +77,37 @@ model Application {
   updatedAt         DateTime @updatedAt
 }
 
-// V4 Spec 1.4: parsed_resumes
 model ParsedResume {
   id              String      @id @default(cuid())
   applicationId   String      @unique
   application     Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
-  careerTimeline    String?
-  topSkills         String?
-  experienceGaps    String?
-  achievements      String?
-  education         String?
+  careerTimeline  String?
+  topSkills       String?
+  experienceGaps  String?
+  achievements    String?
+  education       String?
   careerTransitions String?
 
   createdAt       DateTime    @default(now())
 }
 
-// V4 Spec 1.5: parsed_jds
 model ParsedJD {
-  id                        String      @id @default(cuid())
-  applicationId             String      @unique
-  application               Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  id                      String      @id @default(cuid())
+  applicationId           String      @unique
+  application             Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
-  requiredSkills            String?
-  preferredSkills           String?
-  responsibilities          String?
-  seniorityLevel            String?
-  valuesLanguage            String?
-  redFlagAreas              String?
+  requiredSkills          String?
+  preferredSkills         String?
+  responsibilities        String?
+  seniorityLevel          String?
+  valuesLanguage          String?
+  redFlagAreas            String?
   interviewFormatPrediction String?
 
-  createdAt                 DateTime    @default(now())
+  createdAt               DateTime    @default(now())
 }
 
-// V4 Spec 1.7: questions
 model Question {
   id              String      @id @default(cuid())
   applicationId   String
@@ -135,7 +129,6 @@ model Question {
   createdAt       DateTime    @default(now())
 }
 
-// V4 Spec 1.8: user_answers
 model UserAnswer {
   id              String    @id @default(cuid())
   questionId      String
@@ -156,7 +149,6 @@ model UserAnswer {
   updatedAt       DateTime  @updatedAt
 }
 
-// V4 Spec 1.9: answer_feedbacks
 model AnswerFeedback {
   id              String     @id @default(cuid())
   userAnswerId    String
@@ -174,7 +166,6 @@ model AnswerFeedback {
   createdAt       DateTime   @default(now())
 }
 
-// V4 Spec 1.10: interview_sessions
 model InterviewSession {
   id              String      @id @default(cuid())
   userId          String
@@ -199,7 +190,6 @@ model InterviewSession {
   createdAt       DateTime    @default(now())
 }
 
-// V4 Spec 1.11: session_exchanges
 model SessionExchange {
   id              String           @id @default(cuid())
   sessionId       String
@@ -216,31 +206,29 @@ model SessionExchange {
   createdAt       DateTime         @default(now())
 }
 
-// V4 Spec 1.12: session_analyses
 model SessionAnalysis {
-  id                 String           @id @default(cuid())
-  sessionId          String           @unique
-  session            InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  id                String           @id @default(cuid())
+  sessionId         String           @unique
+  session           InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
-  momentMap          String?
-  answerQuality      Int?
+  momentMap         String?
+  answerQuality     Int?
   deliveryConfidence Int?
-  pressureRecovery   Int?
+  pressureRecovery  Int?
   companyFitLanguage Int?
-  listeningAccuracy  Int?
-  hiringProbability  Int?
-  wouldAdvance       Boolean?
-  yesReasons         String?
-  noReasons          String?
-  roleComparison     String?
-  nextTargets        String?
-  coachAudioUrl      String?
-  coachScript        String?
+  listeningAccuracy Int?
+  hiringProbability Int?
+  wouldAdvance      Boolean?
+  yesReasons        String?
+  noReasons         String?
+  roleComparison    String?
+  nextTargets       String?
+  coachAudioUrl     String?
+  coachScript       String?
 
-  createdAt          DateTime         @default(now())
+  createdAt         DateTime         @default(now())
 }
 
-// V4 Spec 1.13: observe_sessions
 model ObserveSession {
   id              String           @id @default(cuid())
   sourceSessionId String
@@ -254,26 +242,24 @@ model ObserveSession {
   createdAt       DateTime         @default(now())
 }
 
-// V4 Spec 1.14: subscriptions
 model Subscription {
-  id                   String   @id @default(cuid())
-  userId               String   @unique
-  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                String   @id @default(cuid())
+  userId            String   @unique
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  plan                 String   @default("free")
-  status               String   @default("active")
-  billingCycle         String?
-  currentPeriodStart   DateTime?
-  currentPeriodEnd     DateTime?
-  stripeCustomerId     String?
-  stripeSubId          String?
-  sessionsUsedThisMonth Int     @default(0)
+  plan              String   @default("free")
+  status            String   @default("active")
+  billingCycle      String?
+  currentPeriodStart DateTime?
+  currentPeriodEnd  DateTime?
+  stripeCustomerId  String?
+  stripeSubId       String?
+  sessionsUsedThisMonth Int  @default(0)
 
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 }
 
-// V4 Spec 1.15: countdown_plans
 model CountdownPlan {
   id              String      @id @default(cuid())
   applicationId   String
