@@ -3,6 +3,8 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
+export const dynamic = 'force-dynamic'
+
 type BillingCycle = 'monthly' | 'annual' | 'one_time'
 
 const VALID_PLANS = ['prep', 'pro', 'crunch']

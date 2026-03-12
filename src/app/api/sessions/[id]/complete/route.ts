@@ -4,6 +4,8 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { chatCompletionJSON, chatCompletion, isAIConfigured } from '@/lib/ai-gateway'
 
+export const dynamic = 'force-dynamic'
+
 function randomInt(min: number, max: number) {
   return Math.floor(Math.random() * (max - min + 1)) + min
 }

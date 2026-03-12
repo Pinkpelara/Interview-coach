@@ -4,6 +4,8 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { pickPersonaForArchetype, type InterviewArchetype } from '@/lib/interviewerPersonas'
 
+export const dynamic = 'force-dynamic'
+
 // ---------------------------------------------------------------------------
 // Character panel generation helpers (V5 3.10)
 // ---------------------------------------------------------------------------

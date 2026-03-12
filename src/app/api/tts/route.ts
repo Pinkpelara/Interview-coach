@@ -3,6 +3,8 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { checkRateLimit } from '@/lib/rate-limit'
 
+export const dynamic = 'force-dynamic'
+
 const VOICES = new Set([
   'alloy',
   'ash',

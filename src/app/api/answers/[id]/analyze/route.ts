@@ -4,6 +4,8 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { chatCompletionJSON, isAIConfigured } from '@/lib/ai-gateway'
 
+export const dynamic = 'force-dynamic'
+
 interface AnalysisResult {
   strengths: string[]
   issues: string[]
