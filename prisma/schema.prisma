@@ -11,9 +11,9 @@ datasource db {
 // 1.1 users
 model User {
   id              String    @id @default(uuid())
-  email           String    @unique @db.VarChar(255)
-  passwordHash    String    @db.VarChar(255)
-  fullName        String    @db.VarChar(255)
+  email           String    @unique
+  passwordHash    String
+  fullName        String?
   emailVerified   Boolean   @default(false)
   verifyToken     String?
   onboardingDone  Boolean   @default(false) @map("onboarded")
@@ -34,14 +34,14 @@ model UserProfile {
   user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   anxietyLevel        Int?
-  currentRole         String?  @db.VarChar(255)
-  yearsExperience     String?  @db.VarChar(20)
-  currentIndustry     String?  @db.VarChar(255)
-  targetIndustry      String?  @db.VarChar(255)
-  workArrangement     String?  @db.VarChar(20)
+  currentRole         String?
+  yearsExperience     String?
+  currentIndustry     String?
+  targetIndustry      String?
+  workArrangement     String?
   interviewDifficulty String?
-  linkedinUrl         String?  @db.VarChar(500)
-  portfolioUrl        String?  @db.VarChar(500)
+  linkedinUrl         String?
+  portfolioUrl        String?
 
   createdAt           DateTime @default(now())
 }
@@ -52,17 +52,17 @@ model Application {
   userId              String
   user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  companyName         String    @db.VarChar(255)
-  jobTitle            String    @db.VarChar(255)
+  companyName         String
+  jobTitle            String
   jdText              String
   resumeText          String
-  jdFileUrl           String?   @db.VarChar(500)
-  resumeFileUrl       String?   @db.VarChar(500)
-  interviewStage      String?   @db.VarChar(50)
+  jdFileUrl           String?
+  resumeFileUrl       String?
+  interviewStage      String?
   realInterviewDate   DateTime? @db.Date
   alignmentScore      Int?
   readinessScore      Int       @default(0)
-  status              String    @default("active") @db.VarChar(20)
+  status              String    @default("active")
 
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @default(now()) @updatedAt
@@ -100,10 +100,10 @@ model ParsedJD {
   requiredSkills            Json?
   preferredSkills           Json?
   responsibilities          Json?
-  seniorityLevel            String?     @db.VarChar(50)
+  seniorityLevel            String?
   valuesLanguage            Json?
   redFlagAreas              Json?
-  interviewFormatPrediction String?     @db.VarChar(50)
+  interviewFormatPrediction String?
 
   createdAt                 DateTime    @default(now())
 }
@@ -130,13 +130,13 @@ model Question {
   application     Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
   questionText    String
-  questionType    String      @db.VarChar(30)
+  questionType    String
   whyAsked        String?
-  framework       String?     @db.VarChar(20)
+  framework       String?
   modelAnswer     String?
   whatNotToSay    String?
-  timeGuidanceSec Int?     @map("timeGuidance")
-  likelyFollowup  String?  @map("likelyFollowUp")
+  timeGuidanceSec Int?        @map("timeGuidance")
+  likelyFollowup  String?     @map("likelyFollowUp")
   difficulty      Int         @default(3)
   sortOrder       Int?
 
@@ -154,9 +154,9 @@ model UserAnswer {
   user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   answerText       String
-  audioUrl         String?   @db.VarChar(500)
+  audioUrl         String?
   confidenceRating Int?
-  status           String    @default("drafting") @db.VarChar(20)
+  status           String    @default("drafting")
   practiceCount    Int       @default(0)
   isFavorite       Boolean   @default(false)
 
@@ -175,10 +175,10 @@ model AnswerFeedback {
   strengths        Json?
   issues           Json?
   missingElements  Json?
-  scoreStructure   Int?  @map("structureScore")
-  scoreSpecificity Int?  @map("specificityScore")
-  scoreConfidence  Int?  @map("confidenceScore")
-  scoreOverall     Int?  @map("overallScore")
+  scoreStructure   Int?       @map("structureScore")
+  scoreSpecificity Int?       @map("specificityScore")
+  scoreConfidence  Int?       @map("confidenceScore")
+  scoreOverall     Int?       @map("overallScore")
   verdict          String?
 
   createdAt        DateTime   @default(now())
@@ -192,11 +192,11 @@ model InterviewSession {
   applicationId     String
   application       Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
-  stage             String    @db.VarChar(30)
-  intensity         String    @default("standard") @db.VarChar(20)
+  stage             String
+  intensity         String    @default("standard")
   targetDurationMin Int       @default(45) @map("durationMinutes")
   actualDurationMs  BigInt?
-  status            String    @default("pending") @db.VarChar(20)
+  status            String    @default("pending")
   characters        Json?
   unexpectedEvents  Json?
 
@@ -217,10 +217,10 @@ model SessionExchange {
   session         InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   sequenceNumber  Int
-  speaker         String           @db.VarChar(20)
-  characterId     String?          @db.VarChar(100)
+  speaker         String
+  characterId     String?
   messageText     String
-  audioUrl        String?          @db.VarChar(500)
+  audioUrl        String?
   timestampMs     BigInt
   durationMs      Int?
 
@@ -234,18 +234,18 @@ model SessionAnalysis {
   session               InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   momentMap             Json?
-  scoreAnswerQuality    Int?  @map("answerQuality")
-  scoreDelivery         Int?  @map("deliveryConfidence")
-  scorePressure         Int?  @map("pressureRecovery")
-  scoreCompanyFit       Int?  @map("companyFitLanguage")
-  scoreListening        Int?  @map("listeningAccuracy")
+  scoreAnswerQuality    Int?             @map("answerQuality")
+  scoreDelivery         Int?             @map("deliveryConfidence")
+  scorePressure         Int?             @map("pressureRecovery")
+  scoreCompanyFit       Int?             @map("companyFitLanguage")
+  scoreListening        Int?             @map("listeningAccuracy")
   hiringProbability     Int?
   wouldAdvance          Boolean?
   yesReasons            Json?
   noReasons             Json?
   roleComparison        String?
   nextTargets           Json?
-  coachAudioUrl         String?          @db.VarChar(500)
+  coachAudioUrl         String?
   coachScript           String?
 
   createdAt             DateTime         @default(now())
@@ -257,7 +257,7 @@ model ObserveSession {
   sourceSessionId String
   sourceSession   InterviewSession @relation(fields: [sourceSessionId], references: [id], onDelete: Cascade)
 
-  runType         String           @db.VarChar(20) @map("type")
+  runType         String           @map("type")
   exchanges       Json?
   annotations     Json?
   audioUrls       Json?
@@ -271,14 +271,14 @@ model Subscription {
   userId                String    @unique
   user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  plan                  String    @default("free") @db.VarChar(20)
-  status                String    @default("active") @db.VarChar(20)
-  billingCycle          String?   @db.VarChar(20)
+  plan                  String    @default("free")
+  status                String    @default("active")
+  billingCycle          String?
   currentPeriodStart    DateTime?
   currentPeriodEnd      DateTime?
-  paymentProcessor      String?   @db.VarChar(50)
-  processorCustomerId   String?   @db.VarChar(255) @map("stripeCustomerId")
-  processorSubId        String?   @db.VarChar(255) @map("stripeSubId")
+  paymentProcessor      String?
+  processorCustomerId   String?   @map("stripeCustomerId")
+  processorSubId        String?   @map("stripeSubId")
   sessionsUsedThisMonth Int       @default(0)
 
   createdAt             DateTime  @default(now())
@@ -300,16 +300,16 @@ model CountdownPlan {
 // 1.16 ai_metrics
 model AiMetric {
   id                String    @id @default(uuid())
-  requestId         String?   @db.VarChar(255)
-  taskType          String    @db.VarChar(50)
-  modelId           String    @db.VarChar(255)
-  provider          String?   @db.VarChar(100)
+  requestId         String?
+  taskType          String
+  modelId           String
+  provider          String?
   latencyMs         Int?
   inputTokens       Int?
   outputTokens      Int?
   totalTokens       Int?
   costUsd           Decimal?  @db.Decimal(10, 6)
-  errorCode         String?   @db.VarChar(100)
+  errorCode         String?
   fallbackTriggered Boolean   @default(false)
   cacheHit          Boolean   @default(false)
 
