@@ -1,15 +1,15 @@
 import { NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
 import { exec } from 'child_process'
 import { promisify } from 'util'
 
 const execAsync = promisify(exec)
 
-export async function POST(request: Request) {
-  // Simple secret check to prevent unauthorized access
-  const { searchParams } = new URL(request.url)
-  const secret = searchParams.get('secret')
-
-  if (secret !== process.env.NEXTAUTH_SECRET) {
+export async function POST() {
+  // Authenticate — must be logged in
+  const session = await getServerSession(authOptions)
+  if (!session?.user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
