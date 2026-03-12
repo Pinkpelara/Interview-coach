@@ -111,14 +111,13 @@ export default function PerformPage() {
     setError(null)
 
     try {
-      const res = await fetch('/api/sessions', {
+      const res = await fetch(`/api/applications/${applicationId}/sessions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          applicationId,
           stage: selectedStage,
           intensity: selectedIntensity,
-          durationMinutes: selectedDuration,
+          targetDurationMin: selectedDuration,
         }),
       })
 

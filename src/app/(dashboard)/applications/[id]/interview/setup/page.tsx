@@ -5,18 +5,18 @@ import { useParams, useRouter } from 'next/navigation'
 import { Mic, MicOff, CheckCircle2 } from 'lucide-react'
 
 const STAGES = [
-  { value: 'phone_screen', label: 'Phone Screen' },
-  { value: 'first_round', label: 'First Round' },
-  { value: 'panel', label: 'Panel' },
-  { value: 'final_round', label: 'Final Round' },
-  { value: 'case', label: 'Case' },
-  { value: 'stress', label: 'Stress' },
+  { value: 'Phone Screen', label: 'Phone Screen' },
+  { value: 'First Round', label: 'First Round' },
+  { value: 'Panel Interview', label: 'Panel' },
+  { value: 'Final Round', label: 'Final Round' },
+  { value: 'Case Interview', label: 'Case' },
+  { value: 'Stress Interview', label: 'Stress' },
 ]
 
 const INTENSITIES = [
-  { value: 'warm_up', label: 'Warm-Up', desc: 'Shorter silences, gentler follow-ups' },
+  { value: 'warmup', label: 'Warm-Up', desc: 'Shorter silences, gentler follow-ups' },
   { value: 'standard', label: 'Standard', desc: 'Archetype defaults' },
-  { value: 'high_pressure', label: 'High Pressure', desc: 'Longer silences, aggressive follow-ups' },
+  { value: 'high-pressure', label: 'High Pressure', desc: 'Longer silences, aggressive follow-ups' },
 ]
 
 const DURATIONS = [
