@@ -88,7 +88,8 @@ async function parseAudioFromResponse(response: Response): Promise<Buffer | null
 async function synthesizeWithDedicatedTTS(
   text: string,
   voice: string,
-  instructions: string
+  instructions: string,
+  speed: number = 1.0
 ): Promise<Buffer | null> {
   if (!hasDedicatedTTSService()) return null
 
@@ -109,6 +110,7 @@ async function synthesizeWithDedicatedTTS(
         voice_id: mappedVoice,
         style: voice,
         instructions,
+        speed,
         format: 'mp3',
       },
     },
@@ -119,6 +121,7 @@ async function synthesizeWithDedicatedTTS(
         voice: mappedVoice,
         voice_id: mappedVoice,
         instructions,
+        speed,
         response_format: 'mp3',
       },
     },
@@ -129,6 +132,7 @@ async function synthesizeWithDedicatedTTS(
         input: text,
         voice: mappedVoice,
         instructions,
+        speed,
         response_format: 'mp3',
       },
     },
@@ -186,12 +190,13 @@ export async function POST(request: Request) {
     const text = typeof body?.text === 'string' ? body.text.trim() : ''
     const voice = typeof body?.voice === 'string' && VOICES.has(body.voice) ? body.voice : 'alloy'
     const instructions = typeof body?.instructions === 'string' ? body.instructions : ''
+    const speed = typeof body?.speed === 'number' && body.speed >= 0.5 && body.speed <= 2.0 ? body.speed : 1.0
 
     if (!text) {
       return NextResponse.json({ error: 'Text is required' }, { status: 400 })
     }
 
-    const audioBuffer = await synthesizeWithDedicatedTTS(text, voice, instructions)
+    const audioBuffer = await synthesizeWithDedicatedTTS(text, voice, instructions, speed)
     if (!audioBuffer || audioBuffer.length === 0) {
       return NextResponse.json(
         {

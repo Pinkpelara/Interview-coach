@@ -53,21 +53,31 @@ interface SessionData {
 // ---------------------------------------------------------------------------
 
 const ARCHETYPE_VOICE_INSTRUCTIONS: Record<string, string> = {
-  skeptic: 'Speak in a measured, deliberate tone. Slightly slower pace. Occasional pauses for emphasis. Professional and serious.',
-  friendly_champion: 'Speak warmly and conversationally. Natural pace with slight enthusiasm. Friendly and encouraging tone.',
-  technical_griller: 'Speak precisely and directly. Moderate pace. Matter-of-fact tone. Clear enunciation.',
-  distracted_senior: 'Speak casually with natural pace variations. Sometimes trail off slightly. Executive, slightly impatient tone.',
-  culture_fit: 'Speak in a warm, approachable tone. Genuine curiosity in voice. Conversational and relaxed.',
-  silent_observer: 'Speak quietly and briefly. Low energy. Minimal inflection. Reserved.',
+  skeptic: 'Speak like a real person in a meeting. Measured pace, natural breathing pauses. Do NOT sound robotic or overly polished — use slight hesitations and emphasis like a real skeptical interviewer would.',
+  friendly_champion: 'Speak like a warm, supportive colleague. Conversational and relaxed with natural rhythm. Use slight vocal variety — not monotone, not overly enthusiastic. Sound like a real human, not a voice assistant.',
+  technical_griller: 'Speak like a real senior engineer in an interview. Direct and precise but human — natural pauses between thoughts, slight vocal fry occasionally. Not robotic or stilted.',
+  distracted_senior: 'Speak like a busy executive who is somewhat distracted. Casual, slightly rushed, natural pace changes. Trail off sometimes. Sound genuinely human and slightly impatient.',
+  culture_fit: 'Speak like a warm HR person having a genuine conversation. Relaxed, curious, natural pacing with occasional "hmm" moments. Sound authentically human, not like AI narration.',
+  silent_observer: 'Speak quietly and sparingly like a reserved person who rarely talks. Low energy but natural. Brief and human.',
 }
 
 const ARCHETYPE_PREFERRED_VOICES: Record<string, string> = {
-  skeptic: 'onyx',
-  friendly_champion: 'nova',
-  technical_griller: 'echo',
+  skeptic: 'ash',
+  friendly_champion: 'coral',
+  technical_griller: 'sage',
   distracted_senior: 'fable',
   culture_fit: 'shimmer',
   silent_observer: 'alloy',
+}
+
+// Speed modifiers per archetype for more natural pacing
+const ARCHETYPE_SPEED: Record<string, number> = {
+  skeptic: 0.92,
+  friendly_champion: 1.0,
+  technical_griller: 0.95,
+  distracted_senior: 1.08,
+  culture_fit: 0.97,
+  silent_observer: 0.88,
 }
 
 // Ref to share the active AnalyserNode with the UI
@@ -98,7 +108,12 @@ async function speakText(
     const res = await fetch('/api/tts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, voice: effectiveVoice, instructions }),
+      body: JSON.stringify({
+        text,
+        voice: effectiveVoice,
+        instructions,
+        speed: archetype ? ARCHETYPE_SPEED[archetype] || 1.0 : 1.0,
+      }),
     })
     if (res.ok && res.headers.get('content-type')?.includes('audio/')) {
       const blob = await res.blob()
@@ -758,6 +773,23 @@ export default function InterviewRoomPage() {
     setCameraEnabled(prev => !prev)
   }, [cameraEnabled])
 
+  const leaveInterview = useCallback(async () => {
+    stopListening()
+    window.speechSynthesis?.cancel()
+    setActiveSpeakerId(null)
+    mediaStreamRef.current?.getTracks().forEach(t => t.stop())
+    if (timerRef.current) clearInterval(timerRef.current)
+    setPhase('ended')
+
+    try {
+      await fetch(`/api/sessions/${sessionId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'completed' }),
+      })
+    } catch { /* best effort */ }
+  }, [sessionId, stopListening])
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -1005,7 +1037,7 @@ export default function InterviewRoomPage() {
         <p className="text-xs text-gray-400 text-center mt-1">You</p>
       </div>
 
-      {/* Bottom control bar — camera, mic, chat toggle only (no leave, no speaker toggle) */}
+      {/* Bottom control bar */}
       <div className="flex items-center justify-center gap-3 py-3 bg-[#1b1b1b] border-t border-[#333]">
         <button
           onClick={toggleCamera}
@@ -1036,6 +1068,14 @@ export default function InterviewRoomPage() {
             <MessageSquare className="h-5 w-5" />
           </button>
         )}
+
+        <button
+          onClick={leaveInterview}
+          className="rounded-full p-3 bg-red-600 text-white hover:bg-red-700 transition-colors"
+          title="End call"
+        >
+          <PhoneOff className="h-5 w-5" />
+        </button>
       </div>
     </div>
   )
