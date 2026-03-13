@@ -111,14 +111,13 @@ export default function PerformPage() {
     setError(null)
 
     try {
-      const res = await fetch('/api/sessions', {
+      const res = await fetch(`/api/applications/${applicationId}/sessions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          applicationId,
           stage: selectedStage,
           intensity: selectedIntensity,
-          durationMinutes: selectedDuration,
+          targetDurationMin: selectedDuration,
         }),
       })
 
@@ -140,7 +139,7 @@ export default function PerformPage() {
   if (loading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
-        <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-brand-700 mx-auto" />
+        <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-[#5b5fc7] mx-auto" />
       </div>
     )
   }
@@ -150,7 +149,7 @@ export default function PerformPage() {
       <div className="flex min-h-[60vh] items-center justify-center">
         <div className="text-center max-w-md space-y-4">
           <AlertTriangle className="h-10 w-10 text-red-500 mx-auto" />
-          <h2 className="text-xl font-semibold text-gray-900">Unable to start</h2>
+          <h2 className="text-xl font-semibold text-white">Unable to start</h2>
           <p className="text-gray-500">{error}</p>
           <Link href="/applications">
             <Button variant="outline">
@@ -169,11 +168,11 @@ export default function PerformPage() {
       <div>
         <Link
           href={`/applications/${applicationId}`}
-          className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 mb-3"
+          className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-400 mb-3"
         >
           <ArrowLeft className="h-4 w-4" /> Back to Application
         </Link>
-        <h2 className="text-2xl font-bold text-gray-900">
+        <h2 className="text-2xl font-bold text-white">
           Set Up Your Interview
         </h2>
         {application && (
@@ -185,7 +184,7 @@ export default function PerformPage() {
 
       {/* Stage Selection */}
       <div>
-        <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-3">
+        <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">
           Interview Stage
         </h3>
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -198,13 +197,13 @@ export default function PerformPage() {
                 onClick={() => setSelectedStage(stage.value)}
                 className={`text-left rounded-xl border-2 p-4 transition-all ${
                   isSelected
-                    ? 'border-brand-700 bg-brand-50 shadow-sm'
-                    : 'border-gray-200 hover:border-gray-300 bg-white'
+                    ? 'border-[#5b5fc7] bg-[#5b5fc7]/20'
+                    : 'border-[#333] hover:border-[#555] bg-[#292929]'
                 }`}
               >
                 <div className="flex items-center gap-2 mb-1.5">
-                  <Icon className={`h-4 w-4 ${isSelected ? 'text-brand-700' : 'text-gray-400'}`} />
-                  <span className={`text-sm font-semibold ${isSelected ? 'text-brand-700' : 'text-gray-900'}`}>
+                  <Icon className={`h-4 w-4 ${isSelected ? 'text-[#5b5fc7]' : 'text-gray-400'}`} />
+                  <span className={`text-sm font-semibold ${isSelected ? 'text-[#5b5fc7]' : 'text-white'}`}>
                     {stage.label}
                   </span>
                 </div>
@@ -218,7 +217,7 @@ export default function PerformPage() {
 
       {/* Intensity Selection */}
       <div>
-        <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-3">
+        <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">
           Intensity Level
         </h3>
         <div className="grid gap-2 sm:grid-cols-3">
@@ -231,13 +230,13 @@ export default function PerformPage() {
                 onClick={() => setSelectedIntensity(intensity.value)}
                 className={`text-left rounded-xl border-2 p-4 transition-all ${
                   isSelected
-                    ? 'border-brand-700 bg-brand-50 shadow-sm'
-                    : 'border-gray-200 hover:border-gray-300 bg-white'
+                    ? 'border-[#5b5fc7] bg-[#5b5fc7]/20'
+                    : 'border-[#333] hover:border-[#555] bg-[#292929]'
                 }`}
               >
                 <div className="flex items-center gap-2 mb-1">
-                  <Icon className={`h-4 w-4 ${isSelected ? 'text-brand-700' : 'text-gray-400'}`} />
-                  <span className={`text-sm font-semibold ${isSelected ? 'text-brand-700' : 'text-gray-900'}`}>
+                  <Icon className={`h-4 w-4 ${isSelected ? 'text-[#5b5fc7]' : 'text-gray-400'}`} />
+                  <span className={`text-sm font-semibold ${isSelected ? 'text-[#5b5fc7]' : 'text-white'}`}>
                     {intensity.label}
                   </span>
                 </div>
@@ -250,7 +249,7 @@ export default function PerformPage() {
 
       {/* Duration Selection */}
       <div>
-        <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wider mb-3">
+        <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">
           Session Length
         </h3>
         <div className="flex gap-3">
@@ -262,13 +261,13 @@ export default function PerformPage() {
                 onClick={() => setSelectedDuration(dur.value)}
                 className={`flex items-center gap-2 rounded-xl border-2 px-5 py-3 transition-all ${
                   isSelected
-                    ? 'border-brand-700 bg-brand-50'
-                    : 'border-gray-200 hover:border-gray-300 bg-white'
+                    ? 'border-[#5b5fc7] bg-[#5b5fc7]/20'
+                    : 'border-[#333] hover:border-[#555] bg-[#292929]'
                 }`}
               >
-                <Clock className={`h-4 w-4 ${isSelected ? 'text-brand-700' : 'text-gray-400'}`} />
+                <Clock className={`h-4 w-4 ${isSelected ? 'text-[#5b5fc7]' : 'text-gray-400'}`} />
                 <div className="text-left">
-                  <p className={`text-sm font-semibold ${isSelected ? 'text-brand-700' : 'text-gray-900'}`}>
+                  <p className={`text-sm font-semibold ${isSelected ? 'text-[#5b5fc7]' : 'text-white'}`}>
                     {dur.label}
                   </p>
                   <p className="text-[10px] text-gray-500">{dur.description}</p>
@@ -281,16 +280,16 @@ export default function PerformPage() {
 
       {/* Error */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
+        <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-3 text-sm text-red-400">
           {error}
         </div>
       )}
 
       {/* Summary + Start */}
-      <Card className="border-brand-200 bg-brand-50/30">
+      <Card className="border-[#5b5fc7] bg-[#5b5fc7]/10">
         <CardContent className="flex items-center justify-between py-5">
           <div className="space-y-1">
-            <p className="text-sm font-semibold text-gray-900">
+            <p className="text-sm font-semibold text-white">
               {selectedStage} · {INTENSITIES.find(i => i.value === selectedIntensity)?.label} · {selectedDuration} min
             </p>
             <p className="text-xs text-gray-500">

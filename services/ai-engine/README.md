@@ -12,7 +12,7 @@ Async AI task service endpoints:
 - `POST /observe/generate`
 - `POST /countdown/generate`
 
-This service is designed to run behind an LLM substitution interface (`LLM_URL`).
+This service routes all AI requests through `AI_GATEWAY_URL`.
 In development it returns schema-compatible mock outputs.
 
 ## Local run

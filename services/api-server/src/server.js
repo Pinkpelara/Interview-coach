@@ -74,16 +74,25 @@ function setAuthCookie(res, token) {
   res.setHeader("Set-Cookie", `seatvio_session=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax`);
 }
 
+const AVATAR_COLORS = ["#4F46E5", "#DC2626", "#059669", "#D97706", "#7C3AED", "#DB2777"];
+let _charIndex = 0;
+
 function panelForSession({ stage, intensity, company_name }) {
-  const make = (archetype, title) => ({
-    character_id: id(),
-    archetype,
-    name: randomName(),
-    title: `${title} at ${company_name}`,
-    voice_id: voiceForArchetype(archetype),
-    portrait_url: `/assets/characters/${archetype}.jpg`,
-    portrait_open_url: `/assets/characters/${archetype}-open.jpg`,
-  });
+  const make = (archetype, title) => {
+    const name = randomName();
+    const initials = name.split(" ").map((n) => n[0]).join("").toUpperCase();
+    const color = AVATAR_COLORS[_charIndex % AVATAR_COLORS.length];
+    _charIndex++;
+    return {
+      character_id: id(),
+      archetype,
+      name,
+      title: `${title} at ${company_name}`,
+      voice_id: voiceForArchetype(archetype),
+      avatar_color: color,
+      initials,
+    };
+  };
 
   const byStage = {
     phone_screen: [make("friendly_champion", "Recruiter")],
@@ -438,7 +447,7 @@ app.post("/api/applications/:id/sessions", requireAuth, (req, res) => {
     characters: panelForSession({ stage, intensity, company_name: appObj.company_name }),
     unexpected_events: [
       { type: "late_join", trigger_time_ms: 120000 },
-      { type: "video_freeze", trigger_time_ms: 360000 },
+      { type: "audio_glitch", trigger_time_ms: 360000 },
       { type: "curveball_question", trigger_time_ms: 600000 },
     ],
     started_at: null,

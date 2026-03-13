@@ -27,14 +27,14 @@ export function FeatureGate({ allowed, requiredPlan, message, children }: Featur
         {children}
       </div>
       <div className="absolute inset-0 flex items-center justify-center">
-        <div className="bg-white border border-gray-200 rounded-xl shadow-lg p-6 max-w-sm text-center space-y-3">
-          <div className="w-10 h-10 rounded-full bg-brand-100 flex items-center justify-center mx-auto">
-            <Lock className="h-5 w-5 text-brand-700" />
+        <div className="bg-[#292929] border border-[#333] rounded-xl shadow-lg p-6 max-w-sm text-center space-y-3">
+          <div className="w-10 h-10 rounded-full bg-[#5b5fc7]/20 flex items-center justify-center mx-auto">
+            <Lock className="h-5 w-5 text-[#5b5fc7]" />
           </div>
-          <p className="text-sm text-gray-700">{message}</p>
+          <p className="text-sm text-gray-300">{message}</p>
           <Link
             href="/pricing"
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-700 hover:text-brand-800"
+            className="inline-flex items-center gap-1.5 text-sm font-medium text-[#5b5fc7] hover:text-[#4a4eb5]"
           >
             Upgrade to {PLAN_LABELS[requiredPlan]} →
           </Link>

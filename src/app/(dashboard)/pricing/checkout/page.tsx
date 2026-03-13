@@ -67,19 +67,19 @@ export default function CheckoutPage() {
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
-      <Link href="/pricing" className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
+      <Link href="/pricing" className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-white">
         <ArrowLeft className="h-4 w-4" /> Back to Pricing
       </Link>
 
       <Card>
         <CardHeader>
-          <h2 className="text-xl font-bold text-gray-900">Secure Checkout</h2>
+          <h2 className="text-xl font-bold text-white">Secure Checkout</h2>
           <p className="text-sm text-gray-500">Complete your Seatvio plan upgrade.</p>
         </CardHeader>
         <CardContent className="space-y-5">
-          <div className="flex items-center justify-between rounded-lg border border-gray-200 p-4">
+          <div className="flex items-center justify-between rounded-lg border border-[#333] p-4">
             <div>
-              <p className="font-semibold text-gray-900 capitalize">{plan} Plan</p>
+              <p className="font-semibold text-white capitalize">{plan} Plan</p>
               <p className="text-xs text-gray-500">
                 {plan === 'crunch' ? 'One-time intensive access for 14 days.' : 'Subscription with cancel-anytime access.'}
               </p>
@@ -89,17 +89,17 @@ export default function CheckoutPage() {
 
           {plan !== 'crunch' && (
             <div className="space-y-2">
-              <p className="text-sm font-medium text-gray-700">Billing cycle</p>
+              <p className="text-sm font-medium text-gray-400">Billing cycle</p>
               <div className="flex gap-2">
                 <button
-                  className={`rounded-lg border px-3 py-2 text-sm ${billingCycle === 'monthly' ? 'border-brand-600 bg-brand-50 text-brand-700' : 'border-gray-300 text-gray-600'}`}
+                  className={`rounded-lg border px-3 py-2 text-sm ${billingCycle === 'monthly' ? 'border-[#5b5fc7] bg-[#5b5fc7]/20 text-[#5b5fc7]' : 'border-[#444] text-gray-400'}`}
                   onClick={() => setBillingCycle('monthly')}
                   type="button"
                 >
                   Monthly (${PRICES[plan].monthly})
                 </button>
                 <button
-                  className={`rounded-lg border px-3 py-2 text-sm ${billingCycle === 'annual' ? 'border-brand-600 bg-brand-50 text-brand-700' : 'border-gray-300 text-gray-600'}`}
+                  className={`rounded-lg border px-3 py-2 text-sm ${billingCycle === 'annual' ? 'border-[#5b5fc7] bg-[#5b5fc7]/20 text-[#5b5fc7]' : 'border-[#444] text-gray-400'}`}
                   onClick={() => setBillingCycle('annual')}
                   type="button"
                 >
@@ -109,7 +109,7 @@ export default function CheckoutPage() {
             </div>
           )}
 
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800 flex items-start gap-2">
+          <div className="rounded-lg border border-emerald-700 bg-emerald-900/30 p-3 text-xs text-emerald-300 flex items-start gap-2">
             <Shield className="h-4 w-4 mt-0.5" />
             Payment details are processed by a PCI-compliant provider. Seatvio does not store card numbers.
           </div>

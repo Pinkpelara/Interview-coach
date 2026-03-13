@@ -70,13 +70,13 @@ type QuestionFilter =
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const QUESTION_TYPE_COLORS: Record<string, string> = {
-  behavioral: 'bg-blue-100 text-blue-700',
-  technical: 'bg-purple-100 text-purple-700',
-  situational: 'bg-green-100 text-green-700',
-  'company-specific': 'bg-orange-100 text-orange-700',
-  curveball: 'bg-red-100 text-red-700',
-  opening: 'bg-gray-100 text-gray-700',
-  closing: 'bg-gray-100 text-gray-700',
+  behavioral: 'bg-blue-500/20 text-blue-400',
+  technical: 'bg-purple-500/20 text-purple-400',
+  situational: 'bg-green-500/20 text-green-400',
+  'company-specific': 'bg-orange-500/20 text-orange-400',
+  curveball: 'bg-red-500/20 text-red-400',
+  opening: 'bg-[#333] text-gray-400',
+  closing: 'bg-[#333] text-gray-400',
 }
 
 const STATUS_BADGE_CONFIG: Record<string, { label: string; variant: 'default' | 'warning' | 'success' | 'info' }> = {
@@ -448,7 +448,7 @@ export default function PreparePage() {
   if (sessionStatus === 'loading' || loading) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-brand-700 border-t-transparent" />
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#5b5fc7] border-t-transparent" />
       </div>
     )
   }
@@ -471,7 +471,7 @@ export default function PreparePage() {
             key={i}
             onClick={interactive && onRate ? () => onRate(i + 1) : undefined}
             className={`h-3.5 w-3.5 ${
-              i < count ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'
+              i < count ? 'fill-yellow-400 text-yellow-400' : 'text-gray-600'
             } ${interactive ? 'cursor-pointer hover:text-yellow-400' : ''}`}
           />
         ))}
@@ -489,7 +489,7 @@ export default function PreparePage() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h2 className="text-2xl font-bold text-gray-900">
+        <h2 className="text-2xl font-bold text-white">
           {application
             ? `Prepare for ${application.companyName} — ${application.jobTitle}`
             : 'Prepare'}
@@ -500,7 +500,7 @@ export default function PreparePage() {
       </div>
 
       {/* Tab bar */}
-      <div className="flex gap-1 rounded-lg bg-gray-100 p-1">
+      <div className="flex gap-1 rounded-lg bg-[#333] p-1">
         {tabs.map((tab) => {
           const Icon = tab.icon
           return (
@@ -509,8 +509,8 @@ export default function PreparePage() {
               onClick={() => setActiveTab(tab.key)}
               className={`flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-colors ${
                 activeTab === tab.key
-                  ? 'bg-white text-gray-900 shadow-sm'
-                  : 'text-gray-600 hover:text-gray-900'
+                  ? 'bg-[#292929] text-white'
+                  : 'text-gray-400 hover:text-white'
               }`}
             >
               <Icon className="h-4 w-4" />
@@ -545,10 +545,10 @@ export default function PreparePage() {
           {questions.length === 0 ? (
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-brand-700/10 mb-4">
-                  <BookOpen className="h-8 w-8 text-brand-700" />
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[#5b5fc7]/10 mb-4">
+                  <BookOpen className="h-8 w-8 text-[#5b5fc7]" />
                 </div>
-                <h3 className="text-lg font-semibold text-gray-900">
+                <h3 className="text-lg font-semibold text-white">
                   No questions yet
                 </h3>
                 <p className="mt-2 max-w-sm text-sm text-gray-500">
@@ -574,8 +574,8 @@ export default function PreparePage() {
                     onClick={() => setFilter(opt.value)}
                     className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
                       filter === opt.value
-                        ? 'bg-brand-700 text-white'
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        ? 'bg-[#5b5fc7] text-white'
+                        : 'bg-[#333] text-gray-400 hover:bg-[#3d3d3d]'
                     }`}
                   >
                     {opt.label}
@@ -585,7 +585,7 @@ export default function PreparePage() {
 
               {/* Answer workspace (split view) */}
               {answerWorkspaceId && activeQuestion && (
-                <Card className="border-brand-200 bg-brand-50/30">
+                <Card className="border-[#5b5fc7]/30 bg-[#5b5fc7]/10">
                   <CardContent className="space-y-4">
                     <div className="grid gap-6 lg:grid-cols-2">
                       {/* Left: question details */}
@@ -593,7 +593,7 @@ export default function PreparePage() {
                         <div className="flex items-center gap-2">
                           <span
                             className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${
-                              QUESTION_TYPE_COLORS[activeQuestion.questionType] || 'bg-gray-100 text-gray-700'
+                              QUESTION_TYPE_COLORS[activeQuestion.questionType] || 'bg-[#333] text-gray-400'
                             }`}
                           >
                             {activeQuestion.questionType}
@@ -606,32 +606,32 @@ export default function PreparePage() {
                             </span>
                           )}
                         </div>
-                        <p className="text-base font-semibold text-gray-900 leading-snug">
+                        <p className="text-base font-semibold text-white leading-snug">
                           {activeQuestion.questionText}
                         </p>
                         {activeQuestion.whyAsked && (
                           <div>
                             <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Why Asked</h4>
-                            <p className="mt-1 text-sm text-gray-700">{activeQuestion.whyAsked}</p>
+                            <p className="mt-1 text-sm text-gray-400">{activeQuestion.whyAsked}</p>
                           </div>
                         )}
                         {activeQuestion.framework && (
                           <div>
                             <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Framework</h4>
-                            <p className="mt-1 text-sm text-gray-700">{activeQuestion.framework}</p>
+                            <p className="mt-1 text-sm text-gray-400">{activeQuestion.framework}</p>
                           </div>
                         )}
                         {activeQuestion.modelAnswer && (
                           <div>
                             <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Model Answer</h4>
-                            <p className="mt-1 text-sm text-gray-700">{activeQuestion.modelAnswer}</p>
+                            <p className="mt-1 text-sm text-gray-400">{activeQuestion.modelAnswer}</p>
                           </div>
                         )}
                       </div>
 
                       {/* Right: answer editor */}
                       <div className="space-y-3">
-                        <h4 className="text-sm font-semibold text-gray-900">Your Answer</h4>
+                        <h4 className="text-sm font-semibold text-white">Your Answer</h4>
                         <Textarea
                           value={draftText}
                           onChange={(e) => handleDraftChange(e.target.value)}
@@ -652,7 +652,7 @@ export default function PreparePage() {
                                 className={
                                   speakingTime > activeQuestion.timeGuidance
                                     ? 'text-red-500 font-medium'
-                                    : 'text-green-600'
+                                    : 'text-green-400'
                                 }
                               >
                                 {' '}(target: {activeQuestion.timeGuidance}s)
@@ -663,13 +663,13 @@ export default function PreparePage() {
 
                         {/* Red flags (shown after 2s typing pause) */}
                         {showRedFlags && redFlags.length > 0 && draftText.length > 10 && (
-                          <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 space-y-1">
-                            <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-700">
+                          <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 p-3 space-y-1">
+                            <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-400">
                               <Flag className="h-3.5 w-3.5" />
                               Answer Scan ({redFlags.length} flag{redFlags.length > 1 ? 's' : ''})
                             </div>
                             {redFlags.map((flag, i) => (
-                              <p key={i} className="text-xs text-amber-600">
+                              <p key={i} className="text-xs text-amber-400">
                                 <span className="font-medium">{flag.type}:</span>{' '}
                                 {flag.match}
                               </p>
@@ -679,7 +679,7 @@ export default function PreparePage() {
 
                         {/* Confidence rating */}
                         <div className="flex items-center gap-2">
-                          <span className="text-xs font-medium text-gray-600">Confidence:</span>
+                          <span className="text-xs font-medium text-gray-400">Confidence:</span>
                           {renderStars(confidenceRating, true, setConfidenceRating)}
                         </div>
 
@@ -740,27 +740,27 @@ export default function PreparePage() {
 
                         {/* AI Feedback */}
                         {aiFeedback && (
-                          <div className="rounded-lg bg-blue-50 border border-blue-200 p-4 space-y-3">
+                          <div className="rounded-lg bg-blue-500/10 border border-blue-500/30 p-4 space-y-3">
                             <div className="flex items-center justify-between">
-                              <h5 className="text-xs font-semibold text-blue-800">AI Analysis</h5>
+                              <h5 className="text-xs font-semibold text-blue-400">AI Analysis</h5>
                               <div className="flex items-center gap-2">
                                 {(['structure', 'specificity', 'confidence', 'overall'] as const).map(dim => (
-                                  <span key={dim} className="inline-flex items-center gap-1 text-[10px] font-medium text-blue-700 bg-blue-100 rounded-full px-2 py-0.5">
+                                  <span key={dim} className="inline-flex items-center gap-1 text-[10px] font-medium text-blue-400 bg-blue-500/20 rounded-full px-2 py-0.5">
                                     {dim}: {aiFeedback.scores[dim]}/10
                                   </span>
                                 ))}
                               </div>
                             </div>
 
-                            <p className="text-xs font-semibold text-blue-900 border-b border-blue-200 pb-2">
+                            <p className="text-xs font-semibold text-blue-300 border-b border-blue-500/30 pb-2">
                               {aiFeedback.verdict}
                             </p>
 
                             {aiFeedback.strengths.length > 0 && (
                               <div>
-                                <p className="text-[10px] font-bold text-green-700 uppercase mb-1">Strengths</p>
+                                <p className="text-[10px] font-bold text-green-400 uppercase mb-1">Strengths</p>
                                 {aiFeedback.strengths.map((s, i) => (
-                                  <p key={i} className="text-xs text-green-700 flex items-start gap-1.5">
+                                  <p key={i} className="text-xs text-green-400 flex items-start gap-1.5">
                                     <Check className="h-3 w-3 mt-0.5 flex-shrink-0" />{s}
                                   </p>
                                 ))}
@@ -769,9 +769,9 @@ export default function PreparePage() {
 
                             {aiFeedback.issues.length > 0 && (
                               <div>
-                                <p className="text-[10px] font-bold text-red-700 uppercase mb-1">Issues</p>
+                                <p className="text-[10px] font-bold text-red-400 uppercase mb-1">Issues</p>
                                 {aiFeedback.issues.map((s, i) => (
-                                  <p key={i} className="text-xs text-red-700 flex items-start gap-1.5">
+                                  <p key={i} className="text-xs text-red-400 flex items-start gap-1.5">
                                     <AlertTriangle className="h-3 w-3 mt-0.5 flex-shrink-0" />{s}
                                   </p>
                                 ))}
@@ -780,9 +780,9 @@ export default function PreparePage() {
 
                             {aiFeedback.missingElements.length > 0 && (
                               <div>
-                                <p className="text-[10px] font-bold text-amber-700 uppercase mb-1">Missing Elements</p>
+                                <p className="text-[10px] font-bold text-amber-400 uppercase mb-1">Missing Elements</p>
                                 {aiFeedback.missingElements.map((s, i) => (
-                                  <p key={i} className="text-xs text-amber-700 flex items-start gap-1.5">
+                                  <p key={i} className="text-xs text-amber-400 flex items-start gap-1.5">
                                     <Flag className="h-3 w-3 mt-0.5 flex-shrink-0" />{s}
                                   </p>
                                 ))}
@@ -815,7 +815,7 @@ export default function PreparePage() {
                         <div className="flex items-center justify-between">
                           <span
                             className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${
-                              QUESTION_TYPE_COLORS[q.questionType] || 'bg-gray-100 text-gray-700'
+                              QUESTION_TYPE_COLORS[q.questionType] || 'bg-[#333] text-gray-400'
                             }`}
                           >
                             {q.questionType}
@@ -832,7 +832,7 @@ export default function PreparePage() {
                         </div>
 
                         {/* Question text */}
-                        <p className="text-sm font-bold text-gray-900 leading-snug">
+                        <p className="text-sm font-bold text-white leading-snug">
                           {q.questionText}
                         </p>
 
@@ -873,13 +873,13 @@ export default function PreparePage() {
 
                         {/* Expanded details */}
                         {isExpanded && (
-                          <div className="mt-2 space-y-3 border-t border-gray-100 pt-3">
+                          <div className="mt-2 space-y-3 border-t border-[#333] pt-3">
                             {q.whyAsked && (
                               <div>
                                 <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
                                   Why Asked
                                 </h4>
-                                <p className="mt-1 text-sm text-gray-700">{q.whyAsked}</p>
+                                <p className="mt-1 text-sm text-gray-400">{q.whyAsked}</p>
                               </div>
                             )}
                             {q.framework && (
@@ -887,7 +887,7 @@ export default function PreparePage() {
                                 <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
                                   Framework
                                 </h4>
-                                <p className="mt-1 text-sm text-gray-700">{q.framework}</p>
+                                <p className="mt-1 text-sm text-gray-400">{q.framework}</p>
                               </div>
                             )}
                             {q.modelAnswer && (
@@ -895,15 +895,15 @@ export default function PreparePage() {
                                 <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
                                   Model Answer
                                 </h4>
-                                <p className="mt-1 text-sm text-gray-700">{q.modelAnswer}</p>
+                                <p className="mt-1 text-sm text-gray-400">{q.modelAnswer}</p>
                               </div>
                             )}
                             {q.whatNotToSay && (
                               <div>
-                                <h4 className="text-xs font-semibold uppercase tracking-wide text-red-600">
+                                <h4 className="text-xs font-semibold uppercase tracking-wide text-red-400">
                                   What Not To Say
                                 </h4>
-                                <p className="mt-1 text-sm text-red-600">{q.whatNotToSay}</p>
+                                <p className="mt-1 text-sm text-red-400">{q.whatNotToSay}</p>
                               </div>
                             )}
                             {q.likelyFollowUp && (
@@ -911,7 +911,7 @@ export default function PreparePage() {
                                 <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
                                   Likely Follow-up
                                 </h4>
-                                <p className="mt-1 text-sm text-gray-700 italic">
+                                <p className="mt-1 text-sm text-gray-400 italic">
                                   &ldquo;{q.likelyFollowUp}&rdquo;
                                 </p>
                               </div>
@@ -934,10 +934,10 @@ export default function PreparePage() {
           {questions.length === 0 ? (
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-brand-700/10 mb-4">
-                  <RotateCcw className="h-8 w-8 text-brand-700" />
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[#5b5fc7]/10 mb-4">
+                  <RotateCcw className="h-8 w-8 text-[#5b5fc7]" />
                 </div>
-                <h3 className="text-lg font-semibold text-gray-900">
+                <h3 className="text-lg font-semibold text-white">
                   No flashcards available
                 </h3>
                 <p className="mt-2 max-w-sm text-sm text-gray-500">
@@ -961,7 +961,7 @@ export default function PreparePage() {
               />
 
               {/* Card counter */}
-              <p className="text-center text-sm font-medium text-gray-600">
+              <p className="text-center text-sm font-medium text-gray-400">
                 Card {flashcardIndex + 1} of {questions.length}
               </p>
 
@@ -971,7 +971,7 @@ export default function PreparePage() {
                   <CardContent className="w-full text-center">
                     {!flipped ? (
                       <>
-                        <p className="text-lg font-semibold text-gray-900 leading-relaxed">
+                        <p className="text-lg font-semibold text-white leading-relaxed">
                           {questions[flashcardIndex]?.questionText}
                         </p>
                       </>
@@ -982,7 +982,7 @@ export default function PreparePage() {
                             ? 'Your Answer'
                             : '(Model Answer)'}
                         </h4>
-                        <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-line">
+                        <p className="text-sm text-gray-400 leading-relaxed whitespace-pre-line">
                           {questions[flashcardIndex]?.userAnswers[0]?.answerText ||
                             questions[flashcardIndex]?.modelAnswer ||
                             'No answer saved yet. Build your answer in the Question Bank tab.'}
@@ -1016,7 +1016,7 @@ export default function PreparePage() {
                 <Button
                   variant="secondary"
                   size="md"
-                  className="bg-yellow-100 text-yellow-700 hover:bg-yellow-200"
+                  className="bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30"
                   onClick={() => handleFlashcardRate('got_it')}
                 >
                   Got It
@@ -1024,7 +1024,7 @@ export default function PreparePage() {
                 <Button
                   variant="secondary"
                   size="md"
-                  className="bg-green-100 text-green-700 hover:bg-green-200"
+                  className="bg-green-500/20 text-green-400 hover:bg-green-500/30"
                   onClick={() => handleFlashcardRate('easy')}
                 >
                   Easy
@@ -1039,7 +1039,7 @@ export default function PreparePage() {
                     setFlashcardIndex((prev) => Math.max(prev - 1, 0))
                   }}
                   disabled={flashcardIndex === 0}
-                  className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 disabled:opacity-30 disabled:cursor-not-allowed"
+                  className="flex items-center gap-1 text-sm text-gray-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
                 >
                   <ArrowLeft className="h-4 w-4" />
                   Previous
@@ -1050,7 +1050,7 @@ export default function PreparePage() {
                     setFlashcardIndex((prev) => Math.min(prev + 1, questions.length - 1))
                   }}
                   disabled={flashcardIndex === questions.length - 1}
-                  className="flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900 disabled:opacity-30 disabled:cursor-not-allowed"
+                  className="flex items-center gap-1 text-sm text-gray-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
                 >
                   Next
                   <ArrowRight className="h-4 w-4" />
@@ -1074,7 +1074,7 @@ export default function PreparePage() {
                     setOpenCoachingSection(isOpen ? null : idx)
                   }
                 >
-                  <span className="text-sm font-semibold text-gray-900">
+                  <span className="text-sm font-semibold text-white">
                     {section.title}
                   </span>
                   {isOpen ? (
@@ -1084,8 +1084,8 @@ export default function PreparePage() {
                   )}
                 </button>
                 {isOpen && (
-                  <CardContent className="border-t border-gray-100 pt-3">
-                    <p className="text-sm text-gray-700 whitespace-pre-line leading-relaxed">
+                  <CardContent className="border-t border-[#333] pt-3">
+                    <p className="text-sm text-gray-400 whitespace-pre-line leading-relaxed">
                       {section.content}
                     </p>
                   </CardContent>

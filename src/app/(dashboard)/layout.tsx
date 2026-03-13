@@ -9,13 +9,12 @@ import {
   Briefcase,
   History,
   Zap,
+  BookOpen,
   CreditCard,
   Settings,
   LogOut,
   Menu,
   X,
-  DollarSign,
-  Calendar,
 } from 'lucide-react'
 
 const navLinks = [
@@ -23,7 +22,7 @@ const navLinks = [
   { href: '/applications', label: 'Applications', icon: Briefcase },
   { href: '/session-history', label: 'Session History', icon: History },
   { href: '/pressure-lab', label: 'Pressure Lab', icon: Zap },
-  { href: '/salary-negotiation', label: 'Salary Negotiation', icon: DollarSign },
+  { href: '/learn', label: 'Coaching Library', icon: BookOpen },
   { href: '/pricing', label: 'Pricing', icon: CreditCard },
   { href: '/settings', label: 'Settings', icon: Settings },
 ]
@@ -40,18 +39,18 @@ export default function DashboardLayout({
 
   if (status === 'loading') {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-brand-700 border-t-transparent" />
+      <div className="flex min-h-screen items-center justify-center bg-[#1b1b1b]">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#5b5fc7] border-t-transparent" />
       </div>
     )
   }
 
   if (status === 'unauthenticated') {
-    router.push('/login')
+    router.push('/signin')
     return null
   }
 
-  if (status === 'authenticated' && !(session?.user as { onboarded?: boolean } | undefined)?.onboarded) {
+  if (status === 'authenticated' && !(session?.user as { onboardingDone?: boolean } | undefined)?.onboardingDone) {
     router.push('/onboarding')
     return null
   }
@@ -59,35 +58,31 @@ export default function DashboardLayout({
   const currentPage = navLinks.find((link) => pathname.startsWith(link.href))
 
   return (
-    <div className="flex min-h-screen bg-gray-50">
-      {/* Mobile overlay */}
+    <div className="flex min-h-screen bg-[#1b1b1b]">
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+          className="fixed inset-0 z-40 bg-black/60 lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
-      {/* Sidebar */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-white border-r border-gray-200 transition-transform duration-200 lg:translate-x-0 lg:static lg:z-auto ${
+        className={`fixed inset-y-0 left-0 z-50 flex w-64 flex-col bg-[#252525] border-r border-[#333] transition-transform duration-200 lg:translate-x-0 lg:static lg:z-auto ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        {/* Logo */}
-        <div className="flex h-16 items-center justify-between px-6 border-b border-gray-100">
-          <Link href="/dashboard" className="text-xl font-bold text-brand-700">
+        <div className="flex h-16 items-center justify-between px-6 border-b border-[#333]">
+          <Link href="/dashboard" className="text-xl font-bold text-[#5b5fc7]">
             Seatvio
           </Link>
           <button
             onClick={() => setSidebarOpen(false)}
-            className="lg:hidden text-gray-500 hover:text-gray-700"
+            className="lg:hidden text-gray-400 hover:text-white"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        {/* Navigation */}
         <nav className="flex-1 space-y-1 px-3 py-4">
           {navLinks.map((link) => {
             const Icon = link.icon
@@ -99,8 +94,8 @@ export default function DashboardLayout({
                 onClick={() => setSidebarOpen(false)}
                 className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
                   isActive
-                    ? 'bg-brand-700 text-white'
-                    : 'text-gray-700 hover:bg-gray-100'
+                    ? 'bg-[#5b5fc7] text-white'
+                    : 'text-gray-400 hover:bg-[#333] hover:text-white'
                 }`}
               >
                 <Icon className="h-5 w-5 flex-shrink-0" />
@@ -110,14 +105,13 @@ export default function DashboardLayout({
           })}
         </nav>
 
-        {/* User info + Logout */}
-        <div className="border-t border-gray-200 px-3 py-4">
+        <div className="border-t border-[#333] px-3 py-4">
           <div className="flex items-center gap-3 px-3 py-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-700 text-sm font-medium text-white">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#5b5fc7] text-sm font-medium text-white">
               {session?.user?.name?.[0]?.toUpperCase() || 'U'}
             </div>
             <div className="flex-1 min-w-0">
-              <p className="truncate text-sm font-medium text-gray-900">
+              <p className="truncate text-sm font-medium text-white">
                 {session?.user?.name || 'User'}
               </p>
               <p className="truncate text-xs text-gray-500">
@@ -126,8 +120,8 @@ export default function DashboardLayout({
             </div>
           </div>
           <button
-            onClick={() => signOut({ callbackUrl: '/login' })}
-            className="mt-2 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-100 transition-colors"
+            onClick={() => signOut({ callbackUrl: '/signin' })}
+            className="mt-2 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-gray-400 hover:bg-[#333] hover:text-white transition-colors"
           >
             <LogOut className="h-5 w-5 flex-shrink-0" />
             Log out
@@ -135,22 +129,19 @@ export default function DashboardLayout({
         </div>
       </aside>
 
-      {/* Main content */}
       <div className="flex flex-1 flex-col min-w-0">
-        {/* Top bar */}
-        <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b border-gray-200 bg-white px-4 sm:px-6">
+        <header className="sticky top-0 z-30 flex h-16 items-center gap-4 border-b border-[#333] bg-[#1b1b1b] px-4 sm:px-6">
           <button
             onClick={() => setSidebarOpen(true)}
-            className="lg:hidden text-gray-500 hover:text-gray-700"
+            className="lg:hidden text-gray-400 hover:text-white"
           >
             <Menu className="h-6 w-6" />
           </button>
-          <h1 className="text-lg font-semibold text-gray-900">
+          <h1 className="text-lg font-semibold text-white">
             {currentPage?.label || 'Dashboard'}
           </h1>
         </header>
 
-        {/* Page content */}
         <main className="flex-1 p-4 sm:p-6">{children}</main>
       </div>
     </div>

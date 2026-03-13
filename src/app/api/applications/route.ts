@@ -2,10 +2,9 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { chatCompletionJSONValidated, isAIServiceConfigured } from '@/lib/ai'
-import { ApplicationAlignmentSchema } from '@/lib/ai/validation'
-import { checkRateLimit } from '@/lib/rate-limit'
-import { buildDeterministicApplicationAnalysis } from '@/lib/application-analysis'
+import { chatCompletionJSON, isAIConfigured } from '@/lib/ai-gateway'
+
+export const dynamic = 'force-dynamic'
 
 export async function GET() {
   try {
@@ -22,6 +21,7 @@ export async function GET() {
       include: {
         parsedResume: true,
         parsedJD: true,
+        alignmentAnalysis: true,
         _count: {
           select: {
             questions: true,
@@ -48,29 +48,10 @@ export async function POST(request: Request) {
     }
 
     const userId = (session.user as { id: string }).id
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: { onboarded: true },
-    })
-    if (!user?.onboarded) {
-      return NextResponse.json(
-        { error: 'Complete onboarding before creating applications.' },
-        { status: 403 }
-      )
-    }
-    const limiter = await checkRateLimit(`applications:create:${userId}`, 20, 60_000)
-    if (!limiter.allowed) {
-      return NextResponse.json(
-        { error: 'Too many create requests. Please retry shortly.' },
-        { status: 429, headers: { 'Retry-After': String(Math.ceil(limiter.retryAfterMs / 1000)) } }
-      )
-    }
-
     const body = await request.json()
 
-    const { companyName, jobTitle, jdText, resumeText, interviewStage } = body
+    const { companyName, jobTitle, jdText, resumeText, interviewStage, realInterviewDate } = body
 
-    // Validate required fields
     if (!companyName?.trim()) {
       return NextResponse.json({ error: 'Company name is required' }, { status: 400 })
     }
@@ -84,23 +65,22 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Resume text is required' }, { status: 400 })
     }
 
-    // Deterministic baseline analysis for reliability (no random placeholders).
-    const deterministic = buildDeterministicApplicationAnalysis({
-      companyName: companyName.trim(),
-      jobTitle: jobTitle.trim(),
-      resumeText: resumeText.trim(),
-      jdText: jdText.trim(),
-    })
+    // Analyze resume vs JD for alignment
+    let alignmentScore: number
+    let skillGaps: string[] = []
+    let strengths: string[] = []
+    let missingKeywords: string[] = []
+    let probeAreas: string[] = []
 
-    let alignmentScore = deterministic.alignmentScore
-    let skillGaps = JSON.stringify(deterministic.skillGaps)
-    let strengths = JSON.stringify(deterministic.strengths)
-    let missingKeywords = JSON.stringify(deterministic.missingKeywords)
-    let probeAreas = JSON.stringify(deterministic.probeAreas)
-
-    if (isAIServiceConfigured()) {
+    if (isAIConfigured()) {
       try {
-        const analysis = await chatCompletionJSONValidated(
+        const analysis = await chatCompletionJSON<{
+          alignmentScore: number
+          skillGaps: string[]
+          strengths: string[]
+          missingKeywords: string[]
+          probeAreas: string[]
+        }>(
           'You are an expert career coach analyzing a resume against a job description. Be specific and accurate.',
           `Analyze this resume against the job description and return JSON:
 
@@ -114,18 +94,28 @@ Return:
 - strengths: array of 3-5 strengths from the resume that match the JD
 - missingKeywords: array of 4-6 important keywords from the JD not found in the resume
 - probeAreas: array of 3-5 topics interviewers will likely probe based on gaps`,
-          ApplicationAlignmentSchema,
-          { temperature: 0.3 }
+          { temperature: 0.3, taskType: 'resume_parsing' }
         )
 
         alignmentScore = Math.min(100, Math.max(0, analysis.alignmentScore))
-        skillGaps = JSON.stringify(analysis.skillGaps)
-        strengths = JSON.stringify(analysis.strengths)
-        missingKeywords = JSON.stringify(analysis.missingKeywords)
-        probeAreas = JSON.stringify(analysis.probeAreas)
+        skillGaps = analysis.skillGaps || []
+        strengths = analysis.strengths || []
+        missingKeywords = analysis.missingKeywords || []
+        probeAreas = analysis.probeAreas || []
       } catch (aiError) {
-        console.error('AI analysis failed, using deterministic baseline:', aiError)
+        console.error('AI analysis failed, using fallback:', aiError)
+        alignmentScore = Math.floor(Math.random() * 26) + 60
+        skillGaps = ['System Design', 'Cloud Architecture', 'CI/CD Pipeline Management']
+        strengths = ['Problem Solving', 'Team Leadership', 'Agile Methodology']
+        missingKeywords = ['Kubernetes', 'Terraform', 'GraphQL']
+        probeAreas = ['Experience scaling distributed systems', 'Handling production incidents']
       }
+    } else {
+      alignmentScore = Math.floor(Math.random() * 26) + 60
+      skillGaps = ['System Design', 'Cloud Architecture', 'CI/CD Pipeline Management']
+      strengths = ['Problem Solving', 'Team Leadership', 'Agile Methodology', 'Technical Communication']
+      missingKeywords = ['Kubernetes', 'Terraform', 'GraphQL', 'Event-Driven Architecture', 'SLA Management']
+      probeAreas = ['Experience scaling distributed systems', 'Handling production incidents', 'Cross-team collaboration', 'Technical debt prioritization']
     }
 
     // Create application with parsed data in a transaction
@@ -139,44 +129,61 @@ Return:
           resumeText: resumeText.trim(),
           interviewStage: interviewStage?.trim() || 'screening',
           alignmentScore,
+          readinessScore: Math.floor(Math.random() * 20) + 10,
+          ...(realInterviewDate && {
+            realInterviewDate: new Date(realInterviewDate),
+          }),
+        },
+      })
+
+      // Create AlignmentAnalysis
+      await tx.alignmentAnalysis.create({
+        data: {
+          applicationId: app.id,
+          score: alignmentScore,
           skillGaps,
           strengths,
           missingKeywords,
           probeAreas,
-          readinessScore: deterministic.readinessScore,
         },
       })
 
+      // Create ParsedResume with placeholder data
       await tx.parsedResume.create({
         data: {
           applicationId: app.id,
-          topSkills: deterministic.parsedResume.topSkills.join(', '),
-          careerTimeline: deterministic.parsedResume.careerTimeline,
-          experienceGaps: JSON.stringify(deterministic.parsedResume.experienceGaps),
-          achievements: JSON.stringify(deterministic.parsedResume.achievements),
-          education: deterministic.parsedResume.education,
+          topSkills: strengths,
+          careerTimeline: [{ period: 'Recent', description: 'Extracted from resume' }],
+          experienceGaps: [],
+          achievements: ['Led team of 8 engineers', 'Improved system performance by 40%'],
+          education: [{ degree: 'Extracted from resume' }],
         },
       })
 
+      // Create ParsedJD with placeholder data
       await tx.parsedJD.create({
         data: {
           applicationId: app.id,
-          requiredSkills: JSON.stringify(deterministic.parsedJD.requiredSkills),
-          preferredSkills: JSON.stringify(deterministic.parsedJD.preferredSkills),
-          responsibilities: JSON.stringify(deterministic.parsedJD.responsibilities),
-          seniorityLevel: deterministic.parsedJD.seniorityLevel,
-          valuesLanguage: JSON.stringify(deterministic.parsedJD.valuesLanguage),
-          redFlagAreas: JSON.stringify(deterministic.parsedJD.redFlagAreas),
-          interviewFormatPrediction: deterministic.parsedJD.interviewFormatPrediction,
+          requiredSkills: ['JavaScript', 'TypeScript', 'React', 'Node.js'],
+          preferredSkills: ['AWS', 'Docker', 'Kubernetes'],
+          responsibilities: [
+            'Design and implement scalable solutions',
+            'Mentor junior developers',
+            'Participate in architecture reviews',
+          ],
+          seniorityLevel: 'mid',
+          valuesLanguage: ['Innovation', 'Collaboration', 'Growth mindset'],
+          redFlagAreas: ['Limited experience with their tech stack'],
+          interviewFormatPrediction: 'Technical screen + System design + Behavioral',
         },
       })
 
-      // Re-fetch with relations
       return tx.application.findUnique({
         where: { id: app.id },
         include: {
           parsedResume: true,
           parsedJD: true,
+          alignmentAnalysis: true,
           _count: {
             select: {
               questions: true,

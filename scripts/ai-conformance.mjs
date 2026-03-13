@@ -14,23 +14,16 @@
 
 const providers = [
   {
-    name: 'primary',
-    baseURL: process.env.AI_PRIMARY_BASE_URL,
-    apiKey: process.env.AI_PRIMARY_API_KEY,
-    chatModel: process.env.AI_PRIMARY_CHAT_MODEL,
-    ttsModel: process.env.AI_PRIMARY_TTS_MODEL || 'gpt-4o-mini-tts',
+    name: 'openrouter',
+    baseURL: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
+    apiKey: process.env.OPENROUTER_API_KEY,
+    chatModel: 'openai/gpt-4o',
+    ttsModel: 'openai/gpt-4o-mini-tts',
   },
-  {
-    name: 'fallback',
-    baseURL: process.env.AI_FALLBACK_BASE_URL,
-    apiKey: process.env.AI_FALLBACK_API_KEY,
-    chatModel: process.env.AI_FALLBACK_CHAT_MODEL,
-    ttsModel: process.env.AI_FALLBACK_TTS_MODEL || 'gpt-4o-mini-tts',
-  },
-].filter((p) => p.baseURL && p.apiKey && p.chatModel)
+].filter((p) => p.baseURL && p.apiKey)
 
 if (providers.length === 0) {
-  console.error('No AI providers configured. Set AI_PRIMARY_* env vars first.')
+  console.error('No AI providers configured. Set OPENROUTER_API_KEY env var first.')
   process.exit(1)
 }
 

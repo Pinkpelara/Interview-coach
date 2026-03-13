@@ -10,7 +10,8 @@ from pydantic import BaseModel, Field
 
 
 APP_NAME = "seatvio-ai-engine"
-LLM_URL = os.getenv("LLM_URL", "").rstrip("/")
+AI_GATEWAY_URL = os.getenv("AI_GATEWAY_URL", "").rstrip("/")
+LLM_URL = AI_GATEWAY_URL or os.getenv("LLM_URL", "").rstrip("/")
 
 app = FastAPI(title=APP_NAME)
 

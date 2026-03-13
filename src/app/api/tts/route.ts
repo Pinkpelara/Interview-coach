@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { synthesizeSpeech, AIServiceError, isAIServiceConfigured } from '@/lib/ai'
 import { checkRateLimit } from '@/lib/rate-limit'
+
+export const dynamic = 'force-dynamic'
 
 const VOICES = new Set([
   'alloy',
@@ -87,7 +88,8 @@ async function parseAudioFromResponse(response: Response): Promise<Buffer | null
 async function synthesizeWithDedicatedTTS(
   text: string,
   voice: string,
-  instructions: string
+  instructions: string,
+  speed: number = 1.0
 ): Promise<Buffer | null> {
   if (!hasDedicatedTTSService()) return null
 
@@ -108,6 +110,7 @@ async function synthesizeWithDedicatedTTS(
         voice_id: mappedVoice,
         style: voice,
         instructions,
+        speed,
         format: 'mp3',
       },
     },
@@ -118,6 +121,7 @@ async function synthesizeWithDedicatedTTS(
         voice: mappedVoice,
         voice_id: mappedVoice,
         instructions,
+        speed,
         response_format: 'mp3',
       },
     },
@@ -128,6 +132,7 @@ async function synthesizeWithDedicatedTTS(
         input: text,
         voice: mappedVoice,
         instructions,
+        speed,
         response_format: 'mp3',
       },
     },
@@ -162,8 +167,7 @@ export async function POST(request: Request) {
     }
 
     const canUseDedicatedTTS = hasDedicatedTTSService()
-    const canUseAIProviderTTS = isAIServiceConfigured()
-    if (!canUseDedicatedTTS && !canUseAIProviderTTS) {
+    if (!canUseDedicatedTTS) {
       return NextResponse.json(
         {
           error: 'Human-like TTS is not configured on the server yet.',
@@ -186,15 +190,13 @@ export async function POST(request: Request) {
     const text = typeof body?.text === 'string' ? body.text.trim() : ''
     const voice = typeof body?.voice === 'string' && VOICES.has(body.voice) ? body.voice : 'alloy'
     const instructions = typeof body?.instructions === 'string' ? body.instructions : ''
+    const speed = typeof body?.speed === 'number' && body.speed >= 0.5 && body.speed <= 2.0 ? body.speed : 1.0
 
     if (!text) {
       return NextResponse.json({ error: 'Text is required' }, { status: 400 })
     }
 
-    let audioBuffer = await synthesizeWithDedicatedTTS(text, voice, instructions)
-    if (!audioBuffer && canUseAIProviderTTS) {
-      audioBuffer = await synthesizeSpeech(text, voice, instructions)
-    }
+    const audioBuffer = await synthesizeWithDedicatedTTS(text, voice, instructions, speed)
     if (!audioBuffer || audioBuffer.length === 0) {
       return NextResponse.json(
         {
@@ -212,12 +214,6 @@ export async function POST(request: Request) {
       },
     })
   } catch (error) {
-    if (error instanceof AIServiceError) {
-      return NextResponse.json(
-        { error: 'Voice synthesis temporarily unavailable', code: error.code },
-        { status: 503 }
-      )
-    }
     console.error('TTS error:', error)
     return NextResponse.json(
       { error: 'Failed to synthesize interviewer voice' },

@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { aiConfig } from '@/lib/ai/config'
-import { aiHealthCheck, isAIServiceConfigured } from '@/lib/ai'
+import { isAIConfigured } from '@/lib/ai-gateway'
 
 type CheckResult = {
   ok: boolean
@@ -48,7 +47,7 @@ export async function GET() {
     dbOk = false
   }
 
-  const ai = await aiHealthCheck()
+  const aiOk = isAIConfigured()
 
   const relayHealthUrl = process.env.MEDIA_RELAY_HEALTH_URL
   const conductorHealthUrl =
@@ -56,14 +55,14 @@ export async function GET() {
     (process.env.INTERVIEW_CONDUCTOR_URL
       ? `${process.env.INTERVIEW_CONDUCTOR_URL.replace(/\/$/, '')}/healthz`
       : '')
-  const gpuHealthUrl = process.env.GPU_WORKERS_HEALTH_URL
+  const aiGatewayHealthUrl = process.env.AI_GATEWAY_HEALTH_URL
   const aiEngineHealthUrl = process.env.AI_ENGINE_HEALTH_URL
   const apiServerHealthUrl = process.env.API_SERVER_HEALTH_URL
 
-  const [relay, conductor, gpuWorkers, aiEngine, apiServer] = await Promise.all([
+  const [relay, conductor, aiGateway, aiEngine, apiServer] = await Promise.all([
     relayHealthUrl ? httpHealthCheck(relayHealthUrl) : Promise.resolve({ ok: false, detail: 'not_configured' }),
     conductorHealthUrl ? httpHealthCheck(conductorHealthUrl) : Promise.resolve({ ok: false, detail: 'not_configured' }),
-    gpuHealthUrl ? httpHealthCheck(gpuHealthUrl) : Promise.resolve({ ok: false, detail: 'not_configured' }),
+    aiGatewayHealthUrl ? httpHealthCheck(aiGatewayHealthUrl) : Promise.resolve({ ok: false, detail: 'not_configured' }),
     aiEngineHealthUrl ? httpHealthCheck(aiEngineHealthUrl) : Promise.resolve({ ok: false, detail: 'not_configured' }),
     apiServerHealthUrl ? httpHealthCheck(apiServerHealthUrl) : Promise.resolve({ ok: false, detail: 'not_configured' }),
   ])
@@ -72,13 +71,13 @@ export async function GET() {
     phaseA_foundation: dbOk && optionalServiceReady(apiServer, Boolean(apiServerHealthUrl)),
     phaseB_async_ai:
       dbOk &&
-      (ai.ok || !isAIServiceConfigured()) &&
+      aiOk &&
       optionalServiceReady(aiEngine, Boolean(aiEngineHealthUrl)),
     phaseC_audio_conversation: dbOk && conductor.ok && relay.ok,
     phaseD_level1_animation: dbOk && conductor.ok && relay.ok,
     phaseE_full_product_surface: dbOk && conductor.ok && relay.ok,
-    phaseG_neural_gpu_ready: gpuWorkers.ok,
-    phaseH_self_hosted_mode: aiConfig.sourceMode === 'modern' && conductor.ok && gpuWorkers.ok,
+    phaseF_ai_gateway_ready: aiGateway.ok,
+    phaseG_self_hosted_mode: aiOk && conductor.ok && aiGateway.ok,
   }
 
   const overall =
@@ -92,19 +91,19 @@ export async function GET() {
       response_time_ms: Date.now() - started,
       service_checks: {
         db: { ok: dbOk },
-        ai_service: ai,
+        ai_service: { ok: aiOk },
         ai_engine: aiEngine,
         api_server: apiServer,
         media_relay: relay,
         interview_conductor: conductor,
-        gpu_workers: gpuWorkers,
+        ai_gateway: aiGateway,
       },
       phase_readiness: phases,
       config: {
-        ai_source_mode: aiConfig.sourceMode,
+        ai_source_mode: 'openrouter',
         relay_health_url_configured: Boolean(relayHealthUrl),
         conductor_health_url_configured: Boolean(conductorHealthUrl),
-        gpu_health_url_configured: Boolean(gpuHealthUrl),
+        ai_gateway_health_url_configured: Boolean(aiGatewayHealthUrl),
         ai_engine_health_url_configured: Boolean(aiEngineHealthUrl),
         api_server_health_url_configured: Boolean(apiServerHealthUrl),
       },

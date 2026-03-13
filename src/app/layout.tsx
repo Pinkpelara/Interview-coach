@@ -4,7 +4,7 @@ import { Providers } from '@/components/shared/Providers'
 
 export const metadata: Metadata = {
   title: 'Seatvio — AI Interview Simulation Platform',
-  description: 'So real, you\'ll get nervous. Practice with AI interviewers who look, sound, and behave like real people.',
+  description: 'So real, you\'ll get nervous. Practice with AI interviewers who speak and behave like real people in a hyper-realistic Teams-style audio interview.',
 }
 
 export default function RootLayout({

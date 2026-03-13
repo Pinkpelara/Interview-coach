@@ -112,7 +112,7 @@ export default function ObservePage() {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center space-y-4">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-700 mx-auto" />
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#5b5fc7] mx-auto" />
           <p className="text-gray-500">Generating observe sessions...</p>
         </div>
       </div>
@@ -126,7 +126,7 @@ export default function ObservePage() {
           <CardContent>
             <div className="text-center space-y-3 py-4">
               <AlertTriangle className="h-10 w-10 text-red-500 mx-auto" />
-              <p className="text-gray-700 font-medium">Unable to load observe module</p>
+              <p className="text-gray-200 font-medium">Unable to load observe module</p>
               <p className="text-gray-500 text-sm">{error}</p>
             </div>
           </CardContent>
@@ -147,7 +147,7 @@ export default function ObservePage() {
               className={
                 exchange.speaker === 'interviewer'
                   ? 'border-l-4 border-l-gray-400'
-                  : 'border-l-4 border-l-brand-500'
+                  : 'border-l-4 border-l-[#5b5fc7]'
               }
             >
               <CardContent>
@@ -155,8 +155,8 @@ export default function ObservePage() {
                   <div
                     className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold ${
                       exchange.speaker === 'interviewer'
-                        ? 'bg-gray-200 text-gray-700'
-                        : 'bg-brand-100 text-brand-700'
+                        ? 'bg-[#333] text-gray-400'
+                        : 'bg-[#5b5fc7]/20 text-[#5b5fc7]'
                     }`}
                   >
                     {exchange.speaker === 'interviewer' ? 'IV' : 'CD'}
@@ -167,7 +167,7 @@ export default function ObservePage() {
                         ? 'Interviewer'
                         : 'Candidate'}
                     </p>
-                    <p className="text-sm text-gray-700 leading-relaxed">
+                    <p className="text-sm text-gray-300 leading-relaxed">
                       {exchange.text}
                     </p>
                   </div>
@@ -180,8 +180,8 @@ export default function ObservePage() {
               <div
                 className={`ml-8 mt-1 rounded-lg p-3 border ${
                   exchange.annotation.type === 'perfect'
-                    ? 'bg-green-50 border-green-200'
-                    : 'bg-red-50 border-red-200'
+                    ? 'bg-green-900/20 border-green-500/30'
+                    : 'bg-red-900/20 border-red-500/30'
                 }`}
               >
                 <div className="flex items-start gap-2">
@@ -199,8 +199,8 @@ export default function ObservePage() {
                     <p
                       className={`text-sm ${
                         exchange.annotation.type === 'perfect'
-                          ? 'text-green-800'
-                          : 'text-red-800'
+                          ? 'text-green-400'
+                          : 'text-red-400'
                       }`}
                     >
                       {exchange.annotation.note}
@@ -219,8 +219,8 @@ export default function ObservePage() {
     <div className="space-y-6 pb-12">
       {/* Header */}
       <div>
-        <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-          <Eye className="h-6 w-6 text-brand-600" />
+        <h2 className="text-2xl font-bold text-white flex items-center gap-2">
+          <Eye className="h-6 w-6 text-[#5b5fc7]" />
           Observe Module
         </h2>
         <p className="mt-1 text-gray-500">
@@ -271,7 +271,7 @@ export default function ObservePage() {
           <div>
             <div className="flex items-center gap-2 mb-4">
               <div className="w-3 h-3 rounded-full bg-green-500" />
-              <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wide">
+              <h3 className="text-sm font-bold text-white uppercase tracking-wide">
                 Perfect Run
               </h3>
             </div>
@@ -282,7 +282,7 @@ export default function ObservePage() {
           <div>
             <div className="flex items-center gap-2 mb-4">
               <div className="w-3 h-3 rounded-full bg-red-500" />
-              <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wide">
+              <h3 className="text-sm font-bold text-white uppercase tracking-wide">
                 Cautionary Run
               </h3>
             </div>
@@ -295,7 +295,7 @@ export default function ObservePage() {
             <>
               <div className="flex items-center gap-2 mb-4">
                 <div className="w-3 h-3 rounded-full bg-green-500" />
-                <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wide">
+                <h3 className="text-sm font-bold text-white uppercase tracking-wide">
                   Perfect Run
                 </h3>
                 <Badge variant="success">Model Answers</Badge>
@@ -306,7 +306,7 @@ export default function ObservePage() {
             <>
               <div className="flex items-center gap-2 mb-4">
                 <div className="w-3 h-3 rounded-full bg-red-500" />
-                <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wide">
+                <h3 className="text-sm font-bold text-white uppercase tracking-wide">
                   Cautionary Run
                 </h3>
                 <Badge variant="danger">Common Mistakes</Badge>
