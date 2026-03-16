@@ -46,6 +46,10 @@ export default function CheckoutPage() {
         setError(data.error || 'Checkout failed')
         return
       }
+      if (typeof data.checkoutUrl === 'string' && data.checkoutUrl) {
+        window.location.href = data.checkoutUrl
+        return
+      }
       router.push('/pricing?checkout=success')
     } catch {
       setError('Unable to complete checkout right now.')

@@ -3,10 +3,48 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { isPlanTier, getEffectivePlan } from '@/lib/subscription'
+import Stripe from 'stripe'
 
 type BillingCycle = 'monthly' | 'annual' | 'one_time'
 
 const VALID_CYCLES: BillingCycle[] = ['monthly', 'annual', 'one_time']
+const STRIPE_PRICE_IDS = {
+  prep: {
+    monthly: process.env.STRIPE_PRICE_PREP_MONTHLY || '',
+    annual: process.env.STRIPE_PRICE_PREP_ANNUAL || '',
+  },
+  pro: {
+    monthly: process.env.STRIPE_PRICE_PRO_MONTHLY || '',
+    annual: process.env.STRIPE_PRICE_PRO_ANNUAL || '',
+  },
+  crunch: {
+    one_time: process.env.STRIPE_PRICE_CRUNCH_ONE_TIME || '',
+  },
+} as const
+
+function getStripeClient(): Stripe | null {
+  const secret = process.env.STRIPE_SECRET_KEY
+  if (!secret) return null
+  return new Stripe(secret)
+}
+
+function getAppBaseUrl(): string {
+  const explicit =
+    process.env.NEXTAUTH_URL ||
+    process.env.NEXT_PUBLIC_APP_URL
+  if (explicit) return explicit.replace(/\/$/, '')
+  const vercelUrl = process.env.VERCEL_URL
+  if (vercelUrl) return `https://${vercelUrl}`.replace(/\/$/, '')
+  return 'http://localhost:3000'
+}
+
+function getPriceId(plan: PlanTierWithoutFree, cycle: BillingCycle): string {
+  if (plan === 'crunch') return STRIPE_PRICE_IDS.crunch.one_time
+  if (plan === 'prep') return cycle === 'annual' ? STRIPE_PRICE_IDS.prep.annual : STRIPE_PRICE_IDS.prep.monthly
+  return cycle === 'annual' ? STRIPE_PRICE_IDS.pro.annual : STRIPE_PRICE_IDS.pro.monthly
+}
+
+type PlanTierWithoutFree = 'prep' | 'pro' | 'crunch'
 
 function nextPeriodEnd(plan: string, cycle: BillingCycle): Date | null {
   const now = new Date()
@@ -39,21 +77,61 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Crunch uses one-time billing only.' }, { status: 400 })
   }
 
-  // Placeholder checkout completion endpoint. Card data is never collected here.
+  const selectedPlan = plan as PlanTierWithoutFree
+  const stripe = getStripeClient()
+  if (stripe) {
+    const priceId = getPriceId(selectedPlan, billingCycle)
+    if (!priceId) {
+      return NextResponse.json(
+        { error: 'Billing configuration is incomplete for the selected plan.' },
+        { status: 500 }
+      )
+    }
+
+    const dbUser = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true },
+    })
+    if (!dbUser?.email) {
+      return NextResponse.json({ error: 'User email not found.' }, { status: 400 })
+    }
+
+    const baseUrl = getAppBaseUrl()
+    const checkoutSession = await stripe.checkout.sessions.create({
+      mode: selectedPlan === 'crunch' ? 'payment' : 'subscription',
+      customer_email: dbUser.email,
+      line_items: [{ price: priceId, quantity: 1 }],
+      success_url: `${baseUrl}/pricing?checkout=success`,
+      cancel_url: `${baseUrl}/pricing?checkout=cancelled`,
+      allow_promotion_codes: true,
+      metadata: {
+        userId,
+        plan: selectedPlan,
+        billingCycle,
+      },
+    })
+
+    return NextResponse.json({
+      success: true,
+      checkoutUrl: checkoutSession.url,
+    })
+  }
+
+  // Development fallback when Stripe is not configured.
   await prisma.subscription.upsert({
     where: { userId },
     create: {
       userId,
-      plan,
+      plan: selectedPlan,
       status: 'active',
-      currentPeriodEnd: nextPeriodEnd(plan, billingCycle),
+      currentPeriodEnd: nextPeriodEnd(selectedPlan, billingCycle),
       stripeCustomerId: null,
       stripeSubId: null,
     },
     update: {
-      plan,
+      plan: selectedPlan,
       status: 'active',
-      currentPeriodEnd: nextPeriodEnd(plan, billingCycle),
+      currentPeriodEnd: nextPeriodEnd(selectedPlan, billingCycle),
     },
   })
 
