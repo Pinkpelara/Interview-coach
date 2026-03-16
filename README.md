@@ -32,7 +32,7 @@ This repository is maintained against the **Seatvio PRD v6.0 FINAL** baseline.
 
 ## Database Deployment Strategy
 
-Production deploys use migrations (non-destructive path):
+Production deploys run a safe Prisma deployment step:
 
 ```bash
 npm run build
@@ -40,8 +40,14 @@ npm run build
 
 Current build pipeline:
 - `prisma generate`
-- `prisma migrate deploy`
+- `node scripts/prisma-deploy-safe.mjs`
 - `next build`
+
+`prisma-deploy-safe.mjs` behavior:
+- If `DATABASE_URL` is missing: skips DB step.
+- Tries `prisma migrate deploy`.
+- If Prisma returns `P3005` (existing non-empty DB not baselined), executes an idempotent SQL alignment script:
+  - `prisma/migrations/20260316170500_v6_runtime_alignment/migration.sql`
 
 ---
 

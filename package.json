@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && (if [ -n \"$DATABASE_URL\" ]; then prisma migrate deploy; else echo \"Skipping prisma migrate deploy (DATABASE_URL not set)\"; fi) && next build",
+    "build": "prisma generate && node scripts/prisma-deploy-safe.mjs && next build",
     "start": "next start",
     "lint": "next lint",
     "ai:conformance": "node scripts/ai-conformance.mjs",
