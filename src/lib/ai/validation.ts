@@ -84,3 +84,16 @@ export const DebriefScoreSchema = z.object({
     .min(3)
     .max(3),
 })
+
+export const CompanyDNASchema = z.object({
+  cultureFingerprint: z.array(z.string().min(6)).min(4).max(10),
+  communicationStyle: z.string().min(10),
+  decisionStyle: z.string().min(10),
+  riskTolerance: z.string().min(10),
+  interviewTempo: z.string().min(10),
+  panelDynamics: z.array(z.string().min(6)).min(3).max(8),
+  valuesLanguageToMirror: z.array(z.string().min(3)).min(4).max(15),
+  redFlagTriggers: z.array(z.string().min(6)).min(3).max(10),
+  proofPointsToEmphasize: z.array(z.string().min(6)).min(4).max(12),
+  candidateQuestionsToAsk: z.array(z.string().min(10)).min(4).max(10),
+})

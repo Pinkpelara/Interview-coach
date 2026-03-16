@@ -15,6 +15,7 @@ import {
   CheckCircle2,
   Hash,
   Sparkles,
+  Building2,
 } from 'lucide-react'
 import { Card, CardContent, CardHeader } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
@@ -454,6 +455,12 @@ export default async function ApplicationDetailPage({
               <Button variant="outline">
                 <CalendarDays className="mr-2 h-4 w-4" />
                 Interview Countdown
+              </Button>
+            </Link>
+            <Link href={`/applications/${application.id}/company-dna`}>
+              <Button variant="outline">
+                <Building2 className="mr-2 h-4 w-4" />
+                Company DNA
               </Button>
             </Link>
             <Link href={`/reflections/${application.id}`}>
