@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { getEffectivePlan } from '@/lib/subscription'
+import { checkFeature } from '@/lib/feature-gate'
 
 function parseSessionConfig(raw: string | null) {
   if (!raw) return { panel: [], questionPlan: [], questionState: null, unexpectedEvents: [] }
@@ -33,6 +35,8 @@ export async function GET(
 
     const userId = (session.user as { id: string }).id
     const { id } = params
+    const userPlan = await getEffectivePlan(userId)
+    const fullDebriefGate = checkFeature(userPlan, 'full_debrief')
 
     const interviewSession = await prisma.interviewSession.findFirst({
       where: { id, userId },
@@ -59,8 +63,19 @@ export async function GET(
     }
 
     const config = parseSessionConfig(interviewSession.characters)
+    const safeAnalysis =
+      fullDebriefGate.allowed || !interviewSession.analysis
+        ? interviewSession.analysis
+        : {
+            ...interviewSession.analysis,
+            momentMap: null,
+            nextTargets: null,
+            coachScript: null,
+          }
+
     return NextResponse.json({
       ...interviewSession,
+      analysis: safeAnalysis,
       characters: config.panel,
       questionPlan: config.questionPlan,
       questionState: config.questionState,

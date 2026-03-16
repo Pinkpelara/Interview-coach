@@ -550,33 +550,38 @@ ${exchangeText}`,
       }
     }
 
+    const fullDebriefGate = checkFeature(userPlan, 'full_debrief')
+    const momentMapForStorage = fullDebriefGate.allowed ? JSON.stringify(momentMap) : null
+    const nextTargetsForStorage = fullDebriefGate.allowed ? JSON.stringify(nextTargets) : null
+    const coachScriptForStorage = fullDebriefGate.allowed ? coachScript : null
+
     const persisted = interviewSession.analysis
       ? await prisma.sessionAnalysis.update({
           where: { sessionId },
           data: {
-            momentMap: JSON.stringify(momentMap),
+            momentMap: momentMapForStorage,
             answerQuality: computedScores.answerQuality,
             deliveryConfidence: computedScores.deliveryConfidence,
             pressureRecovery: computedScores.pressureRecovery,
             companyFitLanguage: computedScores.companyFitLanguage,
             listeningAccuracy: computedScores.listeningAccuracy,
             hiringProbability: computedScores.hiringProbability,
-            nextTargets: JSON.stringify(nextTargets),
-            coachScript,
+            nextTargets: nextTargetsForStorage,
+            coachScript: coachScriptForStorage,
           },
         })
       : await prisma.sessionAnalysis.create({
           data: {
             sessionId,
-            momentMap: JSON.stringify(momentMap),
+            momentMap: momentMapForStorage,
             answerQuality: computedScores.answerQuality,
             deliveryConfidence: computedScores.deliveryConfidence,
             pressureRecovery: computedScores.pressureRecovery,
             companyFitLanguage: computedScores.companyFitLanguage,
             listeningAccuracy: computedScores.listeningAccuracy,
             hiringProbability: computedScores.hiringProbability,
-            nextTargets: JSON.stringify(nextTargets),
-            coachScript,
+            nextTargets: nextTargetsForStorage,
+            coachScript: coachScriptForStorage,
           },
         })
 
@@ -614,7 +619,6 @@ ${exchangeText}`,
         createdAt: s.createdAt,
       }))
 
-    const fullDebriefGate = checkFeature(userPlan, 'full_debrief')
     const analysisPayload = fullDebriefGate.allowed
       ? {
           ...persisted,
