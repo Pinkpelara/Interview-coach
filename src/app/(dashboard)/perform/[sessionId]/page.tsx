@@ -256,7 +256,6 @@ export default function InterviewRoomPage() {
   const [audioConfirmed, setAudioConfirmed] = useState(false)
   const [cameraConfirmed, setCameraConfirmed] = useState(false)
   const [speechSupported, setSpeechSupported] = useState(true)
-  const [manualTurnText, setManualTurnText] = useState('')
 
   const streamRef = useRef<MediaStream | null>(null)
   const selfViewRef = useRef<HTMLVideoElement | null>(null)
@@ -295,17 +294,7 @@ export default function InterviewRoomPage() {
       setAudioConfirmed(false)
       setTimeout(() => playJoinSound(), 400)
     } catch {
-      try {
-        const audioOnly = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-        streamRef.current = audioOnly
-        if (selfViewRef.current) selfViewRef.current.srcObject = null
-        setCameraReady(false)
-        setCameraConfirmed(true)
-        setAudioConfirmed(false)
-        setError('Camera is unavailable. Continuing in audio-only self-view mode (camera remains local-only when enabled).')
-      } catch {
-        setError('Microphone access is required for the live interview room.')
-      }
+      setError('Camera and microphone access is required for the live interview room.')
     }
   }, [])
 
@@ -601,17 +590,12 @@ export default function InterviewRoomPage() {
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
               <div className="aspect-video overflow-hidden rounded-lg border border-white/10 bg-black">
                 <video ref={selfViewRef} autoPlay muted playsInline className="h-full w-full object-cover" />
-                {!cameraReady && (
-                  <div className="flex h-full items-center justify-center text-xs text-slate-400">
-                    Camera optional — audio-only preview
-                  </div>
-                )}
               </div>
               <div className="space-y-3 text-sm">
                 <Button onClick={runMediaCheck} className="w-full">Run device check</Button>
                 <label className="flex items-center gap-2 text-slate-200">
                   <input type="checkbox" checked={cameraConfirmed} onChange={(e) => setCameraConfirmed(e.target.checked)} />
-                  Camera preview checked (optional)
+                  Camera feed looks correct
                 </label>
                 <label className="flex items-center gap-2 text-slate-200">
                   <input type="checkbox" checked={audioConfirmed} onChange={(e) => setAudioConfirmed(e.target.checked)} />
@@ -629,7 +613,7 @@ export default function InterviewRoomPage() {
           <div className="text-center">
             <Button
               size="lg"
-              disabled={!audioConfirmed}
+              disabled={!cameraReady || !cameraConfirmed || !audioConfirmed || !speechSupported}
               onClick={() => {
                 setCountdown(120)
                 setPhase('countdown')
@@ -637,6 +621,11 @@ export default function InterviewRoomPage() {
             >
               Enter interview room
             </Button>
+            {!speechSupported && (
+              <p className="mt-2 text-xs text-amber-300">
+                This browser does not support live speech recognition required for Perform mode.
+              </p>
+            )}
             {error && <p className="mt-3 text-xs text-red-300">{error}</p>}
           </div>
         </div>
@@ -769,33 +758,6 @@ export default function InterviewRoomPage() {
         >
           <PhoneOff className="h-5 w-5" />
         </button>
-        {!speechSupported && (
-          <div className="flex items-center gap-2">
-            <input
-              value={manualTurnText}
-              onChange={(e) => setManualTurnText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && manualTurnText.trim() && !isSending) {
-                  e.preventDefault()
-                  void handleCandidateTurn(manualTurnText)
-                  setManualTurnText('')
-                }
-              }}
-              placeholder="Type your spoken response (fallback mode)..."
-              className="w-80 rounded-md border border-white/20 bg-[#111827] px-3 py-2 text-xs text-white placeholder:text-slate-400"
-            />
-            <Button
-              size="sm"
-              disabled={!manualTurnText.trim() || isSending}
-              onClick={() => {
-                void handleCandidateTurn(manualTurnText)
-                setManualTurnText('')
-              }}
-            >
-              Send
-            </Button>
-          </div>
-        )}
       </div>
     </div>
   )

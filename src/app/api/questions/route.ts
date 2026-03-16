@@ -3,9 +3,10 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { chatCompletionJSONValidated, isAIServiceConfigured } from '@/lib/ai'
-import { QuestionTemplateArraySchema } from '@/lib/ai/validation'
+import { QuestionTemplateArraySchema, QuestionTemplateSchema } from '@/lib/ai/validation'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { questionGenerationSystemPrompt } from '@/lib/ai/prompts'
+import { z } from 'zod'
 
 interface QuestionTemplate {
   questionText: string
@@ -163,45 +164,44 @@ async function generateQuestionsWithAI(
   resumeText: string,
   jdText: string
 ): Promise<QuestionTemplate[]> {
-  const userPrompt = `Generate exactly ${V6_TOTAL_QUESTIONS} interview questions for a candidate applying to "${jobTitle}" at "${companyName}".
+  const collected: QuestionTemplate[] = []
+  const compactResume = resumeText.slice(0, 2600)
+  const compactJd = jdText.slice(0, 2600)
 
-Resume excerpt: ${resumeText.slice(0, 2000)}
-Job description excerpt: ${jdText.slice(0, 2000)}
+  for (const category of V6_CATEGORY_COUNTS) {
+    const schemaForCategory = z.array(QuestionTemplateSchema).min(category.count).max(category.count + 2)
+    const prompt = `Generate exactly ${category.count} "${category.type}" interview questions for "${jobTitle}" at "${companyName}".
 
-Use this exact distribution:
-- opening: 8
-- behavioral: 40
-- situational: 18
-- technical: 20
-- company-specific: 10
-- culture-fit: 8
-- motivation: 8
-- curveball: 6
-- closing-candidate: 8
-- salary-negotiation: 6
+Resume excerpt:
+${compactResume}
 
-Return JSON array items with:
-- questionText
-- questionType
-- competencyDomain (required for behavioral)
-- whyAsked
-- framework (STAR|SOAR|CAR|PREP|PAR|direct)
-- modelAnswer (minimum 200 words, first person, with measurable outcomes)
-- whatNotToSay
-- timeGuidance
-- difficulty (1-5)
-- likelyFollowUps (2-3 strings)
-- bestAskedByArchetype (skeptic|friendly_champion|technical_griller|distracted_senior|culture_fit|silent_observer)
-- bestStage (phone_screen|first_round|panel|final_round|case|stress)
+Job description excerpt:
+${compactJd}
 
-All questions must be personalized to this application.`
+Rules:
+- Every question must be fully personalized to this candidate and this role/company.
+- Set questionType to "${category.type}" for every item.
+- Include all required metadata fields exactly.
+- modelAnswer must be 200+ words and reference concrete resume details.
+- For behavioral questions, include competencyDomain aligned to core competencies.
+- likelyFollowUps must have 2-3 realistic follow-up questions.
+`
 
-  return chatCompletionJSONValidated<QuestionTemplate[]>(
-    questionGenerationSystemPrompt,
-    userPrompt,
-    QuestionTemplateArraySchema,
-    { temperature: 0.7, maxTokens: 12000 }
-  )
+    const categoryResult = await chatCompletionJSONValidated<QuestionTemplate[]>(
+      questionGenerationSystemPrompt,
+      prompt,
+      schemaForCategory,
+      { temperature: 0.6, maxTokens: 4500 }
+    )
+
+    const normalized = categoryResult
+      .map((q) => ({ ...q, questionType: category.type }))
+      .slice(0, category.count)
+    collected.push(...normalized)
+  }
+
+  // Final validation to keep strict v6 constraints end-to-end.
+  return QuestionTemplateArraySchema.parse(collected)
 }
 
 function generateQuestionsFallback(

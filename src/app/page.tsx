@@ -41,8 +41,8 @@ function Hero() {
             </span>
           </h1>
           <p className="mt-6 max-w-xl text-lg leading-relaxed text-gray-600 sm:text-xl lg:mx-0 mx-auto">
-            Practice with AI interviewers who look, sound, and behave like real
-            people in a live video-call simulation before the stakes are real.
+            Practice in a realistic cameras-off interview call where AI interviewers
+            react in real time with silence, follow-ups, and authentic panel pressure.
           </p>
 
           <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row lg:justify-start justify-center">
@@ -146,9 +146,6 @@ function MockVideoCall() {
           <button className="rounded-full bg-gray-800 p-2.5 text-gray-400 hover:text-white transition">
             <Mic className="h-4 w-4" />
           </button>
-          <button className="rounded-full bg-gray-800 p-2.5 text-gray-400 hover:text-white transition">
-            <MessageSquare className="h-4 w-4" />
-          </button>
           <button className="rounded-full bg-red-600 p-2.5 text-white hover:bg-red-700 transition">
             <span className="block h-4 w-4 rounded-sm bg-white" />
           </button>
@@ -175,7 +172,7 @@ const modules = [
     title: 'PERFORM',
     subtitle: 'Live Simulation',
     description:
-      'Face AI interviewers in a realistic video-call environment. Experience pressure mechanics, follow-ups, and panel dynamics.',
+      'Face AI interviewers in a Teams-style cameras-off interview room with pressure mechanics, follow-ups, and panel dynamics.',
     icon: Mic,
     gradient: 'from-accent-500 to-accent-600',
     bg: 'bg-accent-50',
@@ -255,7 +252,7 @@ const steps = [
     num: '03',
     title: 'Practice with AI Interviewers',
     description:
-      'Step into a live simulation with animated AI interviewers. Face follow-ups, panel dynamics, and realistic pressure.',
+      'Step into a live simulation with camera-off interviewer tiles, authentic pacing, and real pressure.',
     icon: Users,
   },
   {
@@ -311,9 +308,9 @@ function HowItWorks() {
 
 const features = [
   {
-    title: 'Real-Time Animated AI Interviewers',
+    title: 'Real-Time AI Interviewers',
     description:
-      'Each interviewer has a distinct visual presence, voice cadence, and personality that adapts in real time.',
+      'Each interviewer has a distinct voice, behavioral style, and follow-up strategy that adapts in real time.',
     icon: Mic,
   },
   {
