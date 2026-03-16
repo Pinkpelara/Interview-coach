@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { getEffectivePlan } from '@/lib/subscription'
 import { checkFeature } from '@/lib/feature-gate'
+import { chatCompletionJSONValidated, isAIServiceConfigured, z } from '@/lib/ai'
 
 type SourceExchange = {
   speaker: string
@@ -28,6 +29,21 @@ const CUSTOM_SCENARIOS: CustomScenario[] = [
   'why_leaving_role',
   'long_silence',
 ]
+
+const ObserveRunSchema = z.object({
+  exchanges: z.array(z.object({
+    id: z.string().min(3),
+    speaker: z.enum(['interviewer', 'candidate']),
+    text: z.string().min(8),
+  })).min(4).max(80),
+  annotations: z.array(z.object({
+    exchangeId: z.string().min(3),
+    type: z.enum(['perfect', 'cautionary']),
+    note: z.string().min(8),
+    pattern: z.string().optional(),
+    title: z.string().optional(),
+  })).min(2).max(80),
+})
 
 function parseStoredType(type: string): { type: ObserveType; scenario?: CustomScenario } {
   if (type.startsWith('custom:')) {
@@ -171,7 +187,7 @@ function cautionaryNote(pattern: string): string {
 
 function buildObserveRun(
   sourceExchanges: SourceExchange[],
-  type: ObserveType,
+  type: Exclude<ObserveType, 'custom'>,
   companyName: string,
   jobTitle: string
 ) {
@@ -182,7 +198,7 @@ function buildObserveRun(
     speaker: 'interviewer' | 'candidate'
     text: string
     annotation?: {
-      type: ObserveType
+      type: 'perfect' | 'cautionary'
       note: string
       pattern?: string
     }
@@ -354,6 +370,54 @@ function buildCustomObserveRun(
   return { exchanges, annotations, scenario, title: scene.title }
 }
 
+async function buildObserveRunWithAI(args: {
+  type: ObserveType
+  scenario?: CustomScenario
+  companyName: string
+  jobTitle: string
+  sourceExchanges: SourceExchange[]
+}) {
+  const transcript = args.sourceExchanges
+    .map((e, idx) => `${idx + 1}. ${e.speaker}: ${e.messageText}`)
+    .join('\n')
+    .slice(0, 7000)
+
+  const modeInstruction =
+    args.type === 'perfect'
+      ? 'Generate a perfect run where the candidate performs strongly with ownership, specificity, metrics, and concise structure.'
+      : args.type === 'cautionary'
+      ? 'Generate a cautionary run showing realistic weak patterns (vague claims, retreat under pressure, filler, weak ownership).'
+      : `Generate a focused custom scenario run for "${args.scenario}" with both a strong and weak candidate response contrast.`
+
+  return chatCompletionJSONValidated(
+    'You are an expert interview simulation author. Generate an Observe module run in strict JSON format only.',
+    `Company: ${args.companyName}
+Role: ${args.jobTitle}
+Observe mode: ${args.type}
+Custom scenario: ${args.scenario || 'n/a'}
+
+Source transcript:
+${transcript}
+
+${modeInstruction}
+
+Requirements:
+- Keep interviewer prompts grounded in this role/company context.
+- Keep candidate language in first person.
+- Exchanges must alternate naturally enough for playback.
+- Add annotation entries tied to candidate exchange ids.
+
+Return JSON:
+{
+  "exchanges": [{ "id": "...", "speaker": "interviewer|candidate", "text": "..." }],
+  "annotations": [{ "exchangeId": "...", "type": "perfect|cautionary", "note": "...", "pattern"?: "...", "title"?: "..." }]
+}
+`,
+    ObserveRunSchema,
+    { temperature: 0.45, maxTokens: 1200 }
+  )
+}
+
 export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -511,20 +575,64 @@ export async function POST(request: NextRequest) {
     }
 
     const sourceExchanges = sourceSession.exchanges.map((e) => ({ speaker: e.speaker, messageText: e.messageText }))
-    const generated =
-      type === 'custom'
-        ? buildCustomObserveRun(
-            customScenario!,
-            sourceSession.application.companyName,
-            sourceSession.application.jobTitle,
-            sourceExchanges
-          )
-        : buildObserveRun(
-            sourceExchanges,
-            type,
-            sourceSession.application.companyName,
-            sourceSession.application.jobTitle
-          )
+    let generated: {
+      exchanges: Array<{
+        id: string
+        speaker: 'interviewer' | 'candidate'
+        text: string
+      }>
+      annotations: Array<{
+        exchangeId: string
+        type: 'perfect' | 'cautionary'
+        note: string
+        pattern?: string
+        title?: string
+      }>
+      scenario?: string
+      title?: string
+    }
+    if (isAIServiceConfigured()) {
+      try {
+        generated = await buildObserveRunWithAI({
+          type,
+          scenario: customScenario,
+          companyName: sourceSession.application.companyName,
+          jobTitle: sourceSession.application.jobTitle,
+          sourceExchanges,
+        })
+      } catch (error) {
+        console.error('Observe AI generation failed, using deterministic fallback:', error)
+        generated =
+          type === 'custom'
+            ? buildCustomObserveRun(
+                customScenario!,
+                sourceSession.application.companyName,
+                sourceSession.application.jobTitle,
+                sourceExchanges
+              )
+            : buildObserveRun(
+                sourceExchanges,
+                type,
+                sourceSession.application.companyName,
+                sourceSession.application.jobTitle
+              )
+      }
+    } else {
+      generated =
+        type === 'custom'
+          ? buildCustomObserveRun(
+              customScenario!,
+              sourceSession.application.companyName,
+              sourceSession.application.jobTitle,
+              sourceExchanges
+            )
+          : buildObserveRun(
+              sourceExchanges,
+              type,
+              sourceSession.application.companyName,
+              sourceSession.application.jobTitle
+            )
+    }
 
     // Save to ObserveSession
     const observeSession = await prisma.observeSession.create({

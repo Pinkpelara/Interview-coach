@@ -31,6 +31,12 @@ interface ApplicationContext {
   jobTitle: string
 }
 
+interface NegotiationDebrief {
+  whatWorked: string
+  toImprove: string
+  nextTime: string
+}
+
 const DIFFICULTY_CONFIG: Record<Difficulty, { label: string; description: string; badge: 'success' | 'warning' | 'danger' }> = {
   flexible: { label: 'Flexible Manager', description: 'Willing to negotiate and meet in the middle. Good for practice.', badge: 'success' },
   standard: { label: 'Standard Negotiation', description: 'Will push back but open to reasonable counteroffers.', badge: 'warning' },
@@ -55,30 +61,6 @@ const INITIAL_OFFERS: Record<Difficulty, { base: string; total: string; opening:
   },
 }
 
-const MANAGER_RESPONSES: Record<Difficulty, string[]> = {
-  flexible: [
-    "That's a fair point. Let me see what I can do — I think we have some room to work with on the base.",
-    "I appreciate you being direct. Let me check with our compensation team. I believe we can get closer to your number.",
-    "You make a good case. How about we meet in the middle? I can push the base up and also look at the signing bonus.",
-    "I think we can accommodate that. Let me put together a revised offer that reflects your experience level.",
-    "That works for us. I'll have the updated offer letter sent over by end of day.",
-  ],
-  standard: [
-    "I understand your perspective. The base is somewhat fixed, but I might have flexibility on the bonus structure.",
-    "That's higher than our range for this level, but let me see if we can adjust the equity component.",
-    "I appreciate the counter. We can't go that high on base, but what if we enhanced the relocation package and added an extra week of PTO?",
-    "Let me be honest — we're close to our ceiling on cash compensation. But I can look at accelerating your review timeline.",
-    "That's a strong counter. I'll need to discuss with leadership, but I think we can find a compromise.",
-  ],
-  firm: [
-    "I understand that's below your expectations, but this is the approved range for the role. The growth potential here is significant though.",
-    "Unfortunately, we don't have flexibility on the base. However, the equity refreshers at your first review could be substantial.",
-    "I hear you, but our compensation bands are standardized across the team. I wouldn't want to create internal equity issues.",
-    "I wish I could offer more, but this is the best we can do right now. The role itself offers incredible career growth.",
-    "I appreciate your candor. Let me see if there's anything non-monetary I can add — perhaps flexible work arrangements or professional development budget.",
-  ],
-}
-
 export default function SalaryNegotiationPage() {
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -93,8 +75,8 @@ export default function SalaryNegotiationPage() {
   const [loadingApplication, setLoadingApplication] = useState(true)
   const [contextError, setContextError] = useState<string | null>(null)
   const [plan, setPlan] = useState('free')
+  const [debrief, setDebrief] = useState<NegotiationDebrief | null>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
-  const responseIndexRef = useRef(0)
   const canStartSimulator = !contextError && (plan === 'pro' || plan === 'crunch')
 
   useEffect(() => {
@@ -134,18 +116,46 @@ export default function SalaryNegotiationPage() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  const startSession = (diff: Difficulty) => {
+  const startSession = async (diff: Difficulty) => {
     if (!canStartSimulator) return
+    if (!application) return
+    setIsSending(true)
     setDifficulty(diff)
-    const offer = INITIAL_OFFERS[diff]
-    setMessages([{
-      id: 'initial',
-      speaker: 'hiring_manager',
-      text: offer.opening,
-    }])
     setExchangeCount(0)
     setSessionComplete(false)
-    responseIndexRef.current = 0
+    setDebrief(null)
+    try {
+      const res = await fetch('/api/salary-negotiation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          applicationId: application.id,
+          difficulty: diff,
+          round: 0,
+          messages: [],
+        }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || 'Failed to start salary simulation')
+      }
+      const data = await res.json()
+      setMessages([{
+        id: 'initial',
+        speaker: 'hiring_manager',
+        text: data.managerResponse || INITIAL_OFFERS[diff].opening,
+        annotation: data.annotation,
+      }])
+    } catch (error) {
+      setMessages([{
+        id: 'initial',
+        speaker: 'hiring_manager',
+        text: INITIAL_OFFERS[diff].opening,
+      }])
+      setContextError(error instanceof Error ? error.message : 'Unable to start salary simulation.')
+    } finally {
+      setIsSending(false)
+    }
   }
 
   const handleSend = useCallback(async () => {
@@ -161,41 +171,43 @@ export default function SalaryNegotiationPage() {
       text: userText,
     }])
 
-    // Simulate manager thinking
-    await new Promise(resolve => setTimeout(resolve, 1500 + Math.random() * 2000))
-
-    const responses = MANAGER_RESPONSES[difficulty]
-    const responseText = responses[responseIndexRef.current % responses.length]
-    responseIndexRef.current++
-
-    // Generate annotation based on candidate's message
-    let annotation: string | undefined
-    const lower = userText.toLowerCase()
-    if (lower.includes('i think') || lower.includes('maybe') || lower.includes('i was hoping')) {
-      annotation = 'Uncertain language weakens your position. State your counter directly: "Based on my research, I\'m targeting $X."'
-    } else if (lower.includes('market rate') || lower.includes('research') || lower.includes('glassdoor') || lower.includes('levels')) {
-      annotation = 'Good — citing market data strengthens your negotiating position. Always anchor to external benchmarks.'
-    } else if (lower.includes('accept') || lower.includes('deal') || lower.includes('sounds good')) {
-      annotation = 'You accepted quickly. In real negotiations, even if the offer is good, asking for time to review shows professionalism.'
-    } else if (/\d/.test(userText)) {
-      annotation = 'Specific numbers are strong. Always counter with a range where your target is the bottom.'
+    try {
+      const history = [...messages, { id: `candidate_pending`, speaker: 'candidate', text: userText }]
+      const res = await fetch('/api/salary-negotiation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          applicationId: application?.id,
+          difficulty,
+          round: exchangeCount + 1,
+          candidateMessage: userText,
+          messages: history.map((m) => ({ speaker: m.speaker, text: m.text })),
+        }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.error || 'Failed to continue salary simulation')
+      }
+      const data = await res.json()
+      setMessages(prev => [...prev, {
+        id: `manager_${Date.now()}`,
+        speaker: 'hiring_manager',
+        text: data.managerResponse,
+        annotation: data.annotation,
+      }])
+      setExchangeCount(prev => prev + 1)
+      if (data.shouldClose || exchangeCount >= 4) {
+        setSessionComplete(true)
+        if (data.debrief) {
+          setDebrief(data.debrief)
+        }
+      }
+    } catch (error) {
+      setContextError(error instanceof Error ? error.message : 'Negotiation turn failed.')
+    } finally {
+      setIsSending(false)
     }
-
-    setMessages(prev => [...prev, {
-      id: `manager_${Date.now()}`,
-      speaker: 'hiring_manager',
-      text: responseText,
-      annotation,
-    }])
-
-    setExchangeCount(prev => prev + 1)
-
-    if (exchangeCount >= 3) {
-      setSessionComplete(true)
-    }
-
-    setIsSending(false)
-  }, [inputText, isSending, difficulty, sessionComplete, exchangeCount])
+  }, [inputText, isSending, difficulty, sessionComplete, exchangeCount, messages, application])
 
   // Selection screen
   if (!difficulty) {
@@ -353,19 +365,19 @@ export default function SalaryNegotiationPage() {
                   <p className="text-xs font-semibold text-green-700 mb-1 flex items-center gap-1">
                     <CheckCircle className="h-3.5 w-3.5" /> What Worked
                   </p>
-                  <p className="text-xs text-green-600">You engaged in the negotiation rather than accepting immediately. This signals confidence.</p>
+                  <p className="text-xs text-green-600">{debrief?.whatWorked || 'You engaged in the negotiation rather than accepting immediately. This signals confidence.'}</p>
                 </div>
                 <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
                   <p className="text-xs font-semibold text-amber-700 mb-1 flex items-center gap-1">
                     <AlertTriangle className="h-3.5 w-3.5" /> To Improve
                   </p>
-                  <p className="text-xs text-amber-600">Always anchor to market data. Use specific numbers and ranges rather than vague requests.</p>
+                  <p className="text-xs text-amber-600">{debrief?.toImprove || 'Always anchor to market data. Use specific numbers and ranges rather than vague requests.'}</p>
                 </div>
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                   <p className="text-xs font-semibold text-blue-700 mb-1 flex items-center gap-1">
                     <TrendingUp className="h-3.5 w-3.5" /> Next Time
                   </p>
-                  <p className="text-xs text-blue-600">Consider total compensation: equity, bonus, PTO, remote flexibility, and professional development budget.</p>
+                  <p className="text-xs text-blue-600">{debrief?.nextTime || 'Consider total compensation: equity, bonus, PTO, remote flexibility, and professional development budget.'}</p>
                 </div>
               </div>
               <div className="flex gap-3">

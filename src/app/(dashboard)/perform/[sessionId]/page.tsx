@@ -255,6 +255,8 @@ export default function InterviewRoomPage() {
   const [cameraReady, setCameraReady] = useState(false)
   const [audioConfirmed, setAudioConfirmed] = useState(false)
   const [cameraConfirmed, setCameraConfirmed] = useState(false)
+  const [speechSupported, setSpeechSupported] = useState(true)
+  const [manualTurnText, setManualTurnText] = useState('')
 
   const streamRef = useRef<MediaStream | null>(null)
   const selfViewRef = useRef<HTMLVideoElement | null>(null)
@@ -293,7 +295,17 @@ export default function InterviewRoomPage() {
       setAudioConfirmed(false)
       setTimeout(() => playJoinSound(), 400)
     } catch {
-      setError('Camera and microphone access is required for the live interview room.')
+      try {
+        const audioOnly = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+        streamRef.current = audioOnly
+        if (selfViewRef.current) selfViewRef.current.srcObject = null
+        setCameraReady(false)
+        setCameraConfirmed(true)
+        setAudioConfirmed(false)
+        setError('Camera is unavailable. Continuing in audio-only self-view mode (camera remains local-only when enabled).')
+      } catch {
+        setError('Microphone access is required for the live interview room.')
+      }
     }
   }, [])
 
@@ -306,7 +318,10 @@ export default function InterviewRoomPage() {
   const startListening = useCallback(() => {
     const w = window as any
     const SpeechRecognitionCtor = w.SpeechRecognition || w.webkitSpeechRecognition
-    if (!SpeechRecognitionCtor || !isMicOn) return
+    if (!SpeechRecognitionCtor || !isMicOn) {
+      setSpeechSupported(Boolean(SpeechRecognitionCtor))
+      return
+    }
     const recognition = new SpeechRecognitionCtor()
     recognition.continuous = true
     recognition.interimResults = true
@@ -335,6 +350,11 @@ export default function InterviewRoomPage() {
     setIsListening(true)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMicOn, phase])
+
+  useEffect(() => {
+    const w = window as any
+    setSpeechSupported(Boolean(w.SpeechRecognition || w.webkitSpeechRecognition))
+  }, [])
 
   useEffect(() => {
     async function fetchSession() {
@@ -581,17 +601,27 @@ export default function InterviewRoomPage() {
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
               <div className="aspect-video overflow-hidden rounded-lg border border-white/10 bg-black">
                 <video ref={selfViewRef} autoPlay muted playsInline className="h-full w-full object-cover" />
+                {!cameraReady && (
+                  <div className="flex h-full items-center justify-center text-xs text-slate-400">
+                    Camera optional — audio-only preview
+                  </div>
+                )}
               </div>
               <div className="space-y-3 text-sm">
-                <Button onClick={runMediaCheck} className="w-full">Run camera + mic check</Button>
+                <Button onClick={runMediaCheck} className="w-full">Run device check</Button>
                 <label className="flex items-center gap-2 text-slate-200">
                   <input type="checkbox" checked={cameraConfirmed} onChange={(e) => setCameraConfirmed(e.target.checked)} />
-                  Camera feed looks correct
+                  Camera preview checked (optional)
                 </label>
                 <label className="flex items-center gap-2 text-slate-200">
                   <input type="checkbox" checked={audioConfirmed} onChange={(e) => setAudioConfirmed(e.target.checked)} />
                   I can hear the test audio
                 </label>
+                {!speechSupported && (
+                  <p className="rounded-md border border-amber-400/30 bg-amber-500/10 p-2 text-xs text-amber-200">
+                    Browser speech recognition is unavailable. Use manual text turn input during this session.
+                  </p>
+                )}
               </div>
             </div>
           </div>
@@ -599,7 +629,7 @@ export default function InterviewRoomPage() {
           <div className="text-center">
             <Button
               size="lg"
-              disabled={!cameraReady || !cameraConfirmed || !audioConfirmed}
+              disabled={!audioConfirmed}
               onClick={() => {
                 setCountdown(120)
                 setPhase('countdown')
@@ -739,6 +769,33 @@ export default function InterviewRoomPage() {
         >
           <PhoneOff className="h-5 w-5" />
         </button>
+        {!speechSupported && (
+          <div className="flex items-center gap-2">
+            <input
+              value={manualTurnText}
+              onChange={(e) => setManualTurnText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && manualTurnText.trim() && !isSending) {
+                  e.preventDefault()
+                  void handleCandidateTurn(manualTurnText)
+                  setManualTurnText('')
+                }
+              }}
+              placeholder="Type your spoken response (fallback mode)..."
+              className="w-80 rounded-md border border-white/20 bg-[#111827] px-3 py-2 text-xs text-white placeholder:text-slate-400"
+            />
+            <Button
+              size="sm"
+              disabled={!manualTurnText.trim() || isSending}
+              onClick={() => {
+                void handleCandidateTurn(manualTurnText)
+                setManualTurnText('')
+              }}
+            >
+              Send
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   )
