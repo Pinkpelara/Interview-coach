@@ -5,7 +5,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/Button'
-import { Mic, MicOff, Clock, PencilLine, ChevronLeft, ChevronRight, PhoneOff } from 'lucide-react'
+import { Mic, MicOff, Clock, PencilLine, ChevronLeft, ChevronRight, PhoneOff, Send } from 'lucide-react'
 import { useInterviewExchangeTransport } from '@/lib/interview/useInterviewExchangeTransport'
 
 interface Character {
@@ -91,6 +91,7 @@ function useSpeech() {
   const currentAudioRef = useRef<HTMLAudioElement | null>(null)
   const currentAudioUrlRef = useRef<string | null>(null)
   const ttsModeRef = useRef<'unknown' | 'available' | 'unavailable'>('unknown')
+  const voicesRef = useRef<SpeechSynthesisVoice[]>([])
   const rafRef = useRef<number | null>(null)
   const synthRef = useRef<SpeechSynthesis | null>(null)
 
@@ -104,13 +105,57 @@ function useSpeech() {
 
   useEffect(() => {
     synthRef.current = window.speechSynthesis
+    const refreshVoices = () => {
+      voicesRef.current = synthRef.current?.getVoices() || []
+    }
+    refreshVoices()
+    if (synthRef.current) {
+      synthRef.current.onvoiceschanged = refreshVoices
+    }
     return () => {
       currentAudioRef.current?.pause()
       if (currentAudioUrlRef.current) URL.revokeObjectURL(currentAudioUrlRef.current)
       synthRef.current?.cancel()
+      if (synthRef.current) {
+        synthRef.current.onvoiceschanged = null
+      }
       stopAnalyser()
     }
   }, [])
+
+  const chooseNaturalVoice = (archetype?: string): SpeechSynthesisVoice | undefined => {
+    const voices = voicesRef.current
+    if (!voices.length) return undefined
+
+    const englishVoices = voices.filter((v) => (v.lang || '').toLowerCase().startsWith('en'))
+    const preferredPool = englishVoices.length ? englishVoices : voices
+    const sorted = preferredPool.slice().sort((a, b) => {
+      const score = (name: string) => {
+        const lower = name.toLowerCase()
+        let s = 0
+        if (lower.includes('google')) s += 4
+        if (lower.includes('microsoft')) s += 4
+        if (lower.includes('samantha')) s += 3
+        if (lower.includes('aria')) s += 3
+        if (lower.includes('jenny')) s += 3
+        if (lower.includes('natural')) s += 5
+        if (lower.includes('neural')) s += 5
+        return s
+      }
+      return score(b.name) - score(a.name)
+    })
+
+    const wantsLowerRegister = archetype === 'skeptic' || archetype === 'technical_griller' || archetype === 'distracted_senior'
+    if (wantsLowerRegister) {
+      const match = sorted.find((v) => {
+        const n = v.name.toLowerCase()
+        return n.includes('davis') || n.includes('guy') || n.includes('david') || n.includes('male')
+      })
+      if (match) return match
+    }
+
+    return sorted[0]
+  }
 
   const analyseAudio = (audio: HTMLAudioElement) => {
     try {
@@ -207,6 +252,7 @@ function useSpeech() {
         return
       }
       const utterance = new SpeechSynthesisUtterance(text)
+      utterance.voice = chooseNaturalVoice(archetype) || null
       utterance.rate = archetype === 'technical_griller' ? 0.92 : archetype === 'friendly_champion' ? 1.02 : 0.96
       utterance.pitch = archetype === 'skeptic' ? 0.9 : 1
       setAmplitude(0.45)
@@ -269,6 +315,8 @@ export default function InterviewRoomPage() {
   const [isMicOn, setIsMicOn] = useState(true)
   const [isListening, setIsListening] = useState(false)
   const [isSending, setIsSending] = useState(false)
+  const [manualTurn, setManualTurn] = useState('')
+  const [interimText, setInterimText] = useState('')
   const [cameraReady, setCameraReady] = useState(false)
   const [audioConfirmed, setAudioConfirmed] = useState(false)
   const [cameraConfirmed, setCameraConfirmed] = useState(false)
@@ -278,6 +326,8 @@ export default function InterviewRoomPage() {
   const selfViewRef = useRef<HTMLVideoElement | null>(null)
   const recognitionRef = useRef<any>(null)
   const silenceTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const recognitionWatchdogRef = useRef<NodeJS.Timeout | null>(null)
+  const noSpeechStreakRef = useRef(0)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
   const chatEndRef = useRef<HTMLDivElement | null>(null)
 
@@ -319,6 +369,8 @@ export default function InterviewRoomPage() {
     recognitionRef.current?.stop()
     setIsListening(false)
     if (silenceTimeoutRef.current) clearTimeout(silenceTimeoutRef.current)
+    if (recognitionWatchdogRef.current) clearTimeout(recognitionWatchdogRef.current)
+    setInterimText('')
   }, [])
 
   const startListening = useCallback(() => {
@@ -332,22 +384,56 @@ export default function InterviewRoomPage() {
     recognition.continuous = true
     recognition.interimResults = true
     recognition.lang = 'en-US'
-    let finalTranscript = ''
+    let finalSegments: string[] = []
+    let interim = ''
+    let didStopForSilence = false
+    if (recognitionWatchdogRef.current) clearTimeout(recognitionWatchdogRef.current)
+    recognitionWatchdogRef.current = setTimeout(() => {
+      recognition.stop()
+    }, 12000)
     recognition.onresult = (event: any) => {
-      let chunk = ''
+      let latestInterim = ''
       for (let i = event.resultIndex; i < event.results.length; i++) {
-        chunk += event.results[i][0].transcript
+        const transcript = String(event.results[i][0].transcript || '').trim()
+        if (!transcript) continue
+        if (event.results[i].isFinal) {
+          finalSegments.push(transcript)
+        } else {
+          latestInterim += (latestInterim ? ' ' : '') + transcript
+        }
       }
-      finalTranscript = chunk.trim()
+      interim = latestInterim
+      setInterimText([...finalSegments, interim].filter(Boolean).join(' ').trim())
       if (silenceTimeoutRef.current) clearTimeout(silenceTimeoutRef.current)
       silenceTimeoutRef.current = setTimeout(() => {
+        didStopForSilence = true
         recognition.stop()
       }, 1500)
+      if (recognitionWatchdogRef.current) clearTimeout(recognitionWatchdogRef.current)
+      recognitionWatchdogRef.current = setTimeout(() => {
+        recognition.stop()
+      }, 12000)
     }
     recognition.onend = () => {
       setIsListening(false)
-      if (finalTranscript && phase === 'interview') {
-        void handleCandidateTurn(finalTranscript)
+      if (silenceTimeoutRef.current) clearTimeout(silenceTimeoutRef.current)
+      if (recognitionWatchdogRef.current) clearTimeout(recognitionWatchdogRef.current)
+
+      const composed = [...finalSegments, interim].filter(Boolean).join(' ').trim()
+      setInterimText('')
+      if (composed && phase === 'interview') {
+        noSpeechStreakRef.current = 0
+        void handleCandidateTurn(composed)
+      } else if (phase === 'interview' && isMicOn) {
+        noSpeechStreakRef.current += 1
+        if (noSpeechStreakRef.current >= 2) {
+          setError('Speech capture is unstable. Use the text box below to send your turn immediately.')
+        }
+        setTimeout(() => {
+          if (phase === 'interview' && isMicOn && !isSending && !didStopForSilence) {
+            startListening()
+          }
+        }, 250)
       }
     }
     recognition.onerror = () => setIsListening(false)
@@ -355,7 +441,7 @@ export default function InterviewRoomPage() {
     recognitionRef.current = recognition
     setIsListening(true)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isMicOn, phase])
+  }, [isMicOn, isSending, phase])
 
   useEffect(() => {
     const w = window as any
@@ -522,6 +608,14 @@ export default function InterviewRoomPage() {
     }
   }
 
+  const sendManualTurn = useCallback(async () => {
+    const text = manualTurn.trim()
+    if (!text || isSending || phase !== 'interview') return
+    stopListening()
+    setManualTurn('')
+    await handleCandidateTurn(text)
+  }, [handleCandidateTurn, isSending, manualTurn, phase, stopListening])
+
   const endInterview = async () => {
     stopListening()
     stopSpeech()
@@ -630,7 +724,7 @@ export default function InterviewRoomPage() {
           <div className="text-center">
             <Button
               size="lg"
-              disabled={!cameraReady || !cameraConfirmed || !audioConfirmed || !speechSupported}
+              disabled={!cameraReady || !cameraConfirmed || !audioConfirmed}
               onClick={() => {
                 setCountdown(PRE_INTERVIEW_COUNTDOWN_SECONDS)
                 setPhase('countdown')
@@ -640,7 +734,7 @@ export default function InterviewRoomPage() {
             </Button>
             {!speechSupported && (
               <p className="mt-2 text-xs text-amber-300">
-                This browser does not support live speech recognition required for Perform mode.
+                Speech recognition is unavailable in this browser. Use the text box in-room to send your turns.
               </p>
             )}
             {error && <p className="mt-3 text-xs text-red-300">{error}</p>}
@@ -758,25 +852,59 @@ export default function InterviewRoomPage() {
         </aside>
       </div>
 
-      <div className="flex items-center justify-center gap-3 border-t border-white/10 bg-[#0f172a] py-3">
-        <button
-          onClick={toggleMic}
-          className={`flex h-12 w-12 items-center justify-center rounded-full ${isMicOn ? 'bg-slate-700 text-white' : 'bg-red-600 text-white'}`}
-          title={isMicOn ? 'Mute microphone' : 'Unmute microphone'}
-          disabled={isSending}
-        >
-          {isMicOn ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}
-        </button>
-        <button
-          onClick={() => {
-            void endInterview()
-          }}
-          className="flex h-12 w-12 items-center justify-center rounded-full bg-red-600 text-white hover:bg-red-700"
-          title="End call"
-          disabled={isSending}
-        >
-          <PhoneOff className="h-5 w-5" />
-        </button>
+      <div className="border-t border-white/10 bg-[#0f172a] px-3 py-3">
+        <div className="mx-auto flex w-full max-w-6xl flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <form
+              className="flex flex-1 items-center gap-2"
+              onSubmit={(e) => {
+                e.preventDefault()
+                void sendManualTurn()
+              }}
+            >
+              <input
+                value={manualTurn}
+                onChange={(e) => setManualTurn(e.target.value)}
+                className="h-10 w-full rounded-md border border-white/15 bg-[#101a2d] px-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-cyan-400"
+                placeholder="Type your answer if speech capture misses you..."
+                disabled={isSending}
+              />
+              <Button
+                type="submit"
+                variant="secondary"
+                className="h-10 px-3"
+                disabled={isSending || !manualTurn.trim()}
+              >
+                <Send className="h-4 w-4" />
+              </Button>
+            </form>
+          </div>
+          {interimText && (
+            <p className="text-xs text-cyan-300">
+              Captured: {interimText}
+            </p>
+          )}
+          <div className="flex items-center justify-center gap-3">
+            <button
+              onClick={toggleMic}
+              className={`flex h-12 w-12 items-center justify-center rounded-full ${isMicOn ? 'bg-slate-700 text-white' : 'bg-red-600 text-white'}`}
+              title={isMicOn ? 'Mute microphone' : 'Unmute microphone'}
+              disabled={isSending}
+            >
+              {isMicOn ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}
+            </button>
+            <button
+              onClick={() => {
+                void endInterview()
+              }}
+              className="flex h-12 w-12 items-center justify-center rounded-full bg-red-600 text-white hover:bg-red-700"
+              title="End call"
+              disabled={isSending}
+            >
+              <PhoneOff className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   )
