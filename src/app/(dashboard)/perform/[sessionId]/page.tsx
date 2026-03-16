@@ -5,7 +5,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/Button'
-import { Mic, MicOff, Clock, PencilLine, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Mic, MicOff, Clock, PencilLine, ChevronLeft, ChevronRight, PhoneOff } from 'lucide-react'
 
 interface Character {
   id: string
@@ -712,7 +712,7 @@ export default function InterviewRoomPage() {
         </aside>
       </div>
 
-      <div className="flex items-center justify-center border-t border-white/10 bg-[#0f172a] py-3">
+      <div className="flex items-center justify-center gap-3 border-t border-white/10 bg-[#0f172a] py-3">
         <button
           onClick={toggleMic}
           className={`flex h-12 w-12 items-center justify-center rounded-full ${isMicOn ? 'bg-slate-700 text-white' : 'bg-red-600 text-white'}`}
@@ -720,6 +720,16 @@ export default function InterviewRoomPage() {
           disabled={isSending}
         >
           {isMicOn ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}
+        </button>
+        <button
+          onClick={() => {
+            void endInterview()
+          }}
+          className="flex h-12 w-12 items-center justify-center rounded-full bg-red-600 text-white hover:bg-red-700"
+          title="End call"
+          disabled={isSending}
+        >
+          <PhoneOff className="h-5 w-5" />
         </button>
       </div>
     </div>

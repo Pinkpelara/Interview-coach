@@ -146,7 +146,7 @@ async function callAi(path, payload, fallback) {
 }
 
 app.get("/healthz", (_req, res) => {
-  res.json({ ok: true, service: "seatvio-api-server", mode: "v4-dev" });
+  res.json({ ok: true, service: "seatvio-api-server", mode: "v6-dev" });
 });
 
 // 3.1 Auth Endpoints

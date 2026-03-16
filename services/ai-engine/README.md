@@ -1,4 +1,4 @@
-# Seatvio AI Engine (Unified v4)
+# Seatvio AI Engine (PRD v6 baseline)
 
 Async AI task service endpoints:
 

@@ -1,4 +1,4 @@
-# Seatvio GPU Workers (Unified v4)
+# Seatvio GPU Workers (PRD v6 baseline)
 
 Inference contract service.
 

@@ -1,6 +1,6 @@
-# Seatvio API Server (Unified v4)
+# Seatvio API Server (PRD v6 baseline)
 
-Implements the v4 backend API surface:
+Implements the Seatvio backend API surface:
 
 - Auth: `/api/auth/signup|verify|signin|signout|forgot-password|reset-password|me`
 - Profile: `/api/profile` (POST/PUT/GET)

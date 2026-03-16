@@ -1,4 +1,4 @@
--- Seatvio Unified Specification v4.0
+-- Seatvio schema baseline (legacy migration, superseded by PRD v6 updates)
 -- PostgreSQL migration
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;

@@ -1,98 +1,57 @@
 # SEATVIO
-## Complete Build Specification (Unified v4.0)
+## Product Requirements Baseline: v6.0 FINAL
 ### "So real, you'll get nervous."
 
-This repository is aligned to the **Unified Specification v4.0** as the single source of truth.
+Seatvio is an AI interview simulation platform focused on realistic, pressure-based practice tied to each user's real application context.
+
+This repository is maintained against the **Seatvio PRD v6.0 FINAL** baseline.
 
 ---
 
-## Architecture (6 Services)
+## Core Product Modules
 
-| Service | Runtime | GPU | Responsibility |
-|---|---|---:|---|
-| `services/web-app` | TypeScript / Next.js | No | Frontend pages, interview room UI, client animation |
-| `services/api-server` | TypeScript (Node/Express) | No | Auth, application/session data, business APIs, queue triggers |
-| `services/ai-engine` | Python / FastAPI | No | Async AI tasks (parse, questions, analysis, debrief, observe, countdown) |
-| `services/interview-conductor` | Python / FastAPI + WebSocket | No | Real-time turn loop, character behavior, silence enforcement |
-| `services/gpu-workers` | Python / FastAPI | Yes | STT, LLM streaming, TTS, animation inference interfaces |
-| `services/media-relay` | TypeScript / Node + ws | No | Browser <-> conductor WebSocket relay for real-time interview traffic |
+1. **Prepare**  
+   Parse resume + JD, generate a 100–200+ personalized question bank across 10 categories, provide answer-building + analysis workflows.
 
----
+2. **Perform**  
+   Live audio interview simulation in a Teams-style cameras-off room with interviewer archetypes, intentional dead-air silence, and panel dynamics.
 
-## Monorepo Layout
-
-```txt
-seatvio/
-├─ docker-compose.yml
-├─ docker-compose.gpu.yml
-├─ packages/
-│  ├─ shared/types/
-│  ├─ shared/constants/
-│  ├─ prompts/characters/
-│  ├─ prompts/question-gen/
-│  ├─ prompts/answer-analysis/
-│  ├─ prompts/debrief/
-│  ├─ prompts/observe/
-│  └─ db/migrations/
-└─ services/
-   ├─ api-server/
-   ├─ ai-engine/
-   ├─ interview-conductor/
-   ├─ gpu-workers/
-   └─ media-relay/
-```
+3. **Observe**  
+   Perfect and Cautionary runs generated from the user's own application context and session patterns.
 
 ---
 
-## Database Schema
+## Current Web App Stack
 
-Unified v4 SQL migration:
-
-- `packages/db/migrations/0001_unified_v4_schema.sql`
-
-This migration defines all v4 entities:
-`users`, `user_profiles`, `applications`, `parsed_resumes`, `parsed_jds`,
-`alignment_analyses`, `questions`, `user_answers`, `answer_feedbacks`,
-`interview_sessions`, `session_exchanges`, `session_analyses`,
-`observe_sessions`, `subscriptions`, `countdown_plans`.
+- Next.js (App Router)
+- Prisma + PostgreSQL
+- NextAuth credentials auth
+- AI gateway pattern for model-backed features
 
 ---
 
-## Prompt Assets
+## Database Deployment Strategy
 
-Prompt packs are version-controlled in:
-
-- `packages/prompts/characters/`
-- `packages/prompts/question-gen/system.md`
-- `packages/prompts/answer-analysis/system.md`
-- `packages/prompts/debrief/system.md`
-- `packages/prompts/observe/system.md`
-
----
-
-## Local Dev
-
-Start service stack:
+Production deploys use migrations (non-destructive path):
 
 ```bash
-docker compose up --build
+npm run build
 ```
 
-GPU profile:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build
-```
+Current build pipeline:
+- `prisma generate`
+- `prisma migrate deploy`
+- `next build`
 
 ---
 
-## Naming and Brand
+## Branding Rules
 
 - Product name: **Seatvio**
 - Tagline: **So real, you'll get nervous.**
 - Primary domain: **seatvio.app**
 
-Do **not** use:
+Forbidden names:
 - Intervia
 - Nerveo
 

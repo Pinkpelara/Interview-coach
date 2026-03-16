@@ -1,10 +1,10 @@
-# Seatvio Media Relay (Unified v4)
+# Seatvio Media Relay (PRD v6 baseline)
 
 WebSocket relay between browser clients and interview-conductor.
 
 ## Paths
 
-- Primary v4 path: `/ws/audio/:session_id`
+- Primary path: `/ws/audio/:session_id`
 - Legacy compatibility path: `/ws/interview?sessionId=:id`
 - Health: `/healthz`
 

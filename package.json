@@ -1,11 +1,11 @@
 {
-  "name": "interview-coach",
+  "name": "seatvio",
   "version": "1.0.0",
   "description": "SEATVIO AI Interview Simulation Platform “So real, you’ll get nervous.”",
   "main": "index.js",
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && prisma db push && next build",
+    "build": "prisma generate && (if [ -n \"$DATABASE_URL\" ]; then prisma migrate deploy; else echo \"Skipping prisma migrate deploy (DATABASE_URL not set)\"; fi) && next build",
     "start": "next start",
     "lint": "next lint",
     "ai:conformance": "node scripts/ai-conformance.mjs",

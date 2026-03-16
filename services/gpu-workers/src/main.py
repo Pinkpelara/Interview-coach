@@ -48,7 +48,7 @@ def _silence_wav_bytes(duration_s: float = 2.0, sample_rate: int = 16000) -> byt
 
 @app.get("/healthz")
 async def healthz() -> dict[str, Any]:
-    return {"ok": True, "service": APP_NAME, "mode": "mock-v4"}
+    return {"ok": True, "service": APP_NAME, "mode": "mock-v6"}
 
 
 @app.post("/transcribe")

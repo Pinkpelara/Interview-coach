@@ -1,4 +1,4 @@
-# Seatvio Interview Conductor (Unified v4)
+# Seatvio Interview Conductor (PRD v6 baseline)
 
 Real-time interview orchestrator.
 
