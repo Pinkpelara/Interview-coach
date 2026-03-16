@@ -42,7 +42,6 @@ model UserProfile {
   portfolioUrl    String?
 
   createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
 }
 
 model Application {
