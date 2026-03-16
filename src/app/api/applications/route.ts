@@ -137,7 +137,7 @@ Return:
           jobTitle: jobTitle.trim(),
           jdText: jdText.trim(),
           resumeText: resumeText.trim(),
-          interviewStage: interviewStage?.trim() || 'screening',
+          interviewStage: interviewStage?.trim() || 'Applied',
           alignmentScore,
           skillGaps,
           strengths,

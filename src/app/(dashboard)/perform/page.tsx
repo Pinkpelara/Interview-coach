@@ -82,10 +82,10 @@ export default function PerformPage() {
           // Pre-select stage based on application's interview stage
           if (data.interviewStage) {
             const stageMap: Record<string, string> = {
-              screening: 'Phone Screen',
-              technical: 'First Round',
-              behavioral: 'Panel Interview',
-              final: 'Final Round',
+              Applied: 'Phone Screen',
+              'Phone Screen Scheduled': 'Phone Screen',
+              'First Round Scheduled': 'First Round',
+              'Panel/Final Round Scheduled': 'Panel Interview',
             }
             const mapped = stageMap[data.interviewStage] || data.interviewStage
             const valid = STAGES.find(s => s.value === mapped)

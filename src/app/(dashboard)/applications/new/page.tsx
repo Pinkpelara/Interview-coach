@@ -7,26 +7,56 @@ import { Input } from '@/components/ui/Input'
 import { Textarea } from '@/components/ui/Textarea'
 import { Select } from '@/components/ui/Select'
 import { Card, CardContent } from '@/components/ui/Card'
-import { Briefcase, Upload, FileText, Building2 } from 'lucide-react'
+import { Briefcase, Upload, FileText, Building2, Loader2 } from 'lucide-react'
 
 const STAGE_OPTIONS = [
-  { value: 'applied', label: 'Applied' },
-  { value: 'phone_screen', label: 'Phone Screen Scheduled' },
-  { value: 'first_round', label: 'First Round Scheduled' },
-  { value: 'panel_final', label: 'Panel/Final Round Scheduled' },
+  { value: 'Applied', label: 'Applied' },
+  { value: 'Phone Screen Scheduled', label: 'Phone Screen Scheduled' },
+  { value: 'First Round Scheduled', label: 'First Round Scheduled' },
+  { value: 'Panel/Final Round Scheduled', label: 'Panel/Final Round Scheduled' },
 ]
 
 export default function NewApplicationPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
+  const [parsingJd, setParsingJd] = useState(false)
+  const [parsingResume, setParsingResume] = useState(false)
   const [error, setError] = useState('')
   const [form, setForm] = useState({
     companyName: '',
     jobTitle: '',
     jdText: '',
     resumeText: '',
-    interviewStage: '',
+    interviewStage: 'Applied',
   })
+
+  async function parseDocument(file: File, type: 'jd' | 'resume') {
+    if (type === 'jd') setParsingJd(true)
+    if (type === 'resume') setParsingResume(true)
+    setError('')
+    try {
+      const data = new FormData()
+      data.append('file', file)
+      const res = await fetch('/api/documents/parse', {
+        method: 'POST',
+        body: data,
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(body.error || 'Failed to parse document')
+      }
+      if (type === 'jd') {
+        setForm((prev) => ({ ...prev, jdText: body.text || '' }))
+      } else {
+        setForm((prev) => ({ ...prev, resumeText: body.text || '' }))
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to parse document')
+    } finally {
+      if (type === 'jd') setParsingJd(false)
+      if (type === 'resume') setParsingResume(false)
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -106,8 +136,29 @@ export default function NewApplicationPage() {
               <h2 className="text-lg font-semibold">Job Description</h2>
             </div>
             <p className="text-sm text-gray-500">
-              Paste the full job description. The more detail, the better your prep will be.
+              Paste the full job description or upload the original JD PDF/text file.
             </p>
+            <div className="flex items-center gap-3">
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50">
+                <Upload className="h-3.5 w-3.5" />
+                Upload JD file (PDF/TXT)
+                <input
+                  type="file"
+                  accept=".pdf,.txt,.md,text/plain,application/pdf"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (file) void parseDocument(file, 'jd')
+                    e.currentTarget.value = ''
+                  }}
+                />
+              </label>
+              {parsingJd && (
+                <span className="inline-flex items-center gap-1 text-xs text-gray-500">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Parsing JD...
+                </span>
+              )}
+            </div>
             <Textarea
               placeholder="Paste the complete job description here..."
               value={form.jdText}
@@ -124,8 +175,29 @@ export default function NewApplicationPage() {
               <h2 className="text-lg font-semibold">Resume</h2>
             </div>
             <p className="text-sm text-gray-500">
-              Paste your resume text. Every question and answer will be built from your actual experience.
+              Paste resume text or upload your resume PDF/text file.
             </p>
+            <div className="flex items-center gap-3">
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50">
+                <Upload className="h-3.5 w-3.5" />
+                Upload resume file (PDF/TXT)
+                <input
+                  type="file"
+                  accept=".pdf,.txt,.md,text/plain,application/pdf"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (file) void parseDocument(file, 'resume')
+                    e.currentTarget.value = ''
+                  }}
+                />
+              </label>
+              {parsingResume && (
+                <span className="inline-flex items-center gap-1 text-xs text-gray-500">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Parsing resume...
+                </span>
+              )}
+            </div>
             <Textarea
               placeholder="Paste your resume content here..."
               value={form.resumeText}

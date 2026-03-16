@@ -35,16 +35,14 @@ function safeParseJSON(value: string | null | undefined): string[] {
 
 function stageBadgeVariant(stage: string | null | undefined) {
   switch (stage) {
-    case 'screening':
+    case 'Applied':
       return 'info' as const
-    case 'technical':
+    case 'Phone Screen Scheduled':
       return 'warning' as const
-    case 'behavioral':
+    case 'First Round Scheduled':
       return 'default' as const
-    case 'final':
+    case 'Panel/Final Round Scheduled':
       return 'danger' as const
-    case 'offer':
-      return 'success' as const
     default:
       return 'default' as const
   }
