@@ -46,6 +46,7 @@ interface Question {
   timeGuidance: number | null
   difficulty: number
   likelyFollowUp: string | null
+  likelyFollowUps?: string[]
   userAnswers: UserAnswer[]
 }
 
@@ -59,24 +60,30 @@ type TabKey = 'questions' | 'flashcards' | 'coaching'
 
 type QuestionFilter =
   | 'all'
-  | 'behavioral'
-  | 'technical'
-  | 'situational'
-  | 'company-specific'
-  | 'curveball'
   | 'opening'
-  | 'closing'
+  | 'behavioral'
+  | 'situational'
+  | 'technical'
+  | 'company-specific'
+  | 'culture-fit'
+  | 'motivation'
+  | 'curveball'
+  | 'closing-candidate'
+  | 'salary-negotiation'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const QUESTION_TYPE_COLORS: Record<string, string> = {
+  opening: 'bg-slate-100 text-slate-700',
   behavioral: 'bg-blue-100 text-blue-700',
-  technical: 'bg-purple-100 text-purple-700',
   situational: 'bg-green-100 text-green-700',
+  technical: 'bg-purple-100 text-purple-700',
   'company-specific': 'bg-orange-100 text-orange-700',
+  'culture-fit': 'bg-fuchsia-100 text-fuchsia-700',
+  motivation: 'bg-sky-100 text-sky-700',
   curveball: 'bg-red-100 text-red-700',
-  opening: 'bg-gray-100 text-gray-700',
-  closing: 'bg-gray-100 text-gray-700',
+  'closing-candidate': 'bg-emerald-100 text-emerald-700',
+  'salary-negotiation': 'bg-amber-100 text-amber-700',
 }
 
 const STATUS_BADGE_CONFIG: Record<string, { label: string; variant: 'default' | 'warning' | 'success' | 'info' }> = {
@@ -88,13 +95,16 @@ const STATUS_BADGE_CONFIG: Record<string, { label: string; variant: 'default' | 
 
 const FILTER_OPTIONS: { label: string; value: QuestionFilter }[] = [
   { label: 'All', value: 'all' },
-  { label: 'Behavioral', value: 'behavioral' },
-  { label: 'Technical', value: 'technical' },
-  { label: 'Situational', value: 'situational' },
-  { label: 'Company-Specific', value: 'company-specific' },
-  { label: 'Curveball', value: 'curveball' },
   { label: 'Opening', value: 'opening' },
-  { label: 'Closing', value: 'closing' },
+  { label: 'Behavioral', value: 'behavioral' },
+  { label: 'Situational', value: 'situational' },
+  { label: 'Technical', value: 'technical' },
+  { label: 'Company-Specific', value: 'company-specific' },
+  { label: 'Culture Fit', value: 'culture-fit' },
+  { label: 'Motivation', value: 'motivation' },
+  { label: 'Curveball', value: 'curveball' },
+  { label: 'Closing (Candidate)', value: 'closing-candidate' },
+  { label: 'Salary / Negotiation', value: 'salary-negotiation' },
 ]
 
 const COACHING_SECTIONS = [
@@ -182,6 +192,7 @@ function scanRedFlags(text: string, timeGuidance: number | null): RedFlag[] {
     'kind of',
     'maybe',
     'i feel like',
+    "i'm not sure",
   ]
 
   const ownershipPatterns = [
@@ -246,6 +257,8 @@ export default function PreparePage() {
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [filter, setFilter] = useState<QuestionFilter>('all')
+  const [difficultyFilter, setDifficultyFilter] = useState<number | 'all'>('all')
+  const [competencyFilter, setCompetencyFilter] = useState<string>('all')
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [answerWorkspaceId, setAnswerWorkspaceId] = useState<string | null>(null)
   const [draftText, setDraftText] = useState('')
@@ -424,10 +437,26 @@ export default function PreparePage() {
 
   // ─── Derived values ─────────────────────────────────────────────────────────
 
-  const filteredQuestions =
-    filter === 'all'
-      ? questions
-      : questions.filter((q) => q.questionType === filter)
+  const competencyValues = Array.from(
+    new Set(
+      questions
+        .map((q) => {
+          const match = q.whyAsked?.match(/\[competency:([a-z_]+)\]/i)
+          return match?.[1] || null
+        })
+        .filter((v): v is string => Boolean(v))
+    )
+  )
+
+  const filteredQuestions = questions.filter((q) => {
+    if (filter !== 'all' && q.questionType !== filter) return false
+    if (difficultyFilter !== 'all' && q.difficulty !== difficultyFilter) return false
+    if (competencyFilter !== 'all') {
+      const marker = `[competency:${competencyFilter}]`
+      if (!q.whyAsked?.toLowerCase().includes(marker)) return false
+    }
+    return true
+  })
 
   const readyCount = questions.filter(
     (q) => q.userAnswers[0]?.status === 'ready'
@@ -567,7 +596,7 @@ export default function PreparePage() {
           ) : (
             <>
               {/* Filter bar */}
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {FILTER_OPTIONS.map((opt) => (
                   <button
                     key={opt.value}
@@ -581,6 +610,29 @@ export default function PreparePage() {
                     {opt.label}
                   </button>
                 ))}
+                <select
+                  value={difficultyFilter}
+                  onChange={(e) => {
+                    const value = e.target.value
+                    setDifficultyFilter(value === 'all' ? 'all' : Number.parseInt(value, 10))
+                  }}
+                  className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-700"
+                >
+                  <option value="all">All difficulties</option>
+                  {[1, 2, 3, 4, 5].map((d) => (
+                    <option key={d} value={d}>{`Difficulty ${d}`}</option>
+                  ))}
+                </select>
+                <select
+                  value={competencyFilter}
+                  onChange={(e) => setCompetencyFilter(e.target.value)}
+                  className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs text-gray-700"
+                >
+                  <option value="all">All competencies</option>
+                  {competencyValues.map((c) => (
+                    <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>
+                  ))}
+                </select>
               </div>
 
               {/* Answer workspace (split view) */}
@@ -906,14 +958,22 @@ export default function PreparePage() {
                                 <p className="mt-1 text-sm text-red-600">{q.whatNotToSay}</p>
                               </div>
                             )}
-                            {q.likelyFollowUp && (
+                            {(q.likelyFollowUp || (q.likelyFollowUps && q.likelyFollowUps.length > 0)) && (
                               <div>
                                 <h4 className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                                  Likely Follow-up
+                                  Likely Follow-ups
                                 </h4>
-                                <p className="mt-1 text-sm text-gray-700 italic">
-                                  &ldquo;{q.likelyFollowUp}&rdquo;
-                                </p>
+                                {(q.likelyFollowUps && q.likelyFollowUps.length > 0) ? (
+                                  <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-gray-700">
+                                    {q.likelyFollowUps.map((f, idx) => (
+                                      <li key={idx}>{f}</li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <p className="mt-1 text-sm text-gray-700 italic">
+                                    &ldquo;{q.likelyFollowUp}&rdquo;
+                                  </p>
+                                )}
                               </div>
                             )}
                           </div>

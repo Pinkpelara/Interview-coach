@@ -11,24 +11,46 @@ export const ApplicationAlignmentSchema = z.object({
 export const QuestionTemplateSchema = z.object({
   questionText: z.string().min(10),
   questionType: z.enum([
-    'behavioral',
-    'technical',
-    'situational',
-    'company-specific',
-    'curveball',
     'opening',
-    'closing',
+    'behavioral',
+    'situational',
+    'technical',
+    'company-specific',
+    'culture-fit',
+    'motivation',
+    'curveball',
+    'closing-candidate',
+    'salary-negotiation',
   ]),
+  competencyDomain: z.string().min(2).optional(),
   whyAsked: z.string().min(8),
   framework: z.string().min(2),
-  modelAnswer: z.string().min(20),
+  modelAnswer: z.string().refine((v) => v.trim().split(/\s+/).filter(Boolean).length >= 200, {
+    message: 'modelAnswer must contain at least 200 words',
+  }),
   whatNotToSay: z.string().min(8),
   timeGuidance: z.number().min(45).max(240),
-  difficulty: z.number().min(1).max(5),
-  likelyFollowUp: z.string().min(8),
+  likelyFollowUps: z.array(z.string().min(8)).min(2).max(3),
+  difficulty: z.number().int().min(1).max(5),
+  bestAskedByArchetype: z.enum([
+    'skeptic',
+    'friendly_champion',
+    'technical_griller',
+    'distracted_senior',
+    'culture_fit',
+    'silent_observer',
+  ]),
+  bestStage: z.enum([
+    'phone_screen',
+    'first_round',
+    'panel',
+    'final_round',
+    'case',
+    'stress',
+  ]),
 })
 
-export const QuestionTemplateArraySchema = z.array(QuestionTemplateSchema).min(25)
+export const QuestionTemplateArraySchema = z.array(QuestionTemplateSchema).min(100).max(240)
 
 export const AnswerAnalysisSchema = z.object({
   strengths: z.array(z.string()).min(1),

@@ -2,7 +2,24 @@ import { NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { isNotificationEnabled, sendNotificationEmail } from '@/lib/notifications'
+
+function parseSessionConfig(raw: string | null) {
+  if (!raw) return { panel: [], questionPlan: [], questionState: null, unexpectedEvents: [] }
+  try {
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) {
+      return { panel: parsed, questionPlan: [], questionState: null, unexpectedEvents: [] }
+    }
+    return {
+      panel: parsed.panel || [],
+      questionPlan: parsed.questionPlan || [],
+      questionState: parsed.questionState || null,
+      unexpectedEvents: parsed.unexpectedEvents || [],
+    }
+  } catch {
+    return { panel: [], questionPlan: [], questionState: null, unexpectedEvents: [] }
+  }
+}
 
 export async function GET(
   request: Request,
@@ -41,9 +58,13 @@ export async function GET(
       return NextResponse.json({ error: 'Session not found' }, { status: 404 })
     }
 
+    const config = parseSessionConfig(interviewSession.characters)
     return NextResponse.json({
       ...interviewSession,
-      characters: JSON.parse(interviewSession.characters || '[]'),
+      characters: config.panel,
+      questionPlan: config.questionPlan,
+      questionState: config.questionState,
+      unexpectedEvents: config.unexpectedEvents,
     })
   } catch (error) {
     console.error('Error fetching session:', error)
@@ -106,50 +127,13 @@ export async function PUT(
       },
     })
 
-    if (body.status === 'completed') {
-      const shouldSend = await isNotificationEnabled(userId, 'sessionSummaryEmail')
-      if (shouldSend) {
-        const user = await prisma.user.findUnique({
-          where: { id: userId },
-          select: { email: true, fullName: true },
-        })
-        const analysis = await prisma.sessionAnalysis.findUnique({
-          where: { sessionId: id },
-          select: { hiringProbability: true, nextTargets: true },
-        })
-        const targets = (() => {
-          try {
-            const parsed = JSON.parse(analysis?.nextTargets || '[]')
-            return Array.isArray(parsed) ? parsed : []
-          } catch {
-            return []
-          }
-        })()
-        if (user?.email) {
-          const topTargets = targets
-            .slice(0, 3)
-            .map((t: { title?: string }, idx: number) => `${idx + 1}. ${t?.title || 'Refine your answer quality'}`)
-            .join('\n')
-          void sendNotificationEmail({
-            userId,
-            type: 'session_summary',
-            recipientEmail: user.email,
-            subject: `Seatvio Session Summary — ${updated.application.companyName} ${updated.stage}`,
-            body:
-              `Great work completing your session, ${user.fullName || 'there'}.\n\n` +
-              `Company: ${updated.application.companyName}\n` +
-              `Role: ${updated.application.jobTitle}\n` +
-              `Stage: ${updated.stage}\n` +
-              `Hiring Probability: ${analysis?.hiringProbability ?? 'Pending'}\n\n` +
-              `Top next targets:\n${topTargets || '1. Tighten specificity\n2. Improve confidence language\n3. Hold pauses under pressure'}`,
-          })
-        }
-      }
-    }
-
+    const config = parseSessionConfig(updated.characters)
     return NextResponse.json({
       ...updated,
-      characters: JSON.parse(updated.characters || '[]'),
+      characters: config.panel,
+      questionPlan: config.questionPlan,
+      questionState: config.questionState,
+      unexpectedEvents: config.unexpectedEvents,
     })
   } catch (error) {
     console.error('Error updating session:', error)
