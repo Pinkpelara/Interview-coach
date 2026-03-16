@@ -9,13 +9,18 @@ export async function getEffectivePlan(userId: string): Promise<PlanTier> {
   if (!sub || sub.status !== 'active') return 'free'
 
   const rawPlan = (sub.plan || 'free') as PlanTier
-  if (rawPlan !== 'crunch') return rawPlan
+  if (rawPlan === 'free') return 'free'
 
-  if (sub.currentPeriodEnd && sub.currentPeriodEnd.getTime() > Date.now()) {
-    return 'crunch'
+  // Legacy subscriptions may not have a period end; treat as active.
+  if (!sub.currentPeriodEnd) {
+    return rawPlan
   }
 
-  // Expired crunch falls back to free.
+  if (sub.currentPeriodEnd.getTime() > Date.now()) {
+    return rawPlan
+  }
+
+  // Any expired paid plan falls back to free.
   await prisma.subscription.update({
     where: { userId },
     data: { plan: 'free', status: 'active', currentPeriodEnd: null },

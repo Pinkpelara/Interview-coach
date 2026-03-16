@@ -150,3 +150,34 @@ BEGIN
       FOREIGN KEY ("applicationId") REFERENCES "Application"("id") ON DELETE CASCADE ON UPDATE CASCADE;
   END IF;
 END $$;
+
+-- CountdownPlan (countdown mode persistence)
+CREATE TABLE IF NOT EXISTS "CountdownPlan" (
+  "id" TEXT NOT NULL,
+  "applicationId" TEXT NOT NULL,
+  "interviewDate" TIMESTAMP(3) NOT NULL,
+  "planData" TEXT NOT NULL,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "CountdownPlan_pkey" PRIMARY KEY ("id")
+);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_indexes WHERE indexname = 'CountdownPlan_applicationId_key'
+  ) THEN
+    CREATE UNIQUE INDEX "CountdownPlan_applicationId_key" ON "CountdownPlan"("applicationId");
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'CountdownPlan_applicationId_fkey'
+  ) THEN
+    ALTER TABLE "CountdownPlan"
+      ADD CONSTRAINT "CountdownPlan_applicationId_fkey"
+      FOREIGN KEY ("applicationId") REFERENCES "Application"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
+END $$;

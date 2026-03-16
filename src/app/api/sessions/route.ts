@@ -3,6 +3,8 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { checkRateLimit } from '@/lib/rate-limit'
+import { checkFeature, getMaxCharacters, getSessionLimit, type PlanTier } from '@/lib/feature-gate'
+import { getEffectivePlan } from '@/lib/subscription'
 
 interface Character {
   id: string
@@ -36,6 +38,23 @@ interface SessionConfigEnvelope {
   }
   unexpectedEvents: Array<{ type: string; trigger_time_ms: number; character_id?: string }>
 }
+
+type Archetype =
+  | 'skeptic'
+  | 'friendly_champion'
+  | 'technical_griller'
+  | 'distracted_senior'
+  | 'culture_fit'
+  | 'silent_observer'
+
+const VALID_ARCHETYPES: Archetype[] = [
+  'skeptic',
+  'friendly_champion',
+  'technical_griller',
+  'distracted_senior',
+  'culture_fit',
+  'silent_observer',
+]
 
 function baseSilenceDurationForArchetype(archetype: string): number {
   switch (archetype) {
@@ -194,7 +213,25 @@ function normalizeInterviewFormat(input?: string | null): 'behavioral' | 'techni
   return 'mixed'
 }
 
-function selectArchetypes(stage: string, interviewFormat: 'behavioral' | 'technical' | 'case' | 'mixed'): string[] {
+function normalizeForcedArchetypes(raw: unknown): Archetype[] {
+  if (!Array.isArray(raw)) return []
+  const unique = new Set<Archetype>()
+  for (const item of raw) {
+    if (typeof item !== 'string') continue
+    const candidate = item.trim() as Archetype
+    if (VALID_ARCHETYPES.includes(candidate)) {
+      unique.add(candidate)
+    }
+  }
+  return Array.from(unique)
+}
+
+function selectArchetypes(
+  stage: string,
+  interviewFormat: 'behavioral' | 'technical' | 'case' | 'mixed',
+  forcedArchetypes: Archetype[] = []
+): Archetype[] {
+  if (forcedArchetypes.length > 0) return forcedArchetypes
   if (stage === 'Phone Screen') return ['friendly_champion']
   if (stage === 'Case Interview') return ['skeptic', 'technical_griller']
   if (stage === 'Stress Interview') return ['skeptic', 'technical_griller']
@@ -205,7 +242,7 @@ function selectArchetypes(stage: string, interviewFormat: 'behavioral' | 'techni
     return [Math.random() > 0.5 ? 'friendly_champion' : 'skeptic', Math.random() > 0.5 ? 'technical_griller' : 'skeptic']
   }
   if (stage === 'Panel Interview' || stage === 'Final Round') {
-    const set = ['friendly_champion', Math.random() > 0.5 ? 'skeptic' : 'technical_griller']
+    const set: Archetype[] = ['friendly_champion', Math.random() > 0.5 ? 'skeptic' : 'technical_griller']
     if (Math.random() > 0.3) set.push('silent_observer')
     return set
   }
@@ -307,10 +344,11 @@ function buildSessionConfig(args: {
   industry: string
   interviewFormat: 'behavioral' | 'technical' | 'case' | 'mixed'
   durationMinutes: number
+  forcedArchetypes?: Archetype[]
   questions: Array<{ questionText: string; questionType: string; difficulty: number }>
 }): SessionConfigEnvelope {
   const usedNames = new Set<string>()
-  const archetypes = selectArchetypes(args.stage, args.interviewFormat)
+  const archetypes = selectArchetypes(args.stage, args.interviewFormat, args.forcedArchetypes || [])
   const panel: Character[] = archetypes.map((archetype, index) => {
     const person = generateName(usedNames)
     const fullName = `${person.firstName} ${person.lastName}`
@@ -375,6 +413,38 @@ const VALID_STAGES = [
 
 const VALID_INTENSITIES = ['warmup', 'standard', 'high-pressure']
 
+function startOfCurrentUtcMonth(): Date {
+  const now = new Date()
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0))
+}
+
+function gateSessionCreationByPlan(params: {
+  plan: PlanTier
+  stage: string
+  forcedArchetypes: Archetype[]
+}): string | null {
+  const { plan, stage, forcedArchetypes } = params
+
+  const allStages = checkFeature(plan, 'all_stages')
+  if (!allStages.allowed && stage !== 'Phone Screen') {
+    return allStages.message
+  }
+
+  if ((stage === 'Panel Interview' || stage === 'Final Round') && !checkFeature(plan, 'panel_mode').allowed) {
+    return checkFeature(plan, 'panel_mode').message
+  }
+
+  if (stage === 'Stress Interview' && !checkFeature(plan, 'stress_interview').allowed) {
+    return checkFeature(plan, 'stress_interview').message
+  }
+
+  if (forcedArchetypes.length > 0 && !checkFeature(plan, 'pressure_lab').allowed) {
+    return checkFeature(plan, 'pressure_lab').message
+  }
+
+  return null
+}
+
 export async function GET() {
   try {
     const session = await getServerSession(authOptions)
@@ -436,7 +506,7 @@ export async function POST(request: Request) {
       )
     }
     const body = await request.json()
-    const { applicationId, stage, intensity, durationMinutes } = body
+    const { applicationId, stage, intensity, durationMinutes, forcedArchetypes: forcedRaw } = body
 
     if (!applicationId?.trim()) {
       return NextResponse.json({ error: 'Application ID is required' }, { status: 400 })
@@ -452,6 +522,40 @@ export async function POST(request: Request) {
         { error: `Intensity must be one of: ${VALID_INTENSITIES.join(', ')}` },
         { status: 400 }
       )
+    }
+    const normalizedDuration = Number(durationMinutes ?? 45)
+    if (!Number.isFinite(normalizedDuration) || normalizedDuration < 10 || normalizedDuration > 120) {
+      return NextResponse.json(
+        { error: 'Session length must be between 10 and 120 minutes.' },
+        { status: 400 }
+      )
+    }
+
+    const forcedArchetypes = normalizeForcedArchetypes(forcedRaw)
+    const effectivePlan = await getEffectivePlan(userId)
+    const gatingError = gateSessionCreationByPlan({
+      plan: effectivePlan,
+      stage,
+      forcedArchetypes,
+    })
+    if (gatingError) {
+      return NextResponse.json({ error: gatingError }, { status: 403 })
+    }
+
+    const monthlyLimit = getSessionLimit(effectivePlan)
+    if (Number.isFinite(monthlyLimit)) {
+      const usedThisMonth = await prisma.interviewSession.count({
+        where: {
+          userId,
+          createdAt: { gte: startOfCurrentUtcMonth() },
+        },
+      })
+      if (usedThisMonth >= monthlyLimit) {
+        return NextResponse.json(
+          { error: 'Your Free plan includes 2 sessions per month. Upgrade to continue.' },
+          { status: 403 }
+        )
+      }
     }
 
     const application = await prisma.application.findFirst({
@@ -480,9 +584,18 @@ export async function POST(request: Request) {
       companyName: application.companyName,
       industry,
       interviewFormat,
-      durationMinutes: durationMinutes || 45,
+      durationMinutes: normalizedDuration,
+      forcedArchetypes,
       questions: availableQuestions,
     })
+
+    const maxCharacters = getMaxCharacters(effectivePlan)
+    if (sessionConfig.panel.length > maxCharacters) {
+      return NextResponse.json(
+        { error: `Your current plan supports up to ${maxCharacters} interviewer character${maxCharacters === 1 ? '' : 's'} per session.` },
+        { status: 403 }
+      )
+    }
 
     const interviewSession = await prisma.interviewSession.create({
       data: {
@@ -490,7 +603,7 @@ export async function POST(request: Request) {
         applicationId,
         stage,
         intensity: intensity || 'standard',
-        durationMinutes: durationMinutes || 45,
+        durationMinutes: normalizedDuration,
         status: 'pending',
         characters: serializeSessionConfig(sessionConfig),
       },

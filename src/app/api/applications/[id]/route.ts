@@ -3,6 +3,8 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { buildDeterministicApplicationAnalysis } from '@/lib/application-analysis'
+import { getEffectivePlan } from '@/lib/subscription'
+import { checkFeature } from '@/lib/feature-gate'
 
 export async function GET(
   request: Request,
@@ -100,6 +102,14 @@ export async function PUT(
       realInterviewDate,
       status,
     } = body
+
+    if (realInterviewDate !== undefined && realInterviewDate) {
+      const plan = await getEffectivePlan(userId)
+      const countdownGate = checkFeature(plan, 'countdown_plan')
+      if (!countdownGate.allowed) {
+        return NextResponse.json({ error: countdownGate.message }, { status: 403 })
+      }
+    }
 
     const nextCompanyName = companyName !== undefined ? companyName.trim() : existing.companyName
     const nextJobTitle = jobTitle !== undefined ? jobTitle.trim() : existing.jobTitle

@@ -53,12 +53,70 @@ interface DayPlan {
   done: boolean
 }
 
+interface StoredDayPlan {
+  day: number
+  date: string
+  focus: string
+  activity: string
+  type: DayPlan['type']
+  done: boolean
+}
+
 type ScoreAnalysis = {
   answerQuality: number | null
   deliveryConfidence: number | null
   pressureRecovery: number | null
   companyFitLanguage: number | null
   listeningAccuracy: number | null
+}
+
+function iconForPlanType(type: DayPlan['type']): React.ElementType {
+  if (type === 'session') return Mic
+  if (type === 'prepare') return BookOpen
+  if (type === 'lab') return Zap
+  if (type === 'rest') return Moon
+  if (type === 'warmup') return Sun
+  return Target
+}
+
+function hydratePlan(raw: unknown): DayPlan[] | null {
+  if (!Array.isArray(raw)) return null
+  const hydrated: DayPlan[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const candidate = item as Partial<StoredDayPlan>
+    if (
+      typeof candidate.day !== 'number' ||
+      typeof candidate.date !== 'string' ||
+      typeof candidate.focus !== 'string' ||
+      typeof candidate.activity !== 'string' ||
+      typeof candidate.type !== 'string'
+    ) {
+      continue
+    }
+    const type = candidate.type as DayPlan['type']
+    hydrated.push({
+      day: candidate.day,
+      date: candidate.date,
+      focus: candidate.focus,
+      activity: candidate.activity,
+      type,
+      done: Boolean(candidate.done),
+      icon: iconForPlanType(type),
+    })
+  }
+  return hydrated
+}
+
+function dehydratePlan(plan: DayPlan[]): StoredDayPlan[] {
+  return plan.map((item) => ({
+    day: item.day,
+    date: item.date,
+    focus: item.focus,
+    activity: item.activity,
+    type: item.type,
+    done: item.done,
+  }))
 }
 
 function getDaysUntil(dateStr: string): number {
@@ -222,21 +280,31 @@ export default function CountdownPage() {
   const [interviewDate, setInterviewDate] = useState('')
   const [showDatePicker, setShowDatePicker] = useState(false)
   const [plan, setPlan] = useState('free')
+  const [persistedPlan, setPersistedPlan] = useState<DayPlan[] | null>(null)
 
   const persistInterviewDate = async (dateValue: string) => {
     if (!dateValue) return
     setSavingDate(true)
     try {
-      const res = await fetch(`/api/applications/${applicationId}`, {
+      const safeSessions = application?._count.sessions || 0
+      const weakDimensions = application ? deriveWeakDimensions(application) : ['pressureRecovery', 'deliveryConfidence']
+      const generated = generatePlan(getDaysUntil(dateValue), safeSessions, weakDimensions)
+      const res = await fetch(`/api/applications/${applicationId}/countdown`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ realInterviewDate: dateValue }),
+        body: JSON.stringify({
+          interviewDate: dateValue,
+          planData: dehydratePlan(generated),
+        }),
       })
       if (!res.ok) throw new Error('Failed to save date')
       const updated = await res.json()
-      setApplication(updated)
-      if (updated.realInterviewDate) {
-        setInterviewDate(updated.realInterviewDate.split('T')[0])
+      const savedPlan = hydratePlan(updated?.countdownPlan?.planData)
+      setPersistedPlan(savedPlan)
+      if (updated?.countdownPlan?.interviewDate) {
+        const iso = String(updated.countdownPlan.interviewDate)
+        setInterviewDate(iso.split('T')[0])
+        setApplication((prev) => (prev ? { ...prev, realInterviewDate: iso } : prev))
       }
     } catch {
       // Keep UI stable; user can retry.
@@ -254,6 +322,18 @@ export default function CountdownPage() {
           setApplication(data)
           if (data.realInterviewDate) {
             setInterviewDate(data.realInterviewDate.split('T')[0])
+          }
+        }
+        const countdownRes = await fetch(`/api/applications/${applicationId}/countdown`)
+        if (countdownRes.ok) {
+          const countdownData = await countdownRes.json()
+          if (countdownData?.countdownPlan) {
+            const hydrated = hydratePlan(countdownData.countdownPlan.planData)
+            setPersistedPlan(hydrated)
+            if (countdownData.countdownPlan.interviewDate) {
+              const iso = String(countdownData.countdownPlan.interviewDate)
+              setInterviewDate(iso.split('T')[0])
+            }
           }
         }
       } catch {
@@ -318,7 +398,9 @@ export default function CountdownPage() {
 
   const daysLeft = interviewDate ? getDaysUntil(interviewDate) : 0
   const weakDimensions = deriveWeakDimensions(application)
-  const dayPlan = interviewDate ? generatePlan(daysLeft, application._count.sessions, weakDimensions) : []
+  const dayPlan = interviewDate
+    ? (persistedPlan ?? generatePlan(daysLeft, application._count.sessions, weakDimensions))
+    : []
 
   // No date set
   if (!interviewDate) {

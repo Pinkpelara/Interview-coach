@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import { Save, Eye, EyeOff, Trash2, AlertTriangle } from 'lucide-react'
 import { Card, CardHeader, CardContent } from '@/components/ui/Card'
@@ -35,7 +34,6 @@ const experienceOptions = [
 ]
 
 export default function SettingsPage() {
-  const { data: session } = useSession()
   const router = useRouter()
 
   // Profile state
@@ -43,8 +41,13 @@ export default function SettingsPage() {
   const [email, setEmail] = useState('')
   const [jobTitle, setJobTitle] = useState('')
   const [industry, setIndustry] = useState('')
+  const [targetIndustry, setTargetIndustry] = useState('')
   const [experience, setExperience] = useState('')
+  const [workArrangement, setWorkArrangement] = useState('')
   const [anxietyLevel, setAnxietyLevel] = useState(5)
+  const [interviewDifficulty, setInterviewDifficulty] = useState('')
+  const [linkedinUrl, setLinkedinUrl] = useState('')
+  const [portfolioUrl, setPortfolioUrl] = useState('')
   const [profileLoading, setProfileLoading] = useState(false)
   const [profileSaved, setProfileSaved] = useState(false)
 
@@ -88,8 +91,13 @@ export default function SettingsPage() {
           setEmail(data.email || '')
           setJobTitle(data.currentRole || '')
           setIndustry(data.currentIndustry || '')
+          setTargetIndustry(data.targetIndustry || '')
           setExperience(data.yearsExperience || '')
+          setWorkArrangement(data.workArrangement || '')
           setAnxietyLevel(data.anxietyLevel ?? 5)
+          setInterviewDifficulty(data.interviewDifficulty || '')
+          setLinkedinUrl(data.linkedinUrl || '')
+          setPortfolioUrl(data.portfolioUrl || '')
           setCurrentPlan(data.plan || 'free')
           if (data.notifications) {
             setSessionSummaries(data.notifications.sessionSummaries ?? true)
@@ -120,8 +128,13 @@ export default function SettingsPage() {
           fullName,
           currentRole: jobTitle,
           currentIndustry: industry,
+          targetIndustry,
           yearsExperience: experience,
+          workArrangement,
           anxietyLevel,
+          interviewDifficulty,
+          linkedinUrl,
+          portfolioUrl,
         }),
       })
       if (res.ok) {
@@ -260,9 +273,16 @@ export default function SettingsPage() {
           />
           <Select
             id="industry"
-            label="Industry"
+            label="Current Industry"
             value={industry}
             onChange={(e) => setIndustry(e.target.value)}
+            options={industryOptions}
+          />
+          <Select
+            id="targetIndustry"
+            label="Target Industry"
+            value={targetIndustry}
+            onChange={(e) => setTargetIndustry(e.target.value)}
             options={industryOptions}
           />
           <Select
@@ -272,6 +292,17 @@ export default function SettingsPage() {
             onChange={(e) => setExperience(e.target.value)}
             options={experienceOptions}
           />
+          <Select
+            id="workArrangement"
+            label="Target Work Arrangement"
+            value={workArrangement}
+            onChange={(e) => setWorkArrangement(e.target.value)}
+            options={[
+              { value: 'Remote', label: 'Remote' },
+              { value: 'Hybrid', label: 'Hybrid' },
+              { value: 'On-site', label: 'On-site' },
+            ]}
+          />
           <Slider
             label="Anxiety Level"
             value={anxietyLevel}
@@ -280,6 +311,27 @@ export default function SettingsPage() {
             max={10}
             leftLabel="Very calm"
             rightLabel="Very anxious"
+          />
+          <Input
+            id="linkedinUrl"
+            label="LinkedIn URL"
+            value={linkedinUrl}
+            onChange={(e) => setLinkedinUrl(e.target.value)}
+            placeholder="https://linkedin.com/in/your-profile"
+          />
+          <Input
+            id="portfolioUrl"
+            label="Portfolio / Work Samples URL"
+            value={portfolioUrl}
+            onChange={(e) => setPortfolioUrl(e.target.value)}
+            placeholder="https://your-portfolio.com"
+          />
+          <Input
+            id="interviewDifficulty"
+            label="What makes interviews hard for you?"
+            value={interviewDifficulty}
+            onChange={(e) => setInterviewDifficulty(e.target.value)}
+            placeholder="Optional context to personalize coaching and observe runs"
           />
           <div className="flex items-center gap-3 pt-2">
             <Button onClick={handleProfileSave} loading={profileLoading}>

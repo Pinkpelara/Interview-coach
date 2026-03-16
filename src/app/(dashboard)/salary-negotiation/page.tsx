@@ -95,6 +95,7 @@ export default function SalaryNegotiationPage() {
   const [plan, setPlan] = useState('free')
   const chatEndRef = useRef<HTMLDivElement>(null)
   const responseIndexRef = useRef(0)
+  const canStartSimulator = !contextError && (plan === 'pro' || plan === 'crunch')
 
   useEffect(() => {
     async function loadContext() {
@@ -134,6 +135,7 @@ export default function SalaryNegotiationPage() {
   }, [messages])
 
   const startSession = (diff: Difficulty) => {
+    if (!canStartSimulator) return
     setDifficulty(diff)
     const offer = INITIAL_OFFERS[diff]
     setMessages([{
@@ -227,12 +229,16 @@ export default function SalaryNegotiationPage() {
 
         <div className="grid gap-4 md:grid-cols-3">
           {(Object.entries(DIFFICULTY_CONFIG) as [Difficulty, typeof DIFFICULTY_CONFIG.flexible][]).map(([key, config]) => (
-            <Card key={key} className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => startSession(key)}>
+            <Card
+              key={key}
+              className={`transition-shadow ${canStartSimulator ? 'hover:shadow-md cursor-pointer' : 'opacity-80'}`}
+              onClick={canStartSimulator ? () => startSession(key) : undefined}
+            >
               <CardContent className="text-center py-8 space-y-3">
                 <Badge variant={config.badge}>{config.label}</Badge>
                 <p className="text-sm text-gray-600">{config.description}</p>
                 <p className="text-xs text-gray-400">Initial offer: {INITIAL_OFFERS[key].base} base</p>
-                <Button size="sm" disabled={Boolean(contextError) || (plan !== 'pro' && plan !== 'crunch')}>
+                <Button size="sm" disabled={!canStartSimulator}>
                   Start Negotiation
                 </Button>
               </CardContent>

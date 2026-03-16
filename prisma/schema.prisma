@@ -72,9 +72,20 @@ model Application {
   questions         Question[]
   sessions          InterviewSession[]
   reflections       InterviewReflection[]
+  countdownPlan     CountdownPlan?
 
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+}
+
+model CountdownPlan {
+  id            String      @id @default(cuid())
+  applicationId String      @unique
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  interviewDate DateTime
+  planData      String
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
 }
 
 model ParsedResume {

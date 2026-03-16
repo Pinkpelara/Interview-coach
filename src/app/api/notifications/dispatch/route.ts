@@ -11,7 +11,13 @@ function daysUntil(date: Date) {
 export async function POST(request: Request) {
   const auth = request.headers.get('authorization')
   const expected = process.env.NOTIFICATION_DISPATCH_TOKEN
-  if (expected && auth !== `Bearer ${expected}`) {
+  if (!expected) {
+    return NextResponse.json(
+      { error: 'Notification dispatcher is not configured.' },
+      { status: 500 }
+    )
+  }
+  if (auth !== `Bearer ${expected}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -97,6 +103,42 @@ export async function POST(request: Request) {
       })
       sent += 1
     }
+  }
+
+  // Re-engagement reminder: interview scheduled and no practice in 5+ days.
+  for (const user of users) {
+    const hasUpcomingInterview = user.applications.some((app) => {
+      if (!app.realInterviewDate) return false
+      const d = daysUntil(app.realInterviewDate)
+      return d >= 0
+    })
+    if (!hasUpcomingInterview) continue
+
+    const reengagementEnabled = await isNotificationEnabled(user.id, 'reengagementEmail')
+    if (!reengagementEnabled) continue
+
+    const lastSession = await prisma.interviewSession.findFirst({
+      where: { userId: user.id },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    })
+
+    const isStale =
+      !lastSession ||
+      Date.now() - lastSession.createdAt.getTime() >= 5 * 24 * 60 * 60 * 1000
+
+    if (!isStale) continue
+
+    await sendNotificationEmail({
+      userId: user.id,
+      type: 'reengagement',
+      recipientEmail: user.email,
+      subject: 'Seatvio reminder: keep momentum before interview day',
+      body:
+        'You have an upcoming interview and it has been 5+ days since your last practice session.\n' +
+        'Run one 20-minute simulation today to keep your interview rhythm sharp.',
+    })
+    sent += 1
   }
 
   return NextResponse.json({ ok: true, sent })

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/Button'
@@ -42,7 +42,7 @@ const STEPS = [
 ]
 
 export default function OnboardingPage() {
-  const { data: session } = useSession()
+  const { data: session, status } = useSession()
   const router = useRouter()
 
   const [step, setStep] = useState(1)
@@ -65,12 +65,31 @@ export default function OnboardingPage() {
   const [linkedinUrl, setLinkedinUrl] = useState('')
   const [portfolioUrl, setPortfolioUrl] = useState('')
 
-  // Pre-fill name when session loads
-  useState(() => {
+  useEffect(() => {
+    if (status === 'unauthenticated') {
+      router.replace('/login')
+      return
+    }
+    if ((session?.user as { onboarded?: boolean } | undefined)?.onboarded) {
+      router.replace('/dashboard')
+    }
+  }, [router, session, status])
+
+  // Pre-fill name when session loads.
+  useEffect(() => {
     if (session?.user?.name && !fullName) {
       setFullName(session.user.name)
     }
-  })
+  }, [fullName, session?.user?.name])
+
+  function isValidOptionalUrl(value: string): boolean {
+    try {
+      const parsed = new URL(value)
+      return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+    } catch {
+      return false
+    }
+  }
 
   function validateStep1(): boolean {
     const newErrors: Record<string, string> = {}
@@ -102,6 +121,17 @@ export default function OnboardingPage() {
   }
 
   async function handleSubmit() {
+    const trimmedLinkedIn = linkedinUrl.trim()
+    const trimmedPortfolio = portfolioUrl.trim()
+    if (trimmedLinkedIn && !isValidOptionalUrl(trimmedLinkedIn)) {
+      setErrors({ linkedinUrl: 'Enter a valid LinkedIn URL (http/https).' })
+      return
+    }
+    if (trimmedPortfolio && !isValidOptionalUrl(trimmedPortfolio)) {
+      setErrors({ portfolioUrl: 'Enter a valid portfolio URL (http/https).' })
+      return
+    }
+
     setSubmitting(true)
     try {
       const res = await fetch('/api/onboarding', {
@@ -116,8 +146,8 @@ export default function OnboardingPage() {
           workArrangement,
           anxietyLevel,
           interviewDifficulty,
-          linkedinUrl: linkedinUrl || null,
-          portfolioUrl: portfolioUrl || null,
+          linkedinUrl: trimmedLinkedIn || null,
+          portfolioUrl: trimmedPortfolio || null,
         }),
       })
 
@@ -131,6 +161,18 @@ export default function OnboardingPage() {
       setErrors({ submit: err instanceof Error ? err.message : 'Something went wrong' })
       setSubmitting(false)
     }
+  }
+
+  if (status === 'loading') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-50">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-brand-700 border-t-transparent" />
+      </div>
+    )
+  }
+
+  if (status === 'unauthenticated') {
+    return null
   }
 
   return (
@@ -316,6 +358,7 @@ export default function OnboardingPage() {
                   value={linkedinUrl}
                   onChange={(e) => setLinkedinUrl(e.target.value)}
                   placeholder="https://linkedin.com/in/your-profile"
+                  error={errors.linkedinUrl}
                 />
 
                 <Input
@@ -324,6 +367,7 @@ export default function OnboardingPage() {
                   value={portfolioUrl}
                   onChange={(e) => setPortfolioUrl(e.target.value)}
                   placeholder="https://your-portfolio.com"
+                  error={errors.portfolioUrl}
                 />
               </div>
             )}

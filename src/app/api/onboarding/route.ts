@@ -3,6 +3,15 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
+function isValidOptionalUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const session = await getServerSession(authOptions)
@@ -45,6 +54,12 @@ export async function POST(request: Request) {
     }
     if (!workArrangement) {
       return NextResponse.json({ error: 'Work arrangement is required' }, { status: 400 })
+    }
+    if (linkedinUrl && !isValidOptionalUrl(String(linkedinUrl).trim())) {
+      return NextResponse.json({ error: 'LinkedIn URL must be a valid http/https URL.' }, { status: 400 })
+    }
+    if (portfolioUrl && !isValidOptionalUrl(String(portfolioUrl).trim())) {
+      return NextResponse.json({ error: 'Portfolio URL must be a valid http/https URL.' }, { status: 400 })
     }
 
     // Update user name and onboarded flag, and upsert profile in a transaction

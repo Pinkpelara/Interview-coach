@@ -35,8 +35,13 @@ export async function GET() {
       email: user.email,
       currentRole: user.profile?.currentRole || '',
       currentIndustry: user.profile?.currentIndustry || '',
+      targetIndustry: user.profile?.targetIndustry || '',
       yearsExperience: user.profile?.yearsExperience || '',
+      workArrangement: user.profile?.workArrangement || '',
       anxietyLevel: user.profile?.anxietyLevel ?? 5,
+      interviewDifficulty: user.profile?.interviewDifficulty || '',
+      linkedinUrl: user.profile?.linkedinUrl || '',
+      portfolioUrl: user.profile?.portfolioUrl || '',
       plan: effectivePlan,
       notifications: {
         sessionSummaries: user.notificationPreferences?.sessionSummaryEmail ?? true,
@@ -64,7 +69,18 @@ export async function PUT(request: Request) {
     const body = await request.json()
 
     if (body.section === 'profile') {
-      const { fullName, currentRole, currentIndustry, yearsExperience, anxietyLevel } = body
+      const {
+        fullName,
+        currentRole,
+        currentIndustry,
+        targetIndustry,
+        yearsExperience,
+        workArrangement,
+        anxietyLevel,
+        interviewDifficulty,
+        linkedinUrl,
+        portfolioUrl,
+      } = body
 
       await prisma.$transaction([
         prisma.user.update({
@@ -77,14 +93,24 @@ export async function PUT(request: Request) {
             userId,
             currentRole: currentRole?.trim() || null,
             currentIndustry: currentIndustry || null,
+            targetIndustry: targetIndustry || null,
             yearsExperience: yearsExperience || null,
+            workArrangement: workArrangement || null,
             anxietyLevel: Number(anxietyLevel) || 5,
+            interviewDifficulty: interviewDifficulty?.trim() || null,
+            linkedinUrl: linkedinUrl?.trim() || null,
+            portfolioUrl: portfolioUrl?.trim() || null,
           },
           update: {
             currentRole: currentRole?.trim() || null,
             currentIndustry: currentIndustry || null,
+            targetIndustry: targetIndustry || null,
             yearsExperience: yearsExperience || null,
+            workArrangement: workArrangement || null,
             anxietyLevel: Number(anxietyLevel) || 5,
+            interviewDifficulty: interviewDifficulty?.trim() || null,
+            linkedinUrl: linkedinUrl?.trim() || null,
+            portfolioUrl: portfolioUrl?.trim() || null,
           },
         }),
       ])
