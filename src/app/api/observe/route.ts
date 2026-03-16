@@ -11,7 +11,39 @@ type SourceExchange = {
   messageText: string
 }
 
-type ObserveType = 'perfect' | 'cautionary'
+type ObserveType = 'perfect' | 'cautionary' | 'custom'
+type CustomScenario =
+  | 'salary'
+  | 'unknown_answer'
+  | 'recovery_after_bad_answer'
+  | 'greatest_weakness'
+  | 'why_leaving_role'
+  | 'long_silence'
+
+const CUSTOM_SCENARIOS: CustomScenario[] = [
+  'salary',
+  'unknown_answer',
+  'recovery_after_bad_answer',
+  'greatest_weakness',
+  'why_leaving_role',
+  'long_silence',
+]
+
+function parseStoredType(type: string): { type: ObserveType; scenario?: CustomScenario } {
+  if (type.startsWith('custom:')) {
+    const scenario = type.replace('custom:', '') as CustomScenario
+    return { type: 'custom', scenario }
+  }
+  if (type === 'perfect' || type === 'cautionary') {
+    return { type }
+  }
+  return { type: 'custom', scenario: 'salary' }
+}
+
+function toStoredType(type: ObserveType, scenario?: CustomScenario): string {
+  if (type !== 'custom') return type
+  return `custom:${scenario || 'salary'}`
+}
 
 function safeParseJson(value: string | null): unknown[] {
   if (!value) return []
@@ -202,6 +234,126 @@ function buildObserveRun(
   return { exchanges, annotations }
 }
 
+function buildCustomObserveRun(
+  scenario: CustomScenario,
+  companyName: string,
+  jobTitle: string,
+  sourceExchanges: SourceExchange[]
+) {
+  const fallbackQuestion =
+    sourceExchanges.find((e) => e.speaker === 'interviewer')?.messageText ||
+    `Let's run a focused ${scenario.replace(/_/g, ' ')} scenario.`
+
+  const scenes: Record<CustomScenario, {
+    title: string
+    candidateStrong: string
+    candidateWeak: string
+    noteStrong: string
+    noteWeak: string
+  }> = {
+    salary: {
+      title: 'Salary Negotiation',
+      candidateStrong:
+        'Based on market data for similar roles and my outcomes in scope growth and delivery quality, I am targeting $145k-$155k base. If base is capped, I can be flexible on signing bonus and review timing.',
+      candidateWeak:
+        'Um, I was kind of hoping for maybe a bit more, but I am not sure what is possible and I can probably take whatever works.',
+      noteStrong:
+        'Strong negotiation anchor with data, range framing, and flexible components.',
+      noteWeak:
+        'Weak anchor and uncertainty language reduce leverage immediately.',
+    },
+    unknown_answer: {
+      title: 'Unknown Question Recovery',
+      candidateStrong:
+        'I have not solved that exact case before. I would break it down into assumptions, identify key constraints, and test two approaches quickly before committing.',
+      candidateWeak:
+        'I think I might know this, maybe I would just try something and see what happens.',
+      noteStrong:
+        'Honest gap acknowledgment plus a structured problem-solving approach.',
+      noteWeak:
+        'Bluffing/guessing without structure signals low judgment under uncertainty.',
+    },
+    recovery_after_bad_answer: {
+      title: 'Recover After Weak Answer',
+      candidateStrong:
+        'I want to correct that answer with a clearer example. In my last role, I led the incident review, owned the rollback, and reduced repeat failures by 38% over two quarters.',
+      candidateWeak:
+        'Actually let me re-answer... I do not know, maybe it was kind of similar to another project.',
+      noteStrong:
+        'Direct reset + concise, specific replacement answer restores credibility.',
+      noteWeak:
+        'Unfocused restart without ownership or outcomes compounds the miss.',
+    },
+    greatest_weakness: {
+      title: 'Greatest Weakness',
+      candidateStrong:
+        'Earlier in my career I over-indexed on speed over stakeholder alignment. I now use a pre-brief checklist and decision memo; this cut rework by about 25% in my last two initiatives.',
+      candidateWeak:
+        'My weakness is that I am a perfectionist and I care too much.',
+      noteStrong:
+        'Genuine weakness, concrete remediation, and measurable progress.',
+      noteWeak:
+        'Cliche non-weakness answer reads as evasive and low self-awareness.',
+    },
+    why_leaving_role: {
+      title: 'Why Leaving Current Role',
+      candidateStrong:
+        'I have learned a lot where I am, but my scope has plateaued. I am looking for a role where I can lead cross-functional execution at a larger scale, which aligns with this position.',
+      candidateWeak:
+        'Honestly my manager is difficult and the team is chaotic, so I need to leave.',
+      noteStrong:
+        'Forward-looking motivation with no negativity toward current employer.',
+      noteWeak:
+        'Negative framing about prior team creates culture-risk concerns.',
+    },
+    long_silence: {
+      title: 'Handling Long Silence',
+      candidateStrong:
+        'I will pause here and let you react. I can add detail on tradeoffs, stakeholder alignment, or execution metrics depending on what you want to explore.',
+      candidateWeak:
+        'Sorry, I can keep talking... um, and then also we did many other things and kind of kept iterating and, yeah...',
+      noteStrong:
+        'Composed silence handling with optional structured extension.',
+      noteWeak:
+        'Silence-filling ramble weakens a previously solid answer.',
+    },
+  }
+
+  const scene = scenes[scenario]
+  const exchanges = [
+    { id: `custom-q-${scenario}-0`, speaker: 'interviewer' as const, text: fallbackQuestion },
+    {
+      id: `custom-a-${scenario}-strong`,
+      speaker: 'candidate' as const,
+      text: scene.candidateStrong,
+      annotation: { type: 'perfect' as const, note: scene.noteStrong },
+    },
+    {
+      id: `custom-a-${scenario}-weak`,
+      speaker: 'candidate' as const,
+      text: scene.candidateWeak,
+      annotation: { type: 'cautionary' as const, note: scene.noteWeak, pattern: 'Custom Scenario Contrast' },
+    },
+    {
+      id: `custom-q-${scenario}-1`,
+      speaker: 'interviewer' as const,
+      text: `How would you apply that approach in the ${jobTitle} role at ${companyName}?`,
+    },
+  ]
+
+  const annotations = exchanges
+    .filter((e) => e.annotation)
+    .map((e) => ({
+      exchangeId: e.id,
+      type: e.annotation!.type,
+      note: e.annotation!.note,
+      pattern: e.annotation!.pattern,
+      title: scene.title,
+    }))
+
+  return { exchanges, annotations, scenario, title: scene.title }
+}
+
 export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -254,9 +406,9 @@ export async function GET(request: NextRequest) {
     })
 
     const parsed = observeSessions.map((os) => ({
+      ...parseStoredType(os.type),
       id: os.id,
       sourceSessionId: os.sourceSessionId,
-      type: os.type,
       exchanges: safeParseJson(os.exchanges),
       annotations: safeParseJson(os.annotations),
     }))
@@ -289,7 +441,7 @@ export async function POST(request: NextRequest) {
       )
     }
     const body = await request.json()
-    const { sourceSessionId, type } = body
+    const { sourceSessionId, type, scenario } = body
 
     if (!sourceSessionId || !type) {
       return NextResponse.json(
@@ -298,9 +450,19 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    if (type !== 'perfect' && type !== 'cautionary') {
+    if (type !== 'perfect' && type !== 'cautionary' && type !== 'custom') {
       return NextResponse.json(
-        { error: 'type must be "perfect" or "cautionary"' },
+        { error: 'type must be "perfect", "cautionary", or "custom"' },
+        { status: 400 }
+      )
+    }
+    const customScenario: CustomScenario | undefined =
+      type === 'custom' && typeof scenario === 'string' && CUSTOM_SCENARIOS.includes(scenario as CustomScenario)
+        ? (scenario as CustomScenario)
+        : undefined
+    if (type === 'custom' && !customScenario) {
+      return NextResponse.json(
+        { error: `scenario must be one of: ${CUSTOM_SCENARIOS.join(', ')}` },
         { status: 400 }
       )
     }
@@ -332,42 +494,52 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const storedType = toStoredType(type, customScenario)
     const existingOfType = await prisma.observeSession.findFirst({
-      where: { sourceSessionId, type },
+      where: { sourceSessionId, type: storedType },
       orderBy: { createdAt: 'desc' },
     })
 
     if (existingOfType) {
       return NextResponse.json({
+        ...parseStoredType(existingOfType.type),
         id: existingOfType.id,
         sourceSessionId,
-        type,
         exchanges: safeParseJson(existingOfType.exchanges),
         annotations: safeParseJson(existingOfType.annotations),
       })
     }
 
-    const generated = buildObserveRun(
-      sourceSession.exchanges.map((e) => ({ speaker: e.speaker, messageText: e.messageText })),
-      type,
-      sourceSession.application.companyName,
-      sourceSession.application.jobTitle
-    )
+    const sourceExchanges = sourceSession.exchanges.map((e) => ({ speaker: e.speaker, messageText: e.messageText }))
+    const generated =
+      type === 'custom'
+        ? buildCustomObserveRun(
+            customScenario!,
+            sourceSession.application.companyName,
+            sourceSession.application.jobTitle,
+            sourceExchanges
+          )
+        : buildObserveRun(
+            sourceExchanges,
+            type,
+            sourceSession.application.companyName,
+            sourceSession.application.jobTitle
+          )
 
     // Save to ObserveSession
     const observeSession = await prisma.observeSession.create({
       data: {
         sourceSessionId,
-        type,
+        type: storedType,
         exchanges: JSON.stringify(generated.exchanges),
         annotations: JSON.stringify(generated.annotations),
       },
     })
 
     return NextResponse.json({
+      ...parseStoredType(storedType),
       id: observeSession.id,
       sourceSessionId,
-      type,
       exchanges: generated.exchanges,
       annotations: generated.annotations,
     })

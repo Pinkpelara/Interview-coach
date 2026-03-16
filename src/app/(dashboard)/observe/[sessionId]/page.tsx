@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
-import { useSession } from 'next-auth/react'
 import { Card, CardHeader, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
@@ -28,7 +27,8 @@ interface Exchange {
 interface ObserveData {
   id: string
   sourceSessionId: string
-  type: 'perfect' | 'cautionary'
+  type: 'perfect' | 'cautionary' | 'custom'
+  scenario?: string
   exchanges: Exchange[]
   annotations: Array<{
     exchangeId: string
@@ -41,14 +41,47 @@ interface ObserveData {
 export default function ObservePage() {
   const params = useParams()
   const sessionId = params.sessionId as string
-  const { data: authSession } = useSession()
 
-  const [activeTab, setActiveTab] = useState<'perfect' | 'cautionary'>('perfect')
+  const [activeTab, setActiveTab] = useState<'perfect' | 'cautionary' | 'custom'>('perfect')
   const [splitView, setSplitView] = useState(false)
   const [perfectData, setPerfectData] = useState<ObserveData | null>(null)
   const [cautionaryData, setCautionaryData] = useState<ObserveData | null>(null)
+  const [customScenario, setCustomScenario] = useState('salary')
+  const [customData, setCustomData] = useState<Record<string, ObserveData>>({})
+  const [customLoading, setCustomLoading] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  const CUSTOM_SCENARIOS = [
+    { value: 'salary', label: 'Salary question' },
+    { value: 'unknown_answer', label: 'Unknown answer recovery' },
+    { value: 'recovery_after_bad_answer', label: 'Recover after bad answer' },
+    { value: 'greatest_weakness', label: 'Greatest weakness' },
+    { value: 'why_leaving_role', label: 'Why leaving role' },
+    { value: 'long_silence', label: 'Handle long silence' },
+  ]
+
+  async function ensureCustomScenario(scenario: string) {
+    if (customData[scenario]) return
+    setCustomLoading(true)
+    try {
+      const res = await fetch('/api/observe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sourceSessionId: sessionId, type: 'custom', scenario }),
+      })
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}))
+        throw new Error(errData.error || 'Failed to generate custom observe scenario')
+      }
+      const data = await res.json()
+      setCustomData((prev) => ({ ...prev, [scenario]: data }))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to generate custom scenario')
+    } finally {
+      setCustomLoading(false)
+    }
+  }
 
   useEffect(() => {
     async function fetchObserveData() {
@@ -59,10 +92,18 @@ export default function ObservePage() {
           const existing = await existingRes.json()
           const existingPerfect = existing.find((s: ObserveData) => s.type === 'perfect')
           const existingCautionary = existing.find((s: ObserveData) => s.type === 'cautionary')
+          const existingCustom = existing.filter((s: ObserveData) => s.type === 'custom' && s.scenario)
 
           if (existingPerfect && existingCautionary) {
             setPerfectData(existingPerfect)
             setCautionaryData(existingCautionary)
+            if (Array.isArray(existingCustom) && existingCustom.length > 0) {
+              const map: Record<string, ObserveData> = {}
+              for (const item of existingCustom) {
+                if (item.scenario) map[item.scenario] = item
+              }
+              setCustomData(map)
+            }
             setLoading(false)
             return
           }
@@ -107,6 +148,12 @@ export default function ObservePage() {
       fetchObserveData()
     }
   }, [sessionId])
+
+  useEffect(() => {
+    if (activeTab === 'custom' && sessionId) {
+      void ensureCustomScenario(customScenario)
+    }
+  }, [activeTab, customScenario, sessionId])
 
   if (loading) {
     return (
@@ -253,6 +300,17 @@ export default function ObservePage() {
             <AlertTriangle className="h-4 w-4 mr-1.5" />
             Cautionary Run
           </Button>
+          <Button
+            variant={activeTab === 'custom' && !splitView ? 'primary' : 'outline'}
+            size="sm"
+            onClick={() => {
+              setActiveTab('custom')
+              setSplitView(false)
+            }}
+          >
+            <Eye className="h-4 w-4 mr-1.5" />
+            Custom Scenarios
+          </Button>
         </div>
         <Button
           variant={splitView ? 'primary' : 'outline'}
@@ -302,7 +360,7 @@ export default function ObservePage() {
               </div>
               {renderExchangeList(perfectData)}
             </>
-          ) : (
+          ) : activeTab === 'cautionary' ? (
             <>
               <div className="flex items-center gap-2 mb-4">
                 <div className="w-3 h-3 rounded-full bg-red-500" />
@@ -312,6 +370,36 @@ export default function ObservePage() {
                 <Badge variant="danger">Common Mistakes</Badge>
               </div>
               {renderExchangeList(cautionaryData)}
+            </>
+          ) : (
+            <>
+              <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-indigo-500" />
+                  <h3 className="text-sm font-bold text-gray-900 uppercase tracking-wide">
+                    Custom Scenario
+                  </h3>
+                  <Badge variant="info">Focused drill</Badge>
+                </div>
+                <select
+                  value={customScenario}
+                  onChange={(e) => setCustomScenario(e.target.value)}
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                >
+                  {CUSTOM_SCENARIOS.map((scenario) => (
+                    <option key={scenario.value} value={scenario.value}>
+                      {scenario.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {customLoading && !customData[customScenario] ? (
+                <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
+                  Generating focused scenario...
+                </div>
+              ) : (
+                renderExchangeList(customData[customScenario] || null)
+              )}
             </>
           )}
         </div>

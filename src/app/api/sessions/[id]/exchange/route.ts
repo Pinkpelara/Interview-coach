@@ -51,6 +51,7 @@ interface SessionConfigEnvelope {
     sessionShouldEnd: boolean
     closingAsked?: boolean
     silentObserverAsked?: boolean
+    triggeredEvents?: string[]
   }
   unexpectedEvents: Array<{ type: string; trigger_time_ms: number; character_id?: string }>
 }
@@ -461,6 +462,7 @@ export async function POST(
     const characters: Character[] = sessionConfig.panel
     const questionPlan = sessionConfig.questionPlan
     const questionState = sessionConfig.questionState || { currentQuestionIndex: 0, followUpCount: 0, sessionShouldEnd: false }
+    questionState.triggeredEvents = questionState.triggeredEvents || []
 
     const currentQuestion = questionPlan[questionState.currentQuestionIndex] || null
 
@@ -498,13 +500,53 @@ export async function POST(
       },
     })
 
+    const elapsedMs = now - sessionStartMs
+    const triggeredEventKeys = new Set(questionState.triggeredEvents)
+    const dueEvent = sessionConfig.unexpectedEvents.find((evt) => {
+      const key = `${evt.type}:${evt.trigger_time_ms}:${evt.character_id || ''}`
+      return evt.trigger_time_ms <= elapsedMs && !triggeredEventKeys.has(key)
+    })
+    if (dueEvent) {
+      const key = `${dueEvent.type}:${dueEvent.trigger_time_ms}:${dueEvent.character_id || ''}`
+      triggeredEventKeys.add(key)
+      questionState.triggeredEvents = Array.from(triggeredEventKeys)
+    }
+
     let actionInstruction = ''
     let nextCharacterId = respondingCharacter.id
     const candidateName = (session.user as { name?: string } | undefined)?.name || 'there'
     const silentObserver = characters.find((c) => c.archetype === 'silent_observer')
+    let overrideActionInstruction = ''
+
+    if (!questionState.sessionShouldEnd && dueEvent) {
+      if (dueEvent.type === 'late_join') {
+        const lateJoiner = characters.find((c) => c.id === dueEvent.character_id)
+        if (lateJoiner) {
+          respondingCharacter = lateJoiner
+          nextCharacterId = lateJoiner.id
+          overrideActionInstruction = `ack_then_ask:Apologies for joining late — thanks for waiting. ${currentQuestion?.question_text || 'Could you walk me through your most relevant accomplishment for this role?'}`
+        }
+      } else if (dueEvent.type === 'video_freeze') {
+        overrideActionInstruction =
+          'ack_then_ask:Sorry, my audio cut out for a moment. Could you repeat the key outcome in one sentence?'
+      } else if (dueEvent.type === 'curveball_question') {
+        overrideActionInstruction =
+          `ask_exact_question:Curveball for you: Tell me about a time your initial plan failed unexpectedly and what you changed in real time for ${appCtx?.companyName || 'this team'}.`
+      } else if (dueEvent.type === 'one_more_question') {
+        overrideActionInstruction =
+          'ask_exact_question:We actually have time for one more question — what is one risk in your first 90 days here, and how would you mitigate it?'
+      } else if (dueEvent.type === 'long_silence') {
+        respondingCharacter = {
+          ...respondingCharacter,
+          silenceDuration: respondingCharacter.silenceDuration + 3000,
+        }
+      }
+    }
 
     if (questionState.sessionShouldEnd) {
       actionInstruction = `final_wrap:${closingWrap(candidateName)}`
+    } else if (overrideActionInstruction) {
+      actionInstruction = overrideActionInstruction
     } else if (!currentQuestion) {
       actionInstruction = 'closing_prompt'
       questionState.sessionShouldEnd = true
