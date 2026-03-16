@@ -90,6 +90,7 @@ function useSpeech() {
   const [amplitude, setAmplitude] = useState(0)
   const currentAudioRef = useRef<HTMLAudioElement | null>(null)
   const currentAudioUrlRef = useRef<string | null>(null)
+  const ttsModeRef = useRef<'unknown' | 'available' | 'unavailable'>('unknown')
   const rafRef = useRef<number | null>(null)
   const synthRef = useRef<SpeechSynthesis | null>(null)
 
@@ -151,38 +152,53 @@ function useSpeech() {
       stopAnalyser()
       setSpeaking(true)
 
-      try {
-        const response = await fetch('/api/tts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            text,
-            voice: voiceId || 'nova',
-            instructions: VOICE_INSTRUCTIONS[archetype || 'friendly_champion'] || VOICE_INSTRUCTIONS.friendly_champion,
-          }),
-        })
-        if (response.ok) {
-          const blob = await response.blob()
-          const url = URL.createObjectURL(blob)
-          const audio = new Audio(url)
-          currentAudioRef.current = audio
-          currentAudioUrlRef.current = url
-          analyseAudio(audio)
-          audio.onended = () => {
-            stopAnalyser()
-            setSpeaking(false)
-            resolve()
+      if (ttsModeRef.current !== 'unavailable') {
+        try {
+          const controller = new AbortController()
+          const timeout = setTimeout(() => controller.abort(), 7000)
+          const response = await fetch('/api/tts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              text,
+              voice: voiceId || 'nova',
+              instructions: VOICE_INSTRUCTIONS[archetype || 'friendly_champion'] || VOICE_INSTRUCTIONS.friendly_champion,
+            }),
+            signal: controller.signal,
+          }).catch(() => null)
+          clearTimeout(timeout)
+
+          if (response?.ok) {
+            const contentType = response.headers.get('content-type') || ''
+            if (contentType.includes('audio/')) {
+              const blob = await response.blob()
+              if (blob.size > 0) {
+                ttsModeRef.current = 'available'
+                const url = URL.createObjectURL(blob)
+                const audio = new Audio(url)
+                currentAudioRef.current = audio
+                currentAudioUrlRef.current = url
+                analyseAudio(audio)
+                audio.onended = () => {
+                  stopAnalyser()
+                  setSpeaking(false)
+                  resolve()
+                }
+                audio.onerror = () => {
+                  stopAnalyser()
+                  setSpeaking(false)
+                  resolve()
+                }
+                await audio.play()
+                return
+              }
+            }
+          } else if (response?.status === 503) {
+            ttsModeRef.current = 'unavailable'
           }
-          audio.onerror = () => {
-            stopAnalyser()
-            setSpeaking(false)
-            resolve()
-          }
-          await audio.play()
-          return
+        } catch {
+          // Fall through to browser speech for this turn.
         }
-      } catch {
-        // fall through to browser speech
       }
 
       if (!synthRef.current) {

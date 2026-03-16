@@ -137,6 +137,7 @@ export default function DebriefPage() {
   const [audioPlaying, setAudioPlaying] = useState(false)
   const [audioLoading, setAudioLoading] = useState(false)
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
+  const [ttsUnavailable, setTtsUnavailable] = useState(false)
   const [generatingCard, setGeneratingCard] = useState(false)
   const [hideRoleOnCard, setHideRoleOnCard] = useState(false)
   const [plan, setPlan] = useState('free')
@@ -374,6 +375,10 @@ export default function DebriefPage() {
   }
 
   async function handlePlayAudio(autoplay = false) {
+    if (ttsUnavailable && !audioUrl) {
+      return
+    }
+
     if (audioRef.current && audioPlaying) {
       audioRef.current.pause()
       return
@@ -395,6 +400,9 @@ export default function DebriefPage() {
         })
 
         if (!ttsRes.ok) {
+          if (ttsRes.status === 503) {
+            setTtsUnavailable(true)
+          }
           return
         }
 
@@ -448,15 +456,21 @@ export default function DebriefPage() {
               </blockquote>
               <p className="text-sm text-gray-600 leading-relaxed">{analysis.coachScript}</p>
               {hasFullDebrief ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => void handlePlayAudio(false)}
-                  disabled={audioLoading}
-                >
-                  <Play className="h-4 w-4 mr-2" />
-                  {audioLoading ? 'Loading audio...' : audioPlaying ? 'Pause Coach Audio' : 'Play Coach Audio'}
-                </Button>
+                ttsUnavailable ? (
+                  <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                    Coach audio is temporarily unavailable. Written feedback remains fully available.
+                  </div>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void handlePlayAudio(false)}
+                    disabled={audioLoading}
+                  >
+                    <Play className="h-4 w-4 mr-2" />
+                    {audioLoading ? 'Loading audio...' : audioPlaying ? 'Pause Coach Audio' : 'Play Coach Audio'}
+                  </Button>
+                )
               ) : (
                 <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
                   {analysis.gatedMessage} <Link href="/pricing" className="underline font-medium">Upgrade</Link>
