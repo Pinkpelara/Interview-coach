@@ -3,6 +3,24 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
+function parseSessionConfig(raw: string | null) {
+  if (!raw) return { panel: [], questionPlan: [], questionState: null, unexpectedEvents: [] }
+  try {
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) {
+      return { panel: parsed, questionPlan: [], questionState: null, unexpectedEvents: [] }
+    }
+    return {
+      panel: parsed.panel || [],
+      questionPlan: parsed.questionPlan || [],
+      questionState: parsed.questionState || null,
+      unexpectedEvents: parsed.unexpectedEvents || [],
+    }
+  } catch {
+    return { panel: [], questionPlan: [], questionState: null, unexpectedEvents: [] }
+  }
+}
+
 export async function GET(
   request: Request,
   { params }: { params: { id: string } }
@@ -40,9 +58,13 @@ export async function GET(
       return NextResponse.json({ error: 'Session not found' }, { status: 404 })
     }
 
+    const config = parseSessionConfig(interviewSession.characters)
     return NextResponse.json({
       ...interviewSession,
-      characters: JSON.parse(interviewSession.characters || '[]'),
+      characters: config.panel,
+      questionPlan: config.questionPlan,
+      questionState: config.questionState,
+      unexpectedEvents: config.unexpectedEvents,
     })
   } catch (error) {
     console.error('Error fetching session:', error)
@@ -105,9 +127,13 @@ export async function PUT(
       },
     })
 
+    const config = parseSessionConfig(updated.characters)
     return NextResponse.json({
       ...updated,
-      characters: JSON.parse(updated.characters || '[]'),
+      characters: config.panel,
+      questionPlan: config.questionPlan,
+      questionState: config.questionState,
+      unexpectedEvents: config.unexpectedEvents,
     })
   } catch (error) {
     console.error('Error updating session:', error)

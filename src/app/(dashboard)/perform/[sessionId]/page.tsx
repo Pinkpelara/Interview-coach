@@ -5,23 +5,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/Button'
-import { Badge } from '@/components/ui/Badge'
-import {
-  Mic,
-  MicOff,
-  Clock,
-  Video,
-  VideoOff,
-  User,
-  MessageSquare,
-  Volume2,
-  VolumeX,
-} from 'lucide-react'
-import AnimatedAvatar from '@/components/perform/AnimatedAvatar'
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+import { Mic, MicOff, Clock, PencilLine, ChevronLeft, ChevronRight } from 'lucide-react'
 
 interface Character {
   id: string
@@ -29,13 +13,22 @@ interface Character {
   title: string
   archetype: string
   silenceDuration: number
-  avatarKey?: string
+  voiceId?: string
+  initials?: string
+  avatarColor?: string
+}
+
+interface QuestionPlanItem {
+  question_text: string
+  question_type: string
+  owner_character_id: string
+  owner_archetype: string
 }
 
 interface Exchange {
   id: string
   sequenceNumber: number
-  speaker: 'candidate' | 'interviewer'
+  speaker: 'candidate' | 'interviewer' | 'system'
   characterId: string | null
   messageText: string
   timestampMs: number
@@ -43,107 +36,20 @@ interface Exchange {
 
 interface SessionData {
   id: string
-  applicationId: string
   stage: string
   intensity: string
   durationMinutes: number
   status: string
   characters: Character[]
-  startedAt: string | null
-  endedAt: string | null
   exchanges: Exchange[]
+  questionPlan?: QuestionPlanItem[]
   application: {
     companyName: string
     jobTitle: string
-    jdText?: string
-    strengths?: string
-    skillGaps?: string
-    probeAreas?: string
   }
 }
 
 type Phase = 'loading' | 'briefing' | 'countdown' | 'interview' | 'complete'
-
-// ---------------------------------------------------------------------------
-// Character visuals
-// ---------------------------------------------------------------------------
-
-const ARCHETYPE_COLORS: Record<string, string> = {
-  skeptic: '#ef4444',
-  friendly_champion: '#22c55e',
-  technical_griller: '#a855f7',
-  distracted_senior: '#eab308',
-  culture_fit: '#3b82f6',
-  silent_observer: '#6b7280',
-}
-
-const ARCHETYPE_LABELS: Record<string, string> = {
-  skeptic: 'Skeptic',
-  friendly_champion: 'Friendly Champion',
-  technical_griller: 'Technical Griller',
-  distracted_senior: 'Distracted Senior',
-  culture_fit: 'Culture Fit Assessor',
-  silent_observer: 'Silent Observer',
-}
-
-// ---------------------------------------------------------------------------
-// Opening / Closing lines
-// ---------------------------------------------------------------------------
-
-function getOpeningLines(archetype: string, companyName?: string, jobTitle?: string): string[] {
-  const company = companyName || 'our company'
-  const role = jobTitle || 'this position'
-
-  const lines: Record<string, string[]> = {
-    skeptic: [
-      `Let's get started. I have some tough questions about your fit for the ${role} role at ${company}.`,
-      `Thanks for joining. I'll be digging into your qualifications for ${role} today, so be prepared to back up your claims.`,
-    ],
-    friendly_champion: [
-      `Welcome! Thanks so much for coming in today. We're really excited about the ${role} position at ${company}, and I'd love to learn how your experience connects to what we're building.`,
-      `Hi there! Great to meet you. I'm looking forward to hearing about your background and why you're interested in joining ${company} as ${role}.`,
-    ],
-    technical_griller: [
-      `Hello. I'll be focusing on the technical requirements for the ${role} position today. Let's dive right in.`,
-      `Welcome. As you know, the ${role} role at ${company} has some specific technical demands. I want to understand your depth in those areas.`,
-    ],
-    distracted_senior: [
-      `Hey, sorry — just wrapping up something. OK, so you're interviewing for ${role} at ${company}. Tell me, what drew you to us?`,
-      `Right, hi. I've got a few minutes carved out for this. So — ${role}. Why ${company}?`,
-    ],
-    culture_fit: [
-      `Welcome! I'm really looking forward to understanding how you'd fit into the team at ${company}. Culture is a big part of how we work here.`,
-      `Hi! For the ${role} position, we care a lot about how people collaborate. I'd love to understand your working style.`,
-    ],
-    silent_observer: [
-      `Hello.`,
-      `...`,
-    ],
-  }
-
-  return lines[archetype] || lines.friendly_champion
-}
-
-const CLOSING_LINES: Record<string, string> = {
-  skeptic: "Alright, that's all the time we have. We'll be in touch.",
-  friendly_champion: "Thank you so much for your time today! It was wonderful getting to know you. We'll follow up soon.",
-  technical_griller: "Good session. We covered a lot of ground. The team will review and get back to you.",
-  distracted_senior: "OK, I think we're done here. Thanks for coming in.",
-  culture_fit: "It was lovely chatting with you. I really enjoyed our conversation. Best of luck!",
-  silent_observer: "Thank you.",
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function getInitials(name: string): string {
-  return name.split(' ').map((n) => n[0]).join('').toUpperCase()
-}
-
-function randomFrom<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)]
-}
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60)
@@ -151,482 +57,231 @@ function formatTime(seconds: number): string {
   return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`
 }
 
-function resolveSilenceDuration(character: Character): number {
-  if (character.archetype === 'distracted_senior') {
-    return Math.random() > 0.5 ? 1500 : 7000
-  }
-  return character.silenceDuration
+function timestampLabel(): string {
+  return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-// ---------------------------------------------------------------------------
-// Character Face Component — Real-Time Animated Video Avatar
-// Uses Canvas-based face renderer with lip sync, blinking, expressions
-// ---------------------------------------------------------------------------
-
-function CharacterFace({
-  character,
-  isSpeaking,
-  expression,
-  isLookingAway,
-}: {
-  character: Character
-  isSpeaking: boolean
-  expression: 'neutral' | 'interested' | 'skeptical' | 'nodding' | 'writing'
-  isLookingAway: boolean
-}) {
-  const color = ARCHETYPE_COLORS[character.archetype] || '#6b7280'
-
-  return (
-    <div className="relative w-full h-full rounded-xl overflow-hidden bg-[#0a0e14] group">
-      {/* Animated Canvas Avatar — real-time rendered face */}
-      <div className="absolute inset-0">
-        <AnimatedAvatar
-          seed={character.name}
-          avatarKey={character.avatarKey}
-          isSpeaking={isSpeaking}
-          expression={expression}
-          isLookingAway={isLookingAway}
-          accentColor={color}
-          width={480}
-          height={480}
-        />
-      </div>
-
-      {/* Speaking border glow */}
-      {isSpeaking && (
-        <div
-          className="absolute inset-0 rounded-xl pointer-events-none"
-          style={{
-            border: `2px solid ${color}`,
-            boxShadow: `0 0 20px ${color}40, inset 0 0 10px ${color}10`,
-          }}
-        />
-      )}
-
-      {/* Name label — video call style */}
-      <div className="absolute bottom-0 left-0 right-0 p-2.5 bg-gradient-to-t from-black/80 via-black/40 to-transparent">
-        <div className="flex items-center gap-2">
-          <p className="text-white text-sm font-medium truncate">{character.name}</p>
-          {isSpeaking && (
-            <span className="relative flex h-2 w-2 shrink-0">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
-            </span>
-          )}
-        </div>
-        <p className="text-gray-400 text-xs truncate">{character.title}</p>
-      </div>
-
-      {/* Expression overlay indicators */}
-      {expression === 'writing' && (
-        <div className="absolute top-2 right-2 bg-black/50 backdrop-blur-sm rounded-full px-2 py-0.5 flex items-center gap-1.5">
-          <span className="text-yellow-400 text-[10px]">Taking notes</span>
-          <span className="text-yellow-400 text-[10px] animate-pulse">...</span>
-        </div>
-      )}
-
-      {/* Archetype label on hover */}
-      <div className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity">
-        <span
-          className="text-[10px] font-medium px-2 py-0.5 rounded-full backdrop-blur-sm"
-          style={{ backgroundColor: color + '30', color: color }}
-        >
-          {ARCHETYPE_LABELS[character.archetype] || character.archetype}
-        </span>
-      </div>
-    </div>
-  )
+function playJoinSound() {
+  const ctx = new AudioContext()
+  const osc = ctx.createOscillator()
+  const gain = ctx.createGain()
+  osc.frequency.value = 880
+  gain.gain.value = 0.02
+  osc.connect(gain)
+  gain.connect(ctx.destination)
+  osc.start()
+  osc.stop(ctx.currentTime + 0.08)
+  setTimeout(() => void ctx.close(), 120)
 }
 
-// ---------------------------------------------------------------------------
-// Voice config per archetype — OpenAI-compatible TTS voices
-// ---------------------------------------------------------------------------
-// OpenAI voices: alloy (neutral), ash (warm male), ballad (expressive),
-// coral (warm female), echo (calm male), fable (storyteller), onyx (deep male),
-// nova (bright female), sage (thoughtful), shimmer (upbeat female), verse (versatile)
-
-const VOICE_CONFIG: Record<string, { voice: string; instructions: string }> = {
-  skeptic: {
-    voice: 'onyx',
-    instructions: 'Speak in a direct, no-nonsense tone. Sound slightly skeptical and probing, like a tough interviewer. Moderate pace.',
-  },
-  friendly_champion: {
-    voice: 'nova',
-    instructions: 'Speak warmly and enthusiastically. Sound genuinely interested and encouraging, like a supportive colleague. Natural, relaxed pace.',
-  },
-  technical_griller: {
-    voice: 'ash',
-    instructions: 'Speak clearly and precisely. Sound analytical and focused, like a senior engineer. Steady, measured pace.',
-  },
-  distracted_senior: {
-    voice: 'echo',
-    instructions: 'Speak in a slightly hurried, casual tone. Sound like a busy executive who is somewhat distracted but still engaged.',
-  },
-  culture_fit: {
-    voice: 'shimmer',
-    instructions: 'Speak in a friendly, conversational tone. Sound warm, approachable, and genuinely curious about the person.',
-  },
-  silent_observer: {
-    voice: 'sage',
-    instructions: 'Speak very briefly and quietly. Sound reserved and thoughtful, with deliberate pauses.',
-  },
+const VOICE_INSTRUCTIONS: Record<string, string> = {
+  skeptic: 'Direct, measured, no affirmations, asks for specifics.',
+  friendly_champion: 'Warm and concise, inviting but evaluative.',
+  technical_griller: 'Blunt technical depth, no pleasantries.',
+  distracted_senior: 'Brief, slightly hurried, strategic framing.',
+  culture_fit: 'Conversational, values and collaboration focused.',
+  silent_observer: 'Very brief and reserved.',
 }
-
-// Fallback Web Speech API config when server TTS is unavailable
-const FALLBACK_VOICE_CONFIG: Record<string, { pitch: number; rate: number }> = {
-  skeptic: { pitch: 0.85, rate: 0.88 },
-  friendly_champion: { pitch: 1.08, rate: 1.0 },
-  technical_griller: { pitch: 0.92, rate: 0.92 },
-  distracted_senior: { pitch: 1.0, rate: 1.05 },
-  culture_fit: { pitch: 1.05, rate: 0.95 },
-  silent_observer: { pitch: 0.85, rate: 0.82 },
-}
-
-// ---------------------------------------------------------------------------
-// Speech synthesis hook — server TTS first, browser fallback
-// ---------------------------------------------------------------------------
 
 function useSpeech() {
   const [speaking, setSpeaking] = useState(false)
-  const [voiceEngine, setVoiceEngine] = useState<'server' | 'browser'>('browser')
+  const [amplitude, setAmplitude] = useState(0)
   const currentAudioRef = useRef<HTMLAudioElement | null>(null)
   const currentAudioUrlRef = useRef<string | null>(null)
+  const rafRef = useRef<number | null>(null)
   const synthRef = useRef<SpeechSynthesis | null>(null)
+
+  const stopAnalyser = () => {
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current)
+      rafRef.current = null
+    }
+    setAmplitude(0)
+  }
 
   useEffect(() => {
     synthRef.current = window.speechSynthesis
     return () => {
       currentAudioRef.current?.pause()
-      if (currentAudioUrlRef.current) {
-        URL.revokeObjectURL(currentAudioUrlRef.current)
-      }
+      if (currentAudioUrlRef.current) URL.revokeObjectURL(currentAudioUrlRef.current)
       synthRef.current?.cancel()
+      stopAnalyser()
     }
   }, [])
 
-  const speak = useCallback((text: string, voiceConfig?: { voice: string; instructions: string }) => {
-    return new Promise<void>(async (resolve) => {
-      // Stop any currently playing audio
-      if (currentAudioRef.current) {
-        currentAudioRef.current.pause()
-        currentAudioRef.current = null
+  const analyseAudio = (audio: HTMLAudioElement) => {
+    try {
+      const stream = (audio as any).captureStream?.()
+      if (!stream) return
+      const ctx = new AudioContext()
+      const src = ctx.createMediaStreamSource(stream)
+      const analyser = ctx.createAnalyser()
+      analyser.fftSize = 256
+      src.connect(analyser)
+      const data = new Uint8Array(analyser.frequencyBinCount)
+      const loop = () => {
+        analyser.getByteFrequencyData(data)
+        let total = 0
+        for (let i = 0; i < data.length; i++) total += data[i]
+        const avg = total / data.length
+        setAmplitude(Math.min(1, avg / 96))
+        rafRef.current = requestAnimationFrame(loop)
       }
-      if (currentAudioUrlRef.current) {
-        URL.revokeObjectURL(currentAudioUrlRef.current)
-        currentAudioUrlRef.current = null
+      loop()
+      audio.onended = () => {
+        stopAnalyser()
+        void ctx.close()
       }
-      synthRef.current?.cancel()
+      audio.onerror = () => {
+        stopAnalyser()
+        void ctx.close()
+      }
+    } catch {
+      setAmplitude(0.4)
+    }
+  }
 
+  const speak = useCallback((text: string, voiceId?: string, archetype?: string) => {
+    return new Promise<void>(async (resolve) => {
+      if (currentAudioRef.current) currentAudioRef.current.pause()
+      if (currentAudioUrlRef.current) URL.revokeObjectURL(currentAudioUrlRef.current)
+      synthRef.current?.cancel()
+      stopAnalyser()
       setSpeaking(true)
 
-      // Primary path: server-generated TTS (stable and deterministic)
       try {
-        if (voiceConfig) {
-          const response = await fetch('/api/tts', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              text,
-              voice: voiceConfig.voice,
-              instructions: voiceConfig.instructions,
-            }),
-          })
-
-          if (response.ok) {
-            const blob = await response.blob()
-            const url = URL.createObjectURL(blob)
-            const audio = new Audio(url)
-            currentAudioRef.current = audio
-            currentAudioUrlRef.current = url
-            setVoiceEngine('server')
-            audio.onended = () => {
-              setSpeaking(false)
-              currentAudioRef.current = null
-              if (currentAudioUrlRef.current) {
-                URL.revokeObjectURL(currentAudioUrlRef.current)
-                currentAudioUrlRef.current = null
-              }
-              resolve()
-            }
-            audio.onerror = () => {
-              setSpeaking(false)
-              currentAudioRef.current = null
-              if (currentAudioUrlRef.current) {
-                URL.revokeObjectURL(currentAudioUrlRef.current)
-                currentAudioUrlRef.current = null
-              }
-              resolve()
-            }
-            await audio.play()
-            return
+        const response = await fetch('/api/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text,
+            voice: voiceId || 'nova',
+            instructions: VOICE_INSTRUCTIONS[archetype || 'friendly_champion'] || VOICE_INSTRUCTIONS.friendly_champion,
+          }),
+        })
+        if (response.ok) {
+          const blob = await response.blob()
+          const url = URL.createObjectURL(blob)
+          const audio = new Audio(url)
+          currentAudioRef.current = audio
+          currentAudioUrlRef.current = url
+          analyseAudio(audio)
+          audio.onended = () => {
+            stopAnalyser()
+            setSpeaking(false)
+            resolve()
           }
+          audio.onerror = () => {
+            stopAnalyser()
+            setSpeaking(false)
+            resolve()
+          }
+          await audio.play()
+          return
         }
-      } catch (e) {
-        console.warn('Server TTS failed, falling back to browser voice:', e)
+      } catch {
+        // fall through to browser speech
       }
 
-      // Fallback: Web Speech API — pick the most natural-sounding voice available
-      if (!synthRef.current) { setSpeaking(false); resolve(); return }
-      setVoiceEngine('browser')
-
+      if (!synthRef.current) {
+        setSpeaking(false)
+        resolve()
+        return
+      }
       const utterance = new SpeechSynthesisUtterance(text)
-      const archetype = Object.entries(VOICE_CONFIG).find(([, v]) => v.voice === voiceConfig?.voice)?.[0]
-      const fallback = FALLBACK_VOICE_CONFIG[archetype || 'friendly_champion'] || { pitch: 1, rate: 0.95 }
-      utterance.pitch = fallback.pitch
-      utterance.rate = fallback.rate
-      utterance.volume = 1
-
-      // Prioritize natural/neural voices that sound human, not robotic
-      const voices = synthRef.current.getVoices().filter(v => v.lang.startsWith('en'))
-      const naturalVoice = voices.find(v =>
-        v.name.includes('Natural') || v.name.includes('Neural') ||
-        v.name.includes('Enhanced') || v.name.includes('Premium')
-      )
-      const googleVoice = voices.find(v => v.name.includes('Google'))
-      const microsoftVoice = voices.find(v => v.name.includes('Microsoft') && (v.name.includes('Online') || v.name.includes('Natural')))
-      const preferred = naturalVoice || microsoftVoice || googleVoice || voices[0]
-      if (preferred) utterance.voice = preferred
-
-      utterance.onend = () => { setSpeaking(false); resolve() }
-      utterance.onerror = () => { setSpeaking(false); resolve() }
+      utterance.rate = archetype === 'technical_griller' ? 0.92 : archetype === 'friendly_champion' ? 1.02 : 0.96
+      utterance.pitch = archetype === 'skeptic' ? 0.9 : 1
+      setAmplitude(0.45)
+      utterance.onend = () => {
+        setAmplitude(0)
+        setSpeaking(false)
+        resolve()
+      }
+      utterance.onerror = () => {
+        setAmplitude(0)
+        setSpeaking(false)
+        resolve()
+      }
       synthRef.current.speak(utterance)
     })
   }, [])
 
   const stop = useCallback(() => {
-    if (currentAudioRef.current) {
-      currentAudioRef.current.pause()
-      currentAudioRef.current = null
-    }
-    if (currentAudioUrlRef.current) {
-      URL.revokeObjectURL(currentAudioUrlRef.current)
-      currentAudioUrlRef.current = null
-    }
+    currentAudioRef.current?.pause()
+    if (currentAudioUrlRef.current) URL.revokeObjectURL(currentAudioUrlRef.current)
     synthRef.current?.cancel()
+    stopAnalyser()
     setSpeaking(false)
   }, [])
 
-  return { speak, stop, speaking, voiceEngine }
+  return { speak, stop, speaking, amplitude }
 }
 
-// ---------------------------------------------------------------------------
-// Main Component
-// ---------------------------------------------------------------------------
+function AudioBars({ active, amplitude }: { active: boolean; amplitude: number }) {
+  if (!active) return null
+  const level = Math.max(0.15, amplitude)
+  const bars = [0.55, 0.85, 0.65, 0.9]
+  return (
+    <div className="mt-3 flex items-end justify-center gap-1">
+      {bars.map((b, idx) => (
+        <span
+          key={idx}
+          className="w-1 rounded-sm bg-white/90"
+          style={{ height: `${Math.max(8, Math.round(26 * level * b))}px` }}
+        />
+      ))}
+    </div>
+  )
+}
 
 export default function InterviewRoomPage() {
   const params = useParams()
   const router = useRouter()
   const sessionId = params.sessionId as string
 
-  // Core state
   const [phase, setPhase] = useState<Phase>('loading')
   const [sessionData, setSessionData] = useState<SessionData | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const endingRef = useRef(false)
-
-  // Briefing countdown
-  const [countdown, setCountdown] = useState(120) // 2 minutes in seconds
-
-  // Interview state
-  const [exchanges, setExchanges] = useState<Exchange[]>([])
-  const [inputText, setInputText] = useState('')
-  const [isSending, setIsSending] = useState(false)
-  const [isConnectionHealthy, setIsConnectionHealthy] = useState(true)
-  const [pendingRetry, setPendingRetry] = useState<{ messageText: string; characterId: string } | null>(null)
+  const [countdown, setCountdown] = useState(120)
+  const [elapsedSeconds, setElapsedSeconds] = useState(0)
+  const [showTranscript, setShowTranscript] = useState(true)
+  const [exchanges, setExchanges] = useState<Array<Exchange & { localTs: string }>>([])
   const [speakingCharacterId, setSpeakingCharacterId] = useState<string | null>(null)
-  const [characterExpressions, setCharacterExpressions] = useState<Record<string, string>>({})
-  const [characterLookingAway, setCharacterLookingAway] = useState<Record<string, boolean>>({})
-
-  // Voice I/O
-  const { speak, stop: stopSpeech, speaking: isTTSSpeaking, voiceEngine } = useSpeech()
-  const [isListening, setIsListening] = useState(false)
+  const [joinedCharacterIds, setJoinedCharacterIds] = useState<Set<string>>(new Set())
   const [isMicOn, setIsMicOn] = useState(true)
-  const [isSpeakerOn, setIsSpeakerOn] = useState(true)
+  const [isListening, setIsListening] = useState(false)
+  const [isSending, setIsSending] = useState(false)
+  const [cameraReady, setCameraReady] = useState(false)
+  const [audioConfirmed, setAudioConfirmed] = useState(false)
+  const [cameraConfirmed, setCameraConfirmed] = useState(false)
+
+  const streamRef = useRef<MediaStream | null>(null)
+  const selfViewRef = useRef<HTMLVideoElement | null>(null)
   const recognitionRef = useRef<any>(null)
   const silenceTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-
-  // Timer
-  const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const timerRef = useRef<NodeJS.Timeout | null>(null)
+  const chatEndRef = useRef<HTMLDivElement | null>(null)
 
-  // Camera
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const selfViewRef = useRef<HTMLVideoElement>(null)
-  const streamRef = useRef<MediaStream | null>(null)
-  const [cameraActive, setCameraActive] = useState(false)
-  const [isCameraOn, setIsCameraOn] = useState(true)
+  const { speak, stop: stopSpeech, amplitude } = useSpeech()
 
-  // Chat scroll
-  const chatEndRef = useRef<HTMLDivElement>(null)
-  const nextCharacterIndexRef = useRef(0)
-
-  // Text mode fallback (if no speech recognition support)
-  const [speechSupported, setSpeechSupported] = useState(true)
-
-  // -------------------------------------------
-  // Fetch session data
-  // -------------------------------------------
-
-  useEffect(() => {
-    async function fetchSession() {
-      try {
-        const res = await fetch(`/api/sessions/${sessionId}`)
-        if (!res.ok) {
-          const data = await res.json()
-          setError(data.error || 'Failed to load session')
-          return
-        }
-        const data: SessionData = await res.json()
-        setSessionData(data)
-        setExchanges(data.exchanges || [])
-
-        // Initialize character expressions
-        const expressions: Record<string, string> = {}
-        const looking: Record<string, boolean> = {}
-        for (const char of data.characters) {
-          expressions[char.id] = 'neutral'
-          looking[char.id] = char.archetype === 'distracted_senior'
-        }
-        setCharacterExpressions(expressions)
-        setCharacterLookingAway(looking)
-
-        if (data.status === 'completed') {
-          setPhase('complete')
-        } else if (data.status === 'active') {
-          setPhase('interview')
-        } else {
-          setPhase('briefing')
-        }
-      } catch {
-        setError('Failed to load session')
-      }
-    }
-    if (sessionId) fetchSession()
-  }, [sessionId])
-
-  // -------------------------------------------
-  // Check for speech recognition support
-  // -------------------------------------------
-
-  useEffect(() => {
-    const w = window as any
-    const supported = !!(w.SpeechRecognition || w.webkitSpeechRecognition)
-    setSpeechSupported(supported)
-    if (!supported) {
-      setError('This browser does not support live speech transcription. Please use Chrome or Edge for spoken interviews.')
-    }
+  const addTranscript = useCallback((exchange: Exchange) => {
+    setExchanges((prev) => [...prev, { ...exchange, localTs: timestampLabel() }])
   }, [])
 
-  // -------------------------------------------
-  // Camera setup
-  // -------------------------------------------
-
-  const startCamera = async (): Promise<boolean> => {
+  const runMediaCheck = useCallback(async () => {
     try {
-      const isPhoneScreen = sessionData?.stage === 'Phone Screen'
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: !isPhoneScreen,
-        audio: true,
-      })
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
       streamRef.current = stream
-      if (!isPhoneScreen) {
-        if (videoRef.current) videoRef.current.srcObject = stream
-        if (selfViewRef.current) selfViewRef.current.srcObject = stream
-      }
-      const hasAudio = stream.getAudioTracks().length > 0
-      const hasVideo = isPhoneScreen ? true : stream.getVideoTracks().length > 0
-      if (!hasAudio || !hasVideo) {
-        stream.getTracks().forEach((t) => t.stop())
-        streamRef.current = null
-        setCameraActive(false)
-        setIsCameraOn(false)
-        setError(isPhoneScreen ? 'Microphone check failed. Please reconnect your microphone.' : 'Camera or microphone check failed. Please reconnect both and try again.')
-        return false
-      }
-      setCameraActive(true)
-      setIsCameraOn(!isPhoneScreen)
-      return true
+      if (selfViewRef.current) selfViewRef.current.srcObject = stream
+      setCameraReady(true)
+      setCameraConfirmed(true)
+      playJoinSound()
+      setAudioConfirmed(false)
+      setTimeout(() => playJoinSound(), 400)
     } catch {
-      setCameraActive(false)
-      setError('Unable to access your camera/microphone. Please grant permissions and retry.')
-      return false
+      setError('Camera and microphone access is required for the live interview room.')
     }
-  }
-
-  const stopCamera = () => {
-    streamRef.current?.getTracks().forEach(t => t.stop())
-    streamRef.current = null
-    setCameraActive(false)
-    setIsCameraOn(false)
-  }
-
-  const toggleCamera = () => {
-    if (!streamRef.current) return
-    const videoTracks = streamRef.current.getVideoTracks()
-    videoTracks.forEach(t => { t.enabled = !t.enabled })
-    setIsCameraOn(prev => !prev)
-  }
-
-  // Sync selfViewRef when stream changes
-  useEffect(() => {
-    if (selfViewRef.current && streamRef.current) {
-      selfViewRef.current.srcObject = streamRef.current
-    }
-  })
-
-  useEffect(() => {
-    return () => { stopCamera(); stopSpeech() }
-  }, [stopSpeech])
-
-  // -------------------------------------------
-  // Speech recognition
-  // -------------------------------------------
-
-  const startListening = useCallback(() => {
-    if (!speechSupported) return
-
-    const w = window as any
-    const SpeechRecognitionCtor = w.SpeechRecognition || w.webkitSpeechRecognition
-    if (!SpeechRecognitionCtor) return
-
-    const recognition = new SpeechRecognitionCtor()
-    recognition.continuous = true
-    recognition.interimResults = true
-    recognition.lang = 'en-US'
-
-    recognition.onresult = (event: any) => {
-      let transcript = ''
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        transcript += event.results[i][0].transcript
-      }
-      setInputText(transcript)
-
-      // Reset silence timeout
-      if (silenceTimeoutRef.current) clearTimeout(silenceTimeoutRef.current)
-      silenceTimeoutRef.current = setTimeout(() => {
-        // Auto-send after 1.5s silence
-        if (transcript.trim().length > 0) {
-          recognition.stop()
-        }
-      }, 1500)
-    }
-
-    recognition.onend = () => {
-      setIsListening(false)
-    }
-
-    recognition.onerror = () => {
-      setIsListening(false)
-    }
-
-    try {
-      recognition.start()
-      recognitionRef.current = recognition
-      setIsListening(true)
-    } catch {
-      setIsListening(false)
-    }
-  }, [speechSupported])
+  }, [])
 
   const stopListening = useCallback(() => {
     recognitionRef.current?.stop()
@@ -634,367 +289,243 @@ export default function InterviewRoomPage() {
     if (silenceTimeoutRef.current) clearTimeout(silenceTimeoutRef.current)
   }, [])
 
-  // -------------------------------------------
-  // Briefing countdown
-  // -------------------------------------------
+  const startListening = useCallback(() => {
+    const w = window as any
+    const SpeechRecognitionCtor = w.SpeechRecognition || w.webkitSpeechRecognition
+    if (!SpeechRecognitionCtor || !isMicOn) return
+    const recognition = new SpeechRecognitionCtor()
+    recognition.continuous = true
+    recognition.interimResults = true
+    recognition.lang = 'en-US'
+    let finalTranscript = ''
+    recognition.onresult = (event: any) => {
+      let chunk = ''
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        chunk += event.results[i][0].transcript
+      }
+      finalTranscript = chunk.trim()
+      if (silenceTimeoutRef.current) clearTimeout(silenceTimeoutRef.current)
+      silenceTimeoutRef.current = setTimeout(() => {
+        recognition.stop()
+      }, 1500)
+    }
+    recognition.onend = () => {
+      setIsListening(false)
+      if (finalTranscript && phase === 'interview') {
+        void handleCandidateTurn(finalTranscript)
+      }
+    }
+    recognition.onerror = () => setIsListening(false)
+    recognition.start()
+    recognitionRef.current = recognition
+    setIsListening(true)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMicOn, phase])
+
+  useEffect(() => {
+    async function fetchSession() {
+      try {
+        const res = await fetch(`/api/sessions/${sessionId}`)
+        if (!res.ok) {
+          const body = await res.json()
+          setError(body.error || 'Failed to load interview session.')
+          return
+        }
+        const data: SessionData = await res.json()
+        setSessionData(data)
+        setExchanges((data.exchanges || []).map((e) => ({ ...e, localTs: timestampLabel() })))
+        setPhase(data.status === 'active' ? 'interview' : data.status === 'completed' ? 'complete' : 'briefing')
+      } catch {
+        setError('Failed to load interview session.')
+      }
+    }
+    if (sessionId) void fetchSession()
+  }, [sessionId])
 
   useEffect(() => {
     if (phase !== 'countdown') return
     if (countdown <= 0) {
-      handleStartInterview()
+      void startInterview()
       return
     }
-    const t = setTimeout(() => setCountdown(c => c - 1), 1000)
+    const t = setTimeout(() => setCountdown((c) => c - 1), 1000)
     return () => clearTimeout(t)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, countdown])
 
-  // -------------------------------------------
-  // Timer
-  // -------------------------------------------
-
   useEffect(() => {
-    if (phase === 'interview') {
-      timerRef.current = setInterval(() => setElapsedSeconds(s => s + 1), 1000)
+    if (phase !== 'interview') return
+    timerRef.current = setInterval(() => setElapsedSeconds((s) => s + 1), 1000)
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current)
     }
-    return () => { if (timerRef.current) clearInterval(timerRef.current) }
   }, [phase])
-
-  useEffect(() => {
-    if (phase !== 'interview' || !sessionData) return
-    const maxSeconds = sessionData.durationMinutes * 60
-    if (elapsedSeconds >= maxSeconds) {
-      void handleEndInterview()
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [elapsedSeconds, phase, sessionData])
-
-  // -------------------------------------------
-  // Auto-scroll chat
-  // -------------------------------------------
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [exchanges])
 
-  // -------------------------------------------
-  // Random character behavior
-  // -------------------------------------------
-
   useEffect(() => {
-    if (phase !== 'interview' || !sessionData) return
-
-    const interval = setInterval(() => {
-      for (const char of sessionData.characters) {
-        // Distracted senior looks away randomly
-        if (char.archetype === 'distracted_senior') {
-          setCharacterLookingAway(prev => ({ ...prev, [char.id]: Math.random() > 0.4 }))
-        }
-        // Silent observer takes notes periodically
-        if (char.archetype === 'silent_observer') {
-          setCharacterExpressions(prev => ({
-            ...prev,
-            [char.id]: Math.random() > 0.5 ? 'writing' : 'neutral',
-          }))
-        }
-      }
-    }, 4000)
-
-    return () => clearInterval(interval)
-  }, [phase, sessionData])
-
-  // -------------------------------------------
-  // Connectivity signals
-  // -------------------------------------------
-
-  useEffect(() => {
-    const onOnline = () => setIsConnectionHealthy(true)
-    const onOffline = () => setIsConnectionHealthy(false)
-    window.addEventListener('online', onOnline)
-    window.addEventListener('offline', onOffline)
     return () => {
-      window.removeEventListener('online', onOnline)
-      window.removeEventListener('offline', onOffline)
+      streamRef.current?.getTracks().forEach((t) => t.stop())
+      stopListening()
+      stopSpeech()
     }
-  }, [])
+  }, [stopListening, stopSpeech])
 
-  // -------------------------------------------
-  // Start interview
-  // -------------------------------------------
-
-  const handleStartInterview = async () => {
+  const startInterview = async () => {
     if (!sessionData) return
+    await fetch(`/api/sessions/${sessionId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'active' }),
+    })
 
-    try {
-      const res = await fetch(`/api/sessions/${sessionId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'active' }),
-      })
+    setPhase('interview')
+    const characters = sessionData.characters || []
+    const distracted = characters.find((c) => c.archetype === 'distracted_senior')
+    const nonLate = characters.filter((c) => c.id !== distracted?.id)
 
-      if (!res.ok) throw new Error('Failed to start session')
-
-      const updated = await res.json()
-      setSessionData(prev => prev ? { ...prev, ...updated, characters: updated.characters } : prev)
-      setPhase('interview')
-
-      // Generate opening lines
-      const characters = updated.characters || sessionData.characters
-      for (let i = 0; i < characters.length; i++) {
-        const char = characters[i]
-        const lines = getOpeningLines(char.archetype, sessionData.application?.companyName, sessionData.application?.jobTitle)
-        const line = randomFrom(lines)
-
-        setSpeakingCharacterId(char.id)
-        setCharacterExpressions(prev => ({ ...prev, [char.id]: 'neutral' }))
-
-        // Speak the line
-        if (isSpeakerOn) {
-          const voiceConfig = VOICE_CONFIG[char.archetype]
-          await speak(line, voiceConfig)
-        } else {
-          await new Promise(resolve => setTimeout(resolve, char.silenceDuration))
-        }
-
-        const openingExchange: Exchange = {
-          id: `opening_${i}`,
-          sequenceNumber: i + 1,
-          speaker: 'interviewer',
+    let delay = 800
+    nonLate.forEach((char) => {
+      setTimeout(() => {
+        playJoinSound()
+        setJoinedCharacterIds((prev) => new Set(prev).add(char.id))
+        addTranscript({
+          id: `join_${char.id}_${Date.now()}`,
+          sequenceNumber: exchanges.length + 1,
+          speaker: 'system',
           characterId: char.id,
-          messageText: line,
-          timestampMs: i * 2000,
-        }
-        setExchanges(prev => [...prev, openingExchange])
-        setSpeakingCharacterId(null)
-        setCharacterExpressions(prev => ({ ...prev, [char.id]: 'neutral' }))
+          messageText: `${char.name} joined the meeting.`,
+          timestampMs: elapsedSeconds * 1000,
+        })
+      }, delay)
+      delay += 1500 + Math.floor(Math.random() * 2500)
+    })
 
-        if (i < characters.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 500))
-        }
-      }
-
-      // Start listening for candidate
-      if (speechSupported && isMicOn) startListening()
-      nextCharacterIndexRef.current = 0
-    } catch {
-      setError('Failed to start interview')
+    if (distracted) {
+      const lateDelay = 120000 + Math.floor(Math.random() * 60000)
+      setTimeout(() => {
+        playJoinSound()
+        setJoinedCharacterIds((prev) => new Set(prev).add(distracted.id))
+        addTranscript({
+          id: `join_${distracted.id}_${Date.now()}`,
+          sequenceNumber: exchanges.length + 1,
+          speaker: 'system',
+          characterId: distracted.id,
+          messageText: `${distracted.name} joined the meeting.`,
+          timestampMs: elapsedSeconds * 1000,
+        })
+      }, lateDelay)
     }
+
+    setTimeout(async () => {
+      const firstQuestion = sessionData.questionPlan?.[0]
+      const opener =
+        (firstQuestion && characters.find((c) => c.id === firstQuestion.owner_character_id))
+        || characters.find((c) => c.archetype !== 'silent_observer' && c.archetype !== 'distracted_senior')
+        || characters[0]
+      if (!opener) return
+      const line = firstQuestion?.question_text || `Welcome. Let's start with: tell me about yourself and why you're interested in ${sessionData.application.jobTitle}.`
+      setSpeakingCharacterId(opener.id)
+      await speak(line, opener.voiceId, opener.archetype)
+      setSpeakingCharacterId(null)
+      addTranscript({
+        id: `opening_${Date.now()}`,
+        sequenceNumber: exchanges.length + 1,
+        speaker: 'interviewer',
+        characterId: opener.id,
+        messageText: line,
+        timestampMs: elapsedSeconds * 1000,
+      })
+      startListening()
+    }, delay + 1500)
   }
 
-  // -------------------------------------------
-  // Send message
-  // -------------------------------------------
-
-  const handleSend = async (
-    forcedText?: string,
-    forcedCharacterId?: string
-  ) => {
-    const outboundText = (forcedText ?? inputText).trim()
-    if (!outboundText || isSending || !sessionData) return
-
-    const characters = sessionData.characters
-    if (!characters.length) return
-
-    let respondingChar = characters[0]
-    if (forcedCharacterId) {
-      respondingChar = characters.find((c) => c.id === forcedCharacterId) || respondingChar
-    } else {
-      const charIndex = nextCharacterIndexRef.current % characters.length
-      respondingChar = characters[charIndex]
-      nextCharacterIndexRef.current = charIndex + 1
-    }
-
-    const userText = outboundText
-    setInputText('')
+  const handleCandidateTurn = async (text: string) => {
+    if (!sessionData || isSending || !text.trim()) return
     setIsSending(true)
-    setPendingRetry(null)
-    stopListening()
-
-    // Add candidate exchange
-    const tempCandidateExchange: Exchange = {
-      id: `temp_${Date.now()}`,
+    const candidateExchange: Exchange = {
+      id: `candidate_${Date.now()}`,
       sequenceNumber: exchanges.length + 1,
       speaker: 'candidate',
       characterId: null,
-      messageText: userText,
+      messageText: text.trim(),
       timestampMs: elapsedSeconds * 1000,
     }
-    setExchanges(prev => [...prev, tempCandidateExchange])
-
-    // Character thinking
-    setSpeakingCharacterId(respondingChar.id)
-    setCharacterExpressions(prev => ({ ...prev, [respondingChar.id]: 'writing' }))
+    addTranscript(candidateExchange)
 
     try {
-      // Character-specific silence before responding
-      const silenceDuration = resolveSilenceDuration(respondingChar)
-      await new Promise(resolve => setTimeout(resolve, silenceDuration))
-
       const res = await fetch(`/api/sessions/${sessionId}/exchange`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messageText: userText, characterId: respondingChar.id }),
+        body: JSON.stringify({ messageText: text.trim() }),
       })
-
       if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.error || 'Failed to send message')
+        const body = await res.json()
+        throw new Error(body.error || 'Failed to send turn.')
       }
-
       const data = await res.json()
-      setIsConnectionHealthy(true)
-
-      // Update expression based on response
-      const isShortAnswer = userText.split(' ').length < 15
-      if (respondingChar.archetype === 'skeptic' && isShortAnswer) {
-        setCharacterExpressions(prev => ({ ...prev, [respondingChar.id]: 'skeptical' }))
-      } else if (respondingChar.archetype === 'friendly_champion') {
-        setCharacterExpressions(prev => ({ ...prev, [respondingChar.id]: 'nodding' }))
-      } else {
-        setCharacterExpressions(prev => ({ ...prev, [respondingChar.id]: 'interested' }))
-      }
-
-      // Speak the response
-      if (isSpeakerOn) {
-        const voiceConfig = VOICE_CONFIG[respondingChar.archetype]
-        await speak(data.interviewerExchange.messageText, voiceConfig)
-      }
-
-      // Update exchanges
-      setExchanges(prev => {
-        const withoutTemp = prev.filter(e => e.id !== tempCandidateExchange.id)
-        return [...withoutTemp, data.candidateExchange, data.interviewerExchange]
-      })
-
-      // Reset expression after a moment
-      setTimeout(() => {
-        setCharacterExpressions(prev => ({ ...prev, [respondingChar.id]: 'neutral' }))
-      }, 2000)
-
-      // Resume listening
-      if (speechSupported && isMicOn) startListening()
-    } catch (err) {
-      setIsConnectionHealthy(false)
-      setPendingRetry({ messageText: userText, characterId: respondingChar.id })
-      setExchanges(prev => prev.filter(e => e.id !== tempCandidateExchange.id))
-      setError(err instanceof Error ? err.message : 'Failed to send message')
-    } finally {
+      const interviewerCharId = data.character?.id || data.interviewerExchange?.characterId
+      setSpeakingCharacterId(interviewerCharId || null)
+      await speak(
+        data.interviewerExchange.messageText,
+        data.character?.voiceId,
+        data.character?.archetype
+      )
       setSpeakingCharacterId(null)
+      addTranscript(data.interviewerExchange)
+      if (data.sessionEnd) {
+        await endInterview()
+        return
+      }
+      if (isMicOn) startListening()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Interview turn failed.')
+      if (isMicOn) startListening()
+    } finally {
       setIsSending(false)
     }
   }
 
-  const handleRetryPending = async () => {
-    if (!pendingRetry || !sessionData) return
-    setError(null)
-    setIsConnectionHealthy(navigator.onLine)
-    await handleSend(pendingRetry.messageText, pendingRetry.characterId)
-  }
-
-  // Auto-send when speech recognition stops
-  useEffect(() => {
-    if (!isListening && inputText.trim() && !isSending && phase === 'interview') {
-      handleSend()
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isListening])
-
-  // -------------------------------------------
-  // End interview
-  // -------------------------------------------
-
-  const handleEndInterview = async () => {
-    if (!sessionData || endingRef.current) return
-    endingRef.current = true
+  const endInterview = async () => {
     stopListening()
     stopSpeech()
-
-    const characters = sessionData.characters
-    const leadChar = characters[0]
-    if (leadChar) {
-      const closingLine = CLOSING_LINES[leadChar.archetype] || CLOSING_LINES.friendly_champion
-      setSpeakingCharacterId(leadChar.id)
-      if (isSpeakerOn) {
-        await speak(closingLine, VOICE_CONFIG[leadChar.archetype])
-      }
-      setExchanges(prev => [...prev, {
-        id: `closing_${Date.now()}`,
-        sequenceNumber: exchanges.length + 1,
-        speaker: 'interviewer',
-        characterId: leadChar.id,
-        messageText: closingLine,
-        timestampMs: elapsedSeconds * 1000,
-      }])
-      setSpeakingCharacterId(null)
-    }
-
     if (timerRef.current) clearInterval(timerRef.current)
-
-    try {
-      await fetch(`/api/sessions/${sessionId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'completed' }),
-      })
-    } catch { /* proceed anyway */ }
-
-    stopCamera()
+    await fetch(`/api/sessions/${sessionId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'completed' }),
+    })
     setPhase('complete')
+    setTimeout(() => router.push(`/debrief/${sessionId}`), 800)
   }
-
-  // -------------------------------------------
-  // Toggle mic
-  // -------------------------------------------
 
   const toggleMic = () => {
     if (isMicOn) {
       stopListening()
-      if (streamRef.current) {
-        streamRef.current.getAudioTracks().forEach(t => { t.enabled = false })
-      }
-    } else {
-      if (streamRef.current) {
-        streamRef.current.getAudioTracks().forEach(t => { t.enabled = true })
-      }
-      if (speechSupported) startListening()
+      streamRef.current?.getAudioTracks().forEach((t) => { t.enabled = false })
+      setIsMicOn(false)
+      return
     }
-    setIsMicOn(!isMicOn)
+    streamRef.current?.getAudioTracks().forEach((t) => { t.enabled = true })
+    setIsMicOn(true)
+    if (phase === 'interview') startListening()
   }
-
-  // -------------------------------------------
-  // Toggle speaker
-  // -------------------------------------------
-
-  const toggleSpeaker = () => {
-    if (isSpeakerOn) stopSpeech()
-    setIsSpeakerOn(!isSpeakerOn)
-  }
-
-  // -------------------------------------------
-  // RENDER: Loading
-  // -------------------------------------------
 
   if (phase === 'loading') {
     return (
-      <div className="fixed inset-0 bg-[#0a0a1a] flex items-center justify-center z-50">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-400 mx-auto mb-4" />
-          <p className="text-gray-400 text-sm">Loading interview room...</p>
-        </div>
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0b0f19]">
+        <div className="h-10 w-10 animate-spin rounded-full border-2 border-white/40 border-t-white" />
       </div>
     )
   }
 
   if (error && !sessionData) {
     return (
-      <div className="fixed inset-0 bg-[#0a0a1a] flex items-center justify-center z-50">
-        <div className="text-center max-w-md">
-          <MessageSquare className="w-12 h-12 text-red-400 mx-auto mb-4" />
-          <h2 className="text-xl font-semibold text-white mb-2">Unable to load session</h2>
-          <p className="text-gray-400 mb-6">{error}</p>
-          <Button variant="outline" onClick={() => router.push('/dashboard')}>
-            Back to Dashboard
-          </Button>
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0b0f19] px-4">
+        <div className="max-w-md rounded-xl border border-white/10 bg-[#121826] p-6 text-center text-white">
+          <p className="text-sm text-red-300">{error}</p>
         </div>
       </div>
     )
@@ -1002,456 +533,195 @@ export default function InterviewRoomPage() {
 
   if (!sessionData) return null
   const { characters, application } = sessionData
-  const isPhoneScreen = sessionData.stage === 'Phone Screen'
-
-  // -------------------------------------------
-  // RENDER: Briefing (Pre-Interview)
-  // -------------------------------------------
 
   if (phase === 'briefing') {
     return (
-      <div className="fixed inset-0 bg-[#0a0a1a] flex items-center justify-center p-4 overflow-y-auto z-50">
-        <div className="max-w-2xl w-full space-y-6">
-          {/* Meeting-style header */}
-          <div className="text-center">
-            <div className="inline-flex items-center gap-2 bg-blue-500/10 border border-blue-500/20 rounded-full px-4 py-1.5 mb-4">
-              <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-              <span className="text-blue-400 text-xs font-medium">Interview Scheduled</span>
-            </div>
-            <h1 className="text-3xl font-bold text-white mb-1">
-              {application.companyName}
-            </h1>
-            <p className="text-gray-400">{application.jobTitle}</p>
+      <div className="fixed inset-0 z-50 overflow-y-auto bg-[#0b0f19] p-6">
+        <div className="mx-auto max-w-3xl space-y-6">
+          <div className="rounded-xl border border-white/10 bg-[#121826] p-6">
+            <p className="text-xs uppercase tracking-wide text-slate-400">Interview briefing</p>
+            <h1 className="mt-2 text-2xl font-semibold text-white">{application.companyName}</h1>
+            <p className="text-slate-300">{application.jobTitle}</p>
+            <p className="mt-4 text-sm text-slate-400">
+              Based on {application.companyName}&apos;s interview style, expect a mixed live-audio interview flow.
+            </p>
           </div>
 
-          {/* Interview details card */}
-          <div className="bg-[#111127] border border-[#1e1e3a] rounded-xl p-6 space-y-4">
-            <div className="grid grid-cols-3 gap-4 text-center">
-              <div>
-                <p className="text-xs text-gray-500 mb-1">Type</p>
-                <p className="text-white text-sm font-medium">{sessionData.stage}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500 mb-1">Intensity</p>
-                <Badge variant={
-                  sessionData.intensity === 'high-pressure' ? 'danger' :
-                  sessionData.intensity === 'warmup' ? 'success' : 'info'
-                }>
-                  {sessionData.intensity}
-                </Badge>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500 mb-1">Duration</p>
-                <p className="text-white text-sm font-medium">{sessionData.durationMinutes} min</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Interview panel */}
-          <div>
-            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">
-              Your Interview Panel
-            </h2>
-            <div className="space-y-2">
-              {characters.map(char => {
-                const color = ARCHETYPE_COLORS[char.archetype] || '#6b7280'
-                return (
-                  <div key={char.id} className="bg-[#111127] border border-[#1e1e3a] rounded-xl p-4 flex items-center gap-4">
-                    <div
-                      className="w-12 h-12 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0"
-                      style={{ backgroundColor: color }}
-                    >
-                      {getInitials(char.name)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-white font-medium">{char.name}</p>
-                      <p className="text-gray-400 text-sm truncate">{char.title}</p>
-                    </div>
+          <div className="rounded-xl border border-white/10 bg-[#121826] p-6">
+            <h2 className="text-sm font-semibold text-slate-200">Today&apos;s interviewer panel</h2>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {characters.map((char) => (
+                <div key={char.id} className="flex items-center gap-3 rounded-lg border border-white/10 bg-[#0f1524] p-3">
+                  <div
+                    className="flex h-10 w-10 items-center justify-center rounded-full text-sm font-semibold text-white"
+                    style={{ backgroundColor: char.avatarColor || '#334155' }}
+                  >
+                    {char.initials || char.name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()}
                   </div>
-                )
-              })}
+                  <div>
+                    <p className="text-sm font-medium text-white">{char.name}</p>
+                    <p className="text-xs text-slate-400">{char.title}</p>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 
-          {/* Camera/Mic Setup */}
-          {!cameraActive ? (
-            <div className="bg-[#111127] border border-[#1e1e3a] rounded-xl p-6 text-center space-y-3">
-              {isPhoneScreen ? <Mic className="w-8 h-8 text-blue-400 mx-auto" /> : <Video className="w-8 h-8 text-blue-400 mx-auto" />}
-              <p className="text-white text-sm font-medium">
-                {isPhoneScreen ? 'Microphone Required' : 'Camera & Microphone Required'}
-              </p>
-              <p className="text-gray-400 text-xs">
-                {isPhoneScreen
-                  ? 'Phone Screen mode is audio-only. Your microphone must be active.'
-                  : 'Your camera and microphone will be active during the interview.'}
-              </p>
-              <Button onClick={startCamera} className="!bg-blue-600 hover:!bg-blue-700">
-                {isPhoneScreen ? <Mic className="w-4 h-4 mr-2" /> : <Video className="w-4 h-4 mr-2" />}
-                {isPhoneScreen ? 'Enable Microphone' : 'Enable Camera & Mic'}
-              </Button>
+          <div className="rounded-xl border border-white/10 bg-[#121826] p-6">
+            <h2 className="text-sm font-semibold text-slate-200">Camera and mic check</h2>
+            <p className="mt-2 text-xs text-slate-400">Your camera feed stays local. Audio is used for live interview turns.</p>
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <div className="aspect-video overflow-hidden rounded-lg border border-white/10 bg-black">
+                <video ref={selfViewRef} autoPlay muted playsInline className="h-full w-full object-cover" />
+              </div>
+              <div className="space-y-3 text-sm">
+                <Button onClick={runMediaCheck} className="w-full">Run camera + mic check</Button>
+                <label className="flex items-center gap-2 text-slate-200">
+                  <input type="checkbox" checked={cameraConfirmed} onChange={(e) => setCameraConfirmed(e.target.checked)} />
+                  Camera feed looks correct
+                </label>
+                <label className="flex items-center gap-2 text-slate-200">
+                  <input type="checkbox" checked={audioConfirmed} onChange={(e) => setAudioConfirmed(e.target.checked)} />
+                  I can hear the test audio
+                </label>
+              </div>
             </div>
-          ) : (
-            <div className="bg-green-900/20 border border-green-700/30 rounded-xl p-4 flex items-center gap-3">
-              <Mic className="w-5 h-5 text-green-400" />
-              <p className="text-green-300 text-sm">
-                {isPhoneScreen ? 'Microphone connected' : 'Camera and microphone connected'}
-              </p>
-            </div>
-          )}
+          </div>
 
-          {!speechSupported && (
-            <div className="bg-red-900/20 border border-red-700/30 rounded-xl p-4">
-              <p className="text-red-300 text-sm">
-                This browser does not support live speech transcription. Use Chrome or Edge to run spoken interviews.
-              </p>
-            </div>
-          )}
-
-          {/* Start button */}
-          <div className="text-center pt-2">
+          <div className="text-center">
             <Button
               size="lg"
-              onClick={async () => {
-                if (!speechSupported) return
-                const ready = cameraActive || await startCamera()
-                if (!ready) return
+              disabled={!cameraReady || !cameraConfirmed || !audioConfirmed}
+              onClick={() => {
                 setCountdown(120)
                 setPhase('countdown')
               }}
-              disabled={!speechSupported}
-              className="!bg-blue-600 hover:!bg-blue-700 !px-12"
             >
-              Enter Interview Room
+              Enter interview room
             </Button>
+            {error && <p className="mt-3 text-xs text-red-300">{error}</p>}
           </div>
         </div>
       </div>
     )
   }
-
-  // -------------------------------------------
-  // RENDER: Countdown
-  // -------------------------------------------
 
   if (phase === 'countdown') {
     return (
-      <div className="fixed inset-0 bg-[#0a0a1a] flex items-center justify-center z-50">
-        <div className="text-center space-y-6">
-          {/* Calendar-style notification */}
-          <div className="bg-[#111127] border border-blue-500/30 rounded-2xl p-6 max-w-sm mx-auto">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center">
-                <Video className="w-5 h-5 text-white" />
-              </div>
-              <div className="text-left">
-                <p className="text-white text-sm font-medium">Interview Starting</p>
-                <p className="text-gray-400 text-xs">{application.companyName} — {application.jobTitle}</p>
-              </div>
-            </div>
-          </div>
-
-          <p className="text-gray-400 text-lg">
-            Your interview starts in...
-          </p>
-          <div className="text-8xl font-bold text-white tabular-nums">
-            {countdown}
-          </div>
-          <p className="text-gray-500 text-sm">Take a deep breath and relax</p>
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0b0f19]">
+        <div className="rounded-xl border border-white/10 bg-[#121826] p-8 text-center">
+          <p className="text-sm text-slate-300">Your interview with {application.companyName} starts in 2 minutes.</p>
+          <p className="mt-3 text-6xl font-semibold text-white">{countdown}</p>
         </div>
       </div>
     )
   }
-
-  // -------------------------------------------
-  // RENDER: Complete
-  // -------------------------------------------
 
   if (phase === 'complete') {
-    const totalExchanges = exchanges.filter(e => e.speaker === 'candidate').length
     return (
-      <div className="fixed inset-0 bg-[#0a0a1a] flex items-center justify-center p-4 z-50">
-        <div className="max-w-md w-full text-center space-y-6">
-          <div className="w-20 h-20 rounded-full bg-green-600/20 flex items-center justify-center mx-auto">
-            <MessageSquare className="w-10 h-10 text-green-400" />
-          </div>
-          <h1 className="text-3xl font-bold text-white">Interview Complete</h1>
-          <p className="text-gray-400">
-            Great job completing your interview for{' '}
-            <span className="text-white font-medium">{application.jobTitle}</span> at{' '}
-            <span className="text-white font-medium">{application.companyName}</span>.
-          </p>
-
-          <div className="flex items-center justify-center gap-6 text-sm">
-            <div className="text-center">
-              <div className="flex items-center justify-center gap-1 text-gray-300 mb-1">
-                <Clock className="w-4 h-4" />
-                <span className="font-mono">{formatTime(elapsedSeconds)}</span>
-              </div>
-              <p className="text-gray-500 text-xs">Duration</p>
-            </div>
-            <div className="text-center">
-              <div className="flex items-center justify-center gap-1 text-gray-300 mb-1">
-                <MessageSquare className="w-4 h-4" />
-                <span>{totalExchanges}</span>
-              </div>
-              <p className="text-gray-500 text-xs">Exchanges</p>
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-3 pt-4">
-            <Button
-              size="lg"
-              onClick={() => router.push(`/debrief/${sessionId}`)}
-              className="!bg-blue-600 hover:!bg-blue-700"
-            >
-              View Your Debrief
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() => router.push('/dashboard')}
-              className="!text-gray-400 hover:!text-white"
-            >
-              Return to Dashboard
-            </Button>
-          </div>
-        </div>
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0b0f19] text-white">
+        <p className="text-sm text-slate-300">Session ended. Opening your debrief...</p>
       </div>
     )
   }
 
-  // -------------------------------------------
-  // RENDER: Interview Room (Main Phase)
-  // -------------------------------------------
-
-  // Webcam tile component for the video grid
-  const renderSelfView = () => (
-    <div className="relative w-full h-full rounded-xl overflow-hidden bg-[#0d0d20]">
-      {cameraActive && isCameraOn ? (
-        <video
-          ref={selfViewRef}
-          autoPlay
-          muted
-          playsInline
-          className="w-full h-full object-cover"
-          style={{ transform: 'scaleX(-1)' }}
-        />
-      ) : (
-        <div className="w-full h-full flex flex-col items-center justify-center gap-2" style={{ background: 'linear-gradient(135deg, #0d1b2a 0%, #1b263b 100%)' }}>
-          <div className="w-16 h-16 rounded-full bg-blue-600/30 flex items-center justify-center">
-            <User className="w-8 h-8 text-blue-300" />
-          </div>
-          {!cameraActive && <p className="text-gray-500 text-xs">Camera off</p>}
-        </div>
-      )}
-      {/* Name label */}
-      <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/60 to-transparent">
-        <p className="text-white text-sm font-medium">You</p>
-      </div>
-      {/* Mic active indicator */}
-      {isMicOn && isListening && (
-        <div className="absolute top-2 right-2 flex items-center gap-1 bg-green-500/20 rounded-full px-2 py-0.5">
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
-          </span>
-        </div>
-      )}
-      {/* Camera off overlay */}
-      {cameraActive && !isCameraOn && (
-        <div className="absolute inset-0 bg-[#0d0d20] flex flex-col items-center justify-center gap-2">
-          <div className="w-16 h-16 rounded-full bg-blue-600/30 flex items-center justify-center">
-            <User className="w-8 h-8 text-blue-300" />
-          </div>
-        </div>
-      )}
-    </div>
-  )
-
-  const renderCharacterGrid = () => {
-    if (isPhoneScreen) {
-      const active = characters[0]
-      return (
-        <div className="flex-1 min-h-0 p-4 flex items-center justify-center">
-          <div className="w-full max-w-xl rounded-2xl border border-[#1a1a35] bg-[#060610] p-10 text-center">
-            <div className="mx-auto w-24 h-24 rounded-full bg-blue-600/20 border border-blue-500/30 flex items-center justify-center">
-              <Mic className="w-10 h-10 text-blue-300" />
-            </div>
-            <p className="mt-4 text-white text-lg font-medium">{active?.name || 'Interviewer'}</p>
-            <p className="text-gray-400 text-sm">{active?.title || 'Phone Screen'}</p>
-            <p className="mt-6 text-gray-500 text-xs">Audio-only interview in progress</p>
-          </div>
-        </div>
-      )
-    }
-
-    const cols = characters.length <= 2 ? 2 : 3
-
-    return (
-      <div className="flex-1 min-h-0 p-2">
-        <div
-          className="w-full h-full gap-2 max-w-6xl mx-auto"
-          style={{
-            display: 'grid',
-            gridTemplateColumns: `repeat(${cols}, 1fr)`,
-            gridAutoRows: '1fr',
-          }}
-        >
-          {/* Interviewer character tiles */}
-          {characters.map(char => (
-            <div key={char.id} className="min-h-0">
-              <CharacterFace
-                character={char}
-                isSpeaking={speakingCharacterId === char.id}
-                expression={(characterExpressions[char.id] || 'neutral') as 'neutral' | 'interested' | 'skeptical' | 'nodding' | 'writing'}
-                isLookingAway={characterLookingAway[char.id] || false}
-              />
-            </div>
-          ))}
-        </div>
-      </div>
-    )
-  }
+  const speakingId = speakingCharacterId
+  const gridCols = characters.length <= 1 ? 'grid-cols-1' : characters.length === 2 ? 'grid-cols-2' : 'grid-cols-3'
 
   return (
-    <div className="fixed inset-0 bg-[#0a0a1a] flex flex-col z-50">
-      {/* Top bar — minimal, like a real video call */}
-      <div className="flex items-center justify-between px-4 py-2 bg-[#060610] border-b border-[#1a1a35]">
-        <div>
-          <p className="text-white text-sm font-medium">{application.companyName}</p>
-          <p className="text-gray-500 text-xs">{application.jobTitle} · {sessionData.stage}</p>
+    <div className="fixed inset-0 z-50 flex flex-col bg-[#0b0f19] text-white">
+      <div className="flex items-center justify-between px-4 py-2">
+        <div className="text-xs text-slate-300">{application.companyName}</div>
+        <div className="flex items-center gap-1 text-xs text-slate-300">
+          <Clock className="h-3.5 w-3.5" />
+          {formatTime(elapsedSeconds)}
         </div>
-        <div className="flex items-center gap-3 text-gray-300">
-          {isSpeakerOn && (
-            <span className={`text-[10px] px-2 py-0.5 rounded-full border ${
-              voiceEngine === 'server'
-                ? 'text-emerald-300 border-emerald-500/30 bg-emerald-500/10'
-                : 'text-amber-300 border-amber-500/30 bg-amber-500/10'
-            }`}>
-              {voiceEngine === 'server' ? 'Human voice' : 'Fallback voice'}
-            </span>
+      </div>
+
+      <div className="flex min-h-0 flex-1">
+        <div className="relative flex min-h-0 flex-1">
+          <div className={`grid ${gridCols} w-full gap-3 p-3`}>
+            {characters.map((char) => {
+              const joined = joinedCharacterIds.has(char.id)
+              const active = speakingId === char.id
+              return (
+                <div
+                  key={char.id}
+                  className={`relative flex min-h-[180px] flex-col items-center justify-center rounded-xl border bg-[#151b2c] p-4 ${
+                    active ? 'border-cyan-400 shadow-[0_0_0_1px_rgba(34,211,238,0.35)]' : 'border-white/10'
+                  }`}
+                >
+                  {!joined ? (
+                    <p className="text-xs text-slate-500">Connecting...</p>
+                  ) : (
+                    <>
+                      <div
+                        className="flex h-20 w-20 items-center justify-center rounded-full text-2xl font-semibold text-white"
+                        style={{ backgroundColor: char.avatarColor || '#334155' }}
+                      >
+                        {char.initials || char.name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()}
+                      </div>
+                      <p className="mt-3 text-sm font-medium text-white">{char.name}</p>
+                      <p className="text-center text-xs text-slate-400">{char.title}</p>
+                      {char.archetype === 'silent_observer' && (
+                        <div className="mt-2 flex items-center gap-1 text-xs text-slate-400">
+                          <PencilLine className="h-3.5 w-3.5" />
+                          taking notes
+                        </div>
+                      )}
+                      <AudioBars active={active} amplitude={amplitude} />
+                    </>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="pointer-events-none absolute bottom-20 right-4 h-36 w-56 overflow-hidden rounded-xl border border-white/20 bg-black">
+            <video ref={selfViewRef} autoPlay muted playsInline className="h-full w-full object-cover" />
+            <div className="absolute bottom-1 left-2 text-[11px] text-white">You</div>
+          </div>
+        </div>
+
+        <aside className={`${showTranscript ? 'w-[28%] min-w-[300px]' : 'w-10'} border-l border-white/10 bg-[#111827] transition-all`}>
+          <button
+            onClick={() => setShowTranscript((s) => !s)}
+            className="flex h-10 w-full items-center justify-center border-b border-white/10 text-slate-300 hover:bg-white/5"
+            title={showTranscript ? 'Collapse transcript' : 'Expand transcript'}
+          >
+            {showTranscript ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+          </button>
+          {showTranscript && (
+            <div className="h-[calc(100%-40px)] overflow-y-auto p-3">
+              {exchanges.map((ex) => {
+                const char = characters.find((c) => c.id === ex.characterId)
+                const author = ex.speaker === 'candidate' ? 'You' : ex.speaker === 'system' ? 'System' : (char?.name || 'Interviewer')
+                return (
+                  <div key={ex.id} className="mb-3 rounded-md border border-white/5 bg-[#0f172a] p-2">
+                    <div className="mb-1 flex items-center justify-between text-[11px]">
+                      <span className="font-semibold text-slate-200">{author}</span>
+                      <span className="text-slate-500">{ex.localTs}</span>
+                    </div>
+                    <p className="text-xs leading-relaxed text-slate-300">{ex.messageText}</p>
+                  </div>
+                )
+              })}
+              <div ref={chatEndRef} />
+            </div>
           )}
-          {isTTSSpeaking && (
-            <span className="text-[10px] text-blue-300">Speaking...</span>
-          )}
-          <Clock className="w-4 h-4" />
-          <span className="font-mono text-sm tabular-nums">{formatTime(elapsedSeconds)}</span>
-        </div>
+        </aside>
       </div>
 
-      {/* Main content: full-screen video grid */}
-      <div className="flex-1 flex min-h-0 overflow-hidden">
-        <div className="flex-1 flex flex-col min-h-0">
-          {renderCharacterGrid()}
-        </div>
-      </div>
-
-      {!isPhoneScreen && (
-        <div className="absolute right-4 bottom-24 z-20 w-64 h-40 rounded-xl overflow-hidden border border-[#1e1e3a] shadow-2xl">
-          {renderSelfView()}
-        </div>
-      )}
-
-      {/* Minimal status overlays (video-call style) */}
-      <div className="absolute left-4 bottom-24 z-20 space-y-2 max-w-sm">
-        {isListening && (
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-500/15 border border-red-500/30">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
-            </span>
-            <span className="text-red-300 text-xs font-medium">Listening...</span>
-          </div>
-        )}
-
-        {isSending && speakingCharacterId && (
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 border border-white/20">
-            <span className="text-gray-200 text-xs">Interviewer is thinking</span>
-            <div className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-            <div className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce" style={{ animationDelay: '120ms' }} />
-            <div className="w-1.5 h-1.5 bg-gray-300 rounded-full animate-bounce" style={{ animationDelay: '240ms' }} />
-          </div>
-        )}
-
-        {error && (
-          <div className="px-3 py-2 bg-red-900/50 border border-red-700/50 rounded-lg">
-            <p className="text-red-200 text-xs">{error}</p>
-            {pendingRetry && (
-              <button
-                onClick={handleRetryPending}
-                disabled={isSending}
-                className="mt-2 text-[11px] text-red-100 underline disabled:opacity-60"
-              >
-                Retry last answer
-              </button>
-            )}
-          </div>
-        )}
-
-        {!isConnectionHealthy && (
-          <div className="px-3 py-2 bg-amber-900/40 border border-amber-700/50 rounded-lg">
-            <p className="text-amber-200 text-xs">
-              Connection is unstable. Your last answer is preserved and can be retried.
-            </p>
-          </div>
-        )}
-
-      </div>
-
-      <div ref={chatEndRef} className="hidden" />
-
-      {/* Bottom controls bar */}
-      <div className="flex items-center justify-center gap-3 px-4 py-3 bg-[#060610] border-t border-[#1a1a35]">
+      <div className="flex items-center justify-center border-t border-white/10 bg-[#0f172a] py-3">
         <button
           onClick={toggleMic}
-          className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${
-            isMicOn
-              ? 'bg-[#1e1e3a] text-white hover:bg-[#2a2a4a]'
-              : 'bg-red-600 text-white hover:bg-red-700'
-          }`}
+          className={`flex h-12 w-12 items-center justify-center rounded-full ${isMicOn ? 'bg-slate-700 text-white' : 'bg-red-600 text-white'}`}
           title={isMicOn ? 'Mute microphone' : 'Unmute microphone'}
+          disabled={isSending}
         >
-          {isMicOn ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
+          {isMicOn ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}
         </button>
-
-        {!isPhoneScreen && (
-          <button
-            onClick={toggleCamera}
-            className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${
-              isCameraOn
-                ? 'bg-[#1e1e3a] text-white hover:bg-[#2a2a4a]'
-                : 'bg-red-600 text-white hover:bg-red-700'
-            }`}
-            title={isCameraOn ? 'Turn off camera' : 'Turn on camera'}
-          >
-            {isCameraOn ? <Video className="w-5 h-5" /> : <VideoOff className="w-5 h-5" />}
-          </button>
-        )}
-
-        <button
-          onClick={toggleSpeaker}
-          className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${
-            isSpeakerOn
-              ? 'bg-[#1e1e3a] text-white hover:bg-[#2a2a4a]'
-              : 'bg-orange-600 text-white hover:bg-orange-700'
-          }`}
-          title={isSpeakerOn ? 'Mute interviewer voice' : 'Unmute interviewer voice'}
-        >
-          {isSpeakerOn ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
-        </button>
-
       </div>
-
-      {/* Hidden video element for camera stream (used by selfViewRef in grid) */}
-      {cameraActive && (
-        <video
-          ref={videoRef}
-          autoPlay
-          muted
-          playsInline
-          className="hidden"
-        />
-      )}
-
     </div>
   )
 }
