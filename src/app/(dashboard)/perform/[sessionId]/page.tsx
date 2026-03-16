@@ -51,6 +51,7 @@ interface SessionData {
 }
 
 type Phase = 'loading' | 'briefing' | 'countdown' | 'interview' | 'complete'
+const PRE_INTERVIEW_COUNTDOWN_SECONDS = 30
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60)
@@ -243,7 +244,7 @@ export default function InterviewRoomPage() {
   const [phase, setPhase] = useState<Phase>('loading')
   const [sessionData, setSessionData] = useState<SessionData | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [countdown, setCountdown] = useState(120)
+  const [countdown, setCountdown] = useState(PRE_INTERVIEW_COUNTDOWN_SECONDS)
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const [showTranscript, setShowTranscript] = useState(true)
   const [exchanges, setExchanges] = useState<Array<Exchange & { localTs: string }>>([])
@@ -615,7 +616,7 @@ export default function InterviewRoomPage() {
               size="lg"
               disabled={!cameraReady || !cameraConfirmed || !audioConfirmed || !speechSupported}
               onClick={() => {
-                setCountdown(120)
+                setCountdown(PRE_INTERVIEW_COUNTDOWN_SECONDS)
                 setPhase('countdown')
               }}
             >
@@ -637,7 +638,9 @@ export default function InterviewRoomPage() {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0b0f19]">
         <div className="rounded-xl border border-white/10 bg-[#121826] p-8 text-center">
-          <p className="text-sm text-slate-300">Your interview with {application.companyName} starts in 2 minutes.</p>
+          <p className="text-sm text-slate-300">
+            Your interview with {application.companyName} starts in {PRE_INTERVIEW_COUNTDOWN_SECONDS} seconds.
+          </p>
           <p className="mt-3 text-6xl font-semibold text-white">{countdown}</p>
         </div>
       </div>

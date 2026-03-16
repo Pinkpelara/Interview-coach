@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import { useSession } from 'next-auth/react'
 import {
@@ -281,6 +281,7 @@ export default function PreparePage() {
 
   // Coaching accordion state
   const [openCoachingSection, setOpenCoachingSection] = useState<number | null>(null)
+  const autoRegeneratedRef = useRef(false)
 
   // Fetch application details
   useEffect(() => {
@@ -311,7 +312,22 @@ export default function PreparePage() {
         const res = await fetch(`/api/questions?applicationId=${applicationId}`)
         if (res.ok) {
           const data = await res.json()
-          setQuestions(data)
+          if (Array.isArray(data) && data.length > 0 && data.length < 100 && !autoRegeneratedRef.current) {
+            autoRegeneratedRef.current = true
+            const regenerate = await fetch('/api/questions', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ applicationId }),
+            })
+            if (regenerate.ok) {
+              const regenerated = await regenerate.json()
+              setQuestions(Array.isArray(regenerated) ? regenerated : data)
+            } else {
+              setQuestions(data)
+            }
+          } else {
+            setQuestions(data)
+          }
         }
       } catch (err) {
         console.error('Failed to fetch questions:', err)
