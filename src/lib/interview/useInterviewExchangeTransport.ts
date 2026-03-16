@@ -30,7 +30,11 @@ export type ExchangeResult = {
     title: string
     archetype: string
     avatarKey?: string
+    voiceId?: string
+    initials?: string
+    avatarColor?: string
   }
+  sessionEnd?: boolean
 }
 
 type PendingRequest = {

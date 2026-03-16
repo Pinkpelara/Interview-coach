@@ -6,6 +6,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/Button'
 import { Mic, MicOff, Clock, PencilLine, ChevronLeft, ChevronRight, PhoneOff } from 'lucide-react'
+import { useInterviewExchangeTransport } from '@/lib/interview/useInterviewExchangeTransport'
 
 interface Character {
   id: string
@@ -263,6 +264,19 @@ export default function InterviewRoomPage() {
   const chatEndRef = useRef<HTMLDivElement | null>(null)
 
   const { speak, stop: stopSpeech, amplitude } = useSpeech()
+  const httpExchange = useCallback(async (payload: { messageText: string; characterId: string }) => {
+    const res = await fetch(`/api/sessions/${sessionId}/exchange`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messageText: payload.messageText, characterId: payload.characterId || null }),
+    })
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}))
+      throw new Error(body.error || 'Failed to send turn.')
+    }
+    return res.json()
+  }, [sessionId])
+  const { sendExchange } = useInterviewExchangeTransport(sessionId, httpExchange)
 
   const addTranscript = useCallback((exchange: Exchange) => {
     setExchanges((prev) => [...prev, { ...exchange, localTs: timestampLabel() }])
@@ -456,16 +470,10 @@ export default function InterviewRoomPage() {
     addTranscript(candidateExchange)
 
     try {
-      const res = await fetch(`/api/sessions/${sessionId}/exchange`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messageText: text.trim() }),
+      const data = await sendExchange({
+        messageText: text.trim(),
+        characterId: speakingCharacterId || '',
       })
-      if (!res.ok) {
-        const body = await res.json()
-        throw new Error(body.error || 'Failed to send turn.')
-      }
-      const data = await res.json()
       const interviewerCharId = data.character?.id || data.interviewerExchange?.characterId
       setSpeakingCharacterId(interviewerCharId || null)
       await speak(
