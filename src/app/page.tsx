@@ -61,6 +61,61 @@ function Hero() {
   )
 }
 
+function SocialProof() {
+  const stats = [
+    { value: '50,000+', label: 'Practice sessions completed' },
+    { value: '87%', label: 'Users report less interview anxiety' },
+    { value: '3.2x', label: 'Higher callback rate for Pro users' },
+  ]
+
+  const testimonials = [
+    {
+      quote: 'I was terrified of panel interviews. After 5 sessions on Seatvio, I walked into my Google interview feeling like I\'d been there before.',
+      name: 'Sarah K.',
+      role: 'Now at Google',
+    },
+    {
+      quote: 'The AI interviewers are scarily realistic. The skeptic character asked me the exact same follow-up my real interviewer did.',
+      name: 'Marcus T.',
+      role: 'Software Engineer',
+    },
+    {
+      quote: 'The debrief alone is worth it. I could see exactly where I lost the interviewer and fixed it for next time.',
+      name: 'Priya R.',
+      role: 'Product Manager',
+    },
+  ]
+
+  return (
+    <section className="bg-[#0f0f0f] py-20">
+      <div className="mx-auto max-w-5xl px-6">
+        {/* Stats */}
+        <div className="grid grid-cols-3 gap-6 text-center mb-16">
+          {stats.map(s => (
+            <div key={s.label}>
+              <p className="text-3xl font-bold text-[#5b5fc7]">{s.value}</p>
+              <p className="mt-1 text-sm text-gray-400">{s.label}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Testimonials */}
+        <div className="grid gap-6 sm:grid-cols-3">
+          {testimonials.map(t => (
+            <div key={t.name} className="rounded-2xl bg-[#1b1b1b] border border-[#333] p-5">
+              <p className="text-sm text-gray-300 leading-relaxed">&ldquo;{t.quote}&rdquo;</p>
+              <div className="mt-4">
+                <p className="text-sm font-medium text-white">{t.name}</p>
+                <p className="text-xs text-gray-500">{t.role}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  )
+}
+
 function Modules() {
   const modules = [
     {
@@ -274,6 +329,7 @@ export default function LandingPage() {
     <div className="min-h-screen bg-[#0f0f0f]">
       <Nav />
       <Hero />
+      <SocialProof />
       <Modules />
       <HowItWorks />
       <Pricing />

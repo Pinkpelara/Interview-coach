@@ -404,6 +404,31 @@ Your next question: "${nextQuestion.questionText}"
 - Keep to 2-3 sentences`
     }
 
+    // Check for unexpected moments (spec 6.7 — high pressure mode)
+    const unexpectedMoments = (sessionEvents.unexpectedMoments as Array<{ triggerAfterQuestion: number; type: string; description: string }>) || []
+    const currentQIdx = questionState.currentQuestionIndex
+    const activeUnexpected = unexpectedMoments.find(m => m.triggerAfterQuestion === currentQIdx && shouldMoveOn)
+    let unexpectedInstruction = ''
+    if (activeUnexpected) {
+      switch (activeUnexpected.type) {
+        case 'awkward_silence':
+          unexpectedInstruction = '\nSPECIAL: Before responding, add "..." at the start of your response to indicate a long deliberate pause. Then respond normally.'
+          break
+        case 'interruption':
+          unexpectedInstruction = '\nSPECIAL: Interrupt the candidate. Start mid-thought with "Actually, let me stop you there —" and pivot to a challenging follow-up.'
+          break
+        case 'topic_pivot':
+          unexpectedInstruction = '\nSPECIAL: Abruptly change topic. Start with "Let\'s switch gears completely —" and ask something unexpected.'
+          break
+        case 'challenge':
+          unexpectedInstruction = '\nSPECIAL: Directly challenge what they said. Start with "I\'m not sure I agree with that approach." and explain why briefly.'
+          break
+        case 'repeat_question':
+          unexpectedInstruction = '\nSPECIAL: Act as if their answer was insufficient. Say "I don\'t think that fully addresses what I was asking." and repeat the question.'
+          break
+      }
+    }
+
     const systemPrompt = `${archetypePrompt}
 
 YOU ARE: ${respondingCharacter.name}, ${respondingCharacter.title}
@@ -423,7 +448,7 @@ RULES:
 - React to what the candidate ACTUALLY said. Reference their words.
 - Keep total response to 1-3 sentences max. Real interviewers are concise.
 - Do NOT start with "That's a great question" or "Thanks for sharing that" unless your archetype specifically allows warmth.
-- If the candidate asks YOU a question, answer briefly in character, then continue with your action.`
+- If the candidate asks YOU a question, answer briefly in character, then continue with your action.${unexpectedInstruction}`
 
     // -----------------------------------------------------------------------
     // Step 6: Generate response

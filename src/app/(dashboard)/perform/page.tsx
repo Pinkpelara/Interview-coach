@@ -29,6 +29,15 @@ interface Application {
   interviewStage: string | null
 }
 
+interface SessionCharacter {
+  id: string
+  name: string
+  title: string
+  archetype: string
+  avatarColor: string
+  initials: string
+}
+
 const STAGES = [
   { value: 'Phone Screen', label: 'Phone Screen', description: '1 interviewer, conversational, 20-30 min', icon: Phone, characters: '1 interviewer' },
   { value: 'First Round', label: 'First Round', description: '1-2 interviewers, competency-based questions', icon: UserCheck, characters: '1-2 interviewers' },
@@ -74,6 +83,7 @@ export default function PerformPage() {
   const [countdownActive, setCountdownActive] = useState(false)
   const [countdownSeconds, setCountdownSeconds] = useState(120)
   const [sessionId, setSessionId] = useState<string | null>(null)
+  const [sessionCharacters, setSessionCharacters] = useState<SessionCharacter[]>([])
 
   // Fetch application details
   useEffect(() => {
@@ -165,6 +175,15 @@ export default function PerformPage() {
 
       const sessionData = await res.json()
       setSessionId(sessionData.id)
+
+      // Parse characters from session for briefing screen
+      try {
+        const chars = typeof sessionData.characters === 'string'
+          ? JSON.parse(sessionData.characters)
+          : sessionData.characters || []
+        if (Array.isArray(chars)) setSessionCharacters(chars)
+      } catch { /* empty */ }
+
       setCountdownSeconds(120)
       setCountdownActive(true)
     } catch {
@@ -199,37 +218,80 @@ export default function PerformPage() {
     )
   }
 
-  // Countdown briefing screen (spec 6.2)
+  // Countdown briefing screen (spec 6.2) — shows panel, format, timer
   if (countdownActive) {
     const mins = Math.floor(countdownSeconds / 60)
     const secs = countdownSeconds % 60
+    const stageInfo = STAGES.find(s => s.value === selectedStage)
+    const intensityInfo = INTENSITIES.find(i => i.value === selectedIntensity)
+
     return (
       <div className="fixed inset-0 z-50 bg-[#1b1b1b] flex items-center justify-center p-4">
-        <div className="max-w-lg w-full text-center space-y-8">
+        <div className="max-w-2xl w-full text-center space-y-8">
+          {/* Header */}
           <div>
-            <p className="text-sm text-gray-400">Your interview with</p>
-            <h2 className="text-2xl font-bold text-white mt-1">
-              {application?.companyName}
-            </h2>
-            <p className="text-gray-500 text-sm mt-0.5">{application?.jobTitle}</p>
+            <p className="text-sm text-gray-400">Your interview begins in</p>
+            <div className="text-6xl font-bold text-[#5b5fc7] tabular-nums mt-3">
+              {mins}:{secs.toString().padStart(2, '0')}
+            </div>
           </div>
 
-          <div className="text-6xl font-bold text-[#5b5fc7] tabular-nums">
-            {mins}:{secs.toString().padStart(2, '0')}
+          {/* Company + role */}
+          <div>
+            <h2 className="text-2xl font-bold text-white">{application?.companyName}</h2>
+            <p className="text-gray-400 text-sm mt-0.5">{application?.jobTitle}</p>
           </div>
 
-          <div className="rounded-xl bg-[#292929] border border-[#333] p-5 text-left space-y-3">
-            <p className="text-sm text-white font-medium">
-              {selectedStage} &middot; {INTENSITIES.find(i => i.value === selectedIntensity)?.label} &middot; {selectedDuration} min
-            </p>
-            <p className="text-xs text-gray-400">
-              {STAGES.find(s => s.value === selectedStage)?.characters} will be in this session.
-            </p>
+          {/* Today's Panel — interviewer cards with initials, names, titles */}
+          {sessionCharacters.length > 0 && (
+            <div className="rounded-xl bg-[#292929] border border-[#333] p-5">
+              <p className="text-xs text-gray-500 uppercase tracking-wider mb-4">Today&apos;s Panel</p>
+              <div className="flex justify-center gap-6 flex-wrap">
+                {sessionCharacters.map(char => (
+                  <div key={char.id} className="flex flex-col items-center gap-2 min-w-[80px]">
+                    <div
+                      className="w-14 h-14 rounded-full flex items-center justify-center text-white text-lg font-semibold"
+                      style={{ backgroundColor: char.avatarColor }}
+                    >
+                      {char.initials}
+                    </div>
+                    <div className="text-center">
+                      <p className="text-sm font-medium text-white">{char.name}</p>
+                      <p className="text-xs text-gray-400">{char.title}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Interview format */}
+          <div className="rounded-xl bg-[#292929] border border-[#333] p-4 text-left">
+            <div className="grid grid-cols-3 gap-4 text-center">
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Format</p>
+                <p className="text-sm font-medium text-white">{selectedStage}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Intensity</p>
+                <p className="text-sm font-medium text-white">{intensityInfo?.label}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Duration</p>
+                <p className="text-sm font-medium text-white">{selectedDuration} min</p>
+              </div>
+            </div>
           </div>
 
-          <p className="text-xs text-gray-500">
-            The interview room will open when the timer reaches zero.
-          </p>
+          {/* Tips */}
+          <div className="text-left space-y-2 max-w-md mx-auto">
+            <p className="text-xs text-gray-500 uppercase tracking-wider">Quick reminders</p>
+            <ul className="text-xs text-gray-400 space-y-1">
+              <li>• Speak clearly and take your time — pauses are natural</li>
+              <li>• Use specific examples with numbers and outcomes</li>
+              <li>• The interview room will open automatically when the timer reaches zero</li>
+            </ul>
+          </div>
         </div>
       </div>
     )

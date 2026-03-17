@@ -66,6 +66,9 @@ type QuestionFilter =
   | 'curveball'
   | 'opening'
   | 'closing'
+  | 'culture'
+  | 'leadership'
+  | 'role-specific'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -74,6 +77,9 @@ const QUESTION_TYPE_COLORS: Record<string, string> = {
   technical: 'bg-purple-500/20 text-purple-400',
   situational: 'bg-green-500/20 text-green-400',
   'company-specific': 'bg-orange-500/20 text-orange-400',
+  culture: 'bg-pink-500/20 text-pink-400',
+  leadership: 'bg-amber-500/20 text-amber-400',
+  'role-specific': 'bg-cyan-500/20 text-cyan-400',
   curveball: 'bg-red-500/20 text-red-400',
   opening: 'bg-[#333] text-gray-400',
   closing: 'bg-[#333] text-gray-400',
@@ -92,6 +98,9 @@ const FILTER_OPTIONS: { label: string; value: QuestionFilter }[] = [
   { label: 'Technical', value: 'technical' },
   { label: 'Situational', value: 'situational' },
   { label: 'Company-Specific', value: 'company-specific' },
+  { label: 'Culture Fit', value: 'culture' },
+  { label: 'Leadership', value: 'leadership' },
+  { label: 'Role-Specific', value: 'role-specific' },
   { label: 'Curveball', value: 'curveball' },
   { label: 'Opening', value: 'opening' },
   { label: 'Closing', value: 'closing' },

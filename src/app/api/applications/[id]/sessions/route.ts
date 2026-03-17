@@ -323,6 +323,27 @@ export async function POST(
     // Assign each question to a specific panelist based on archetype match
     const ownedQuestionPlan = assignQuestionOwnership(questionPlan, characters)
 
+    // Generate unexpected moments for high-pressure mode (spec 6.7)
+    const unexpectedMoments: Array<{ triggerAfterQuestion: number; type: string; description: string }> = []
+    if (intensity === 'high-pressure') {
+      const possibleMoments = [
+        { type: 'awkward_silence', description: 'Extended 8-second pause after answer before responding' },
+        { type: 'interruption', description: 'Interviewer interrupts mid-answer with a new question' },
+        { type: 'topic_pivot', description: 'Sudden topic change to something unrelated' },
+        { type: 'challenge', description: 'Direct challenge: "I\'m not sure I agree with that approach"' },
+        { type: 'repeat_question', description: 'Ask the exact same question again as if the answer was insufficient' },
+      ]
+      // Insert 2-3 random unexpected moments at random points in the question plan
+      const momentCount = 2 + Math.floor(Math.random() * 2)
+      for (let m = 0; m < momentCount; m++) {
+        const triggerQ = 1 + Math.floor(Math.random() * Math.max(ownedQuestionPlan.length - 2, 1))
+        unexpectedMoments.push({
+          triggerAfterQuestion: triggerQ,
+          ...possibleMoments[Math.floor(Math.random() * possibleMoments.length)],
+        })
+      }
+    }
+
     const interviewSession = await prisma.interviewSession.create({
       data: {
         userId,
@@ -339,6 +360,7 @@ export async function POST(
             followUpCount: 0,
             sessionShouldEnd: false,
           },
+          unexpectedMoments,
         })),
       },
       include: {

@@ -3,7 +3,8 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, CheckCircle2, XCircle, Target, Volume2 } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, XCircle, Target, Volume2, TrendingUp } from 'lucide-react'
+import DebriefClient from './DebriefClient'
 
 interface CharacterInfo {
   id: string
@@ -25,7 +26,7 @@ export default async function DebriefPage({
   const interviewSession = await prisma.interviewSession.findFirst({
     where: { id: params.sessionId, userId },
     include: {
-      application: { select: { companyName: true, jobTitle: true } },
+      application: { select: { id: true, companyName: true, jobTitle: true } },
       analysis: true,
       exchanges: { orderBy: { sequenceNumber: 'asc' } },
     },
@@ -56,17 +57,22 @@ export default async function DebriefPage({
   }
 
   const scores = analysis ? [
-    { label: 'Answer Quality', score: analysis.scoreAnswerQuality, color: '#5b5fc7' },
-    { label: 'Delivery Confidence', score: analysis.scoreDelivery, color: '#6B8E4E' },
-    { label: 'Pressure Recovery', score: analysis.scorePressure, color: '#E8A838' },
-    { label: 'Company Fit Language', score: analysis.scoreCompanyFit, color: '#4A6FA5' },
-    { label: 'Listening Accuracy', score: analysis.scoreListening, color: '#C75B5B' },
+    { label: 'Answer Quality', score: analysis.scoreAnswerQuality ?? 0, color: '#5b5fc7' },
+    { label: 'Delivery Confidence', score: analysis.scoreDelivery ?? 0, color: '#6B8E4E' },
+    { label: 'Pressure Recovery', score: analysis.scorePressure ?? 0, color: '#E8A838' },
+    { label: 'Company Fit Language', score: analysis.scoreCompanyFit ?? 0, color: '#4A6FA5' },
+    { label: 'Listening Accuracy', score: analysis.scoreListening ?? 0, color: '#C75B5B' },
   ] : []
+
+  // Find primary weakness (lowest score)
+  const primaryWeakness = scores.length > 0
+    ? scores.reduce((min, s) => s.score < min.score ? s : min, scores[0])
+    : null
 
   const yesReasons = (analysis?.yesReasons as string[] | null) || []
   const noReasons = (analysis?.noReasons as string[] | null) || []
   const nextTargets = (analysis?.nextTargets as Array<{ title: string; description: string; action: string; metric: string }> | null) || []
-  const momentMap = (analysis?.momentMap as Array<{ startMs: number; endMs: number; quality: string; note: string }> | null) || []
+  const momentMap = (analysis?.momentMap as Array<{ startMs: number; endMs: number; quality: string; note: string; transcript?: string; coachingNote?: string }> | null) || []
   const coachScript = analysis?.coachScript as string | null
   const coachAudioUrl = analysis?.coachAudioUrl as string | null
 
@@ -77,6 +83,67 @@ export default async function DebriefPage({
   // Find the Friendly Champion character for the coach label
   const coachChar = characters.find(c => c.archetype === 'friendly_champion') || characters[0]
   const coachName = coachChar?.name || 'Your Coach'
+
+  // Fetch all sessions for progress tracking chart (spec 7.9)
+  const allSessions = await prisma.interviewSession.findMany({
+    where: {
+      applicationId: interviewSession.applicationId,
+      userId,
+      status: 'completed',
+    },
+    include: {
+      analysis: {
+        select: {
+          hiringProbability: true,
+          scoreAnswerQuality: true,
+          scoreDelivery: true,
+          scorePressure: true,
+          scoreCompanyFit: true,
+          scoreListening: true,
+        },
+      },
+    },
+    orderBy: { createdAt: 'asc' },
+  })
+
+  const progressData = allSessions.map(s => ({
+    id: s.id,
+    date: s.createdAt.toISOString(),
+    hiringProbability: s.analysis?.hiringProbability ?? 0,
+    avgScore: s.analysis
+      ? Math.round(((s.analysis.scoreAnswerQuality ?? 0) + (s.analysis.scoreDelivery ?? 0) + (s.analysis.scorePressure ?? 0) + (s.analysis.scoreCompanyFit ?? 0) + (s.analysis.scoreListening ?? 0)) / 5)
+      : 0,
+  }))
+
+  // SVG circular gauge helper
+  function CircularGauge({ score, color, size = 80 }: { score: number; color: string; size?: number }) {
+    const radius = (size - 8) / 2
+    const circumference = 2 * Math.PI * radius
+    const offset = circumference - (score / 100) * circumference
+    return (
+      <svg width={size} height={size} className="transform -rotate-90">
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke="#1b1b1b"
+          strokeWidth="6"
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke={color}
+          strokeWidth="6"
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+        />
+      </svg>
+    )
+  }
 
   return (
     <div className="mx-auto max-w-4xl space-y-8">
@@ -115,7 +182,7 @@ export default async function DebriefPage({
                 <div>
                   <h3 className="text-sm font-medium text-white flex items-center gap-2">
                     <Volume2 className="h-4 w-4 text-[#5b5fc7]" />
-                    Coach Debrief — {coachName}
+                    Coach Debrief &mdash; {coachName}
                   </h3>
                   <p className="text-xs text-gray-500">&ldquo;Let&apos;s talk about what just happened in there.&rdquo;</p>
                 </div>
@@ -131,55 +198,33 @@ export default async function DebriefPage({
             </div>
           )}
 
-          {/* Moment Map */}
-          {momentMap.length > 0 && (
-            <div className="rounded-2xl bg-[#292929] p-5">
-              <h3 className="text-sm font-medium text-white mb-4">Moment Map</h3>
-              <div className="flex h-8 rounded-lg overflow-hidden gap-px">
-                {momentMap.map((segment, i) => {
-                  const width = totalDurationMs > 0
-                    ? ((segment.endMs - segment.startMs) / totalDurationMs) * 100
-                    : 100 / momentMap.length
-                  const color = segment.quality === 'strong' ? 'bg-emerald-500'
-                    : segment.quality === 'recoverable' ? 'bg-yellow-500'
-                    : 'bg-red-500'
-                  return (
-                    <div
-                      key={i}
-                      className={`${color} hover:opacity-80 transition-opacity cursor-pointer relative group`}
-                      style={{ width: `${Math.max(width, 2)}%` }}
-                      title={segment.note}
-                    >
-                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block bg-[#1b1b1b] border border-[#333] rounded-lg px-3 py-2 text-xs text-gray-300 whitespace-nowrap z-10">
-                        {segment.note}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-              <div className="flex items-center gap-4 mt-2 text-xs text-gray-500">
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" /> Strong</span>
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-500" /> Recoverable</span>
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500" /> Dropped</span>
-              </div>
-            </div>
-          )}
+          {/* Interactive Moment Map (spec 7.3) — client component for click handling */}
+          <DebriefClient
+            momentMap={momentMap}
+            totalDurationMs={totalDurationMs}
+          />
 
-          {/* 5 Score Cards */}
+          {/* 5 Score Cards with Circular Gauges (spec 7.5) */}
           <div className="grid gap-3 sm:grid-cols-5">
             {scores.map(s => (
               <div key={s.label} className="rounded-2xl bg-[#292929] p-4 text-center">
-                <p className="text-3xl font-bold text-white">{s.score}</p>
-                <div className="mt-2 h-1.5 rounded-full bg-[#1b1b1b]">
-                  <div
-                    className="h-full rounded-full transition-all"
-                    style={{ width: `${s.score}%`, backgroundColor: s.color }}
-                  />
+                <div className="relative inline-flex items-center justify-center">
+                  <CircularGauge score={s.score} color={s.color} size={80} />
+                  <span className="absolute text-xl font-bold text-white">{s.score}</span>
                 </div>
                 <p className="mt-2 text-xs text-gray-400">{s.label}</p>
               </div>
             ))}
           </div>
+
+          {/* Primary Weakness callout */}
+          {primaryWeakness && primaryWeakness.score < 70 && (
+            <div className="rounded-2xl bg-red-900/10 border border-red-500/20 p-4">
+              <p className="text-xs text-red-400 uppercase tracking-wider mb-1">Primary Weakness</p>
+              <p className="text-sm text-white font-medium">{primaryWeakness.label} — {primaryWeakness.score}/100</p>
+              <p className="text-xs text-gray-400 mt-1">Focus your next practice session on improving this area.</p>
+            </div>
+          )}
 
           {/* Hiring Probability */}
           <div className="rounded-2xl bg-[#292929] p-6 text-center">
@@ -238,6 +283,34 @@ export default async function DebriefPage({
                     <p className="mt-1 text-xs text-gray-500">Success metric: {t.metric}</p>
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* Progress Tracking Chart (spec 7.9) */}
+          {progressData.length > 1 && (
+            <div className="rounded-2xl bg-[#292929] p-5">
+              <h3 className="text-sm font-medium text-white mb-4 flex items-center gap-2">
+                <TrendingUp className="h-4 w-4 text-[#5b5fc7]" />
+                Progress Over Sessions
+              </h3>
+              <div className="flex items-end gap-2 h-32">
+                {progressData.map((p, i) => {
+                  const isCurrent = p.id === params.sessionId
+                  const height = Math.max(p.hiringProbability, 5)
+                  return (
+                    <div key={p.id} className="flex-1 flex flex-col items-center gap-1">
+                      <span className="text-xs text-gray-400">{p.hiringProbability}%</span>
+                      <div
+                        className={`w-full rounded-t-lg transition-all ${isCurrent ? 'bg-[#5b5fc7]' : 'bg-[#5b5fc7]/40'}`}
+                        style={{ height: `${height}%` }}
+                      />
+                      <span className="text-[10px] text-gray-500">
+                        {new Date(p.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      </span>
+                    </div>
+                  )
+                })}
               </div>
             </div>
           )}
