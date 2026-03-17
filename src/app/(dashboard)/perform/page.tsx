@@ -1,13 +1,13 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { useSession } from 'next-auth/react'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
-import { Badge } from '@/components/ui/Badge'
 import {
   Mic,
+  MicOff,
   Users,
   UserCheck,
   Phone,
@@ -18,6 +18,7 @@ import {
   Snowflake,
   Target,
   ArrowLeft,
+  CheckCircle2,
 } from 'lucide-react'
 import Link from 'next/link'
 
@@ -65,6 +66,15 @@ export default function PerformPage() {
   const [selectedIntensity, setSelectedIntensity] = useState('standard')
   const [selectedDuration, setSelectedDuration] = useState(45)
 
+  // Mic check state (spec 6.2)
+  const [micChecked, setMicChecked] = useState(false)
+  const [micWorking, setMicWorking] = useState(false)
+
+  // Countdown state (spec 6.2)
+  const [countdownActive, setCountdownActive] = useState(false)
+  const [countdownSeconds, setCountdownSeconds] = useState(120)
+  const [sessionId, setSessionId] = useState<string | null>(null)
+
   // Fetch application details
   useEffect(() => {
     if (!applicationId) {
@@ -104,7 +114,32 @@ export default function PerformPage() {
     fetchApp()
   }, [applicationId])
 
-  // Start session
+  // Mic check handler
+  const checkMic = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      setMicChecked(true)
+      setMicWorking(true)
+      stream.getTracks().forEach(t => t.stop())
+    } catch {
+      setMicChecked(true)
+      setMicWorking(false)
+    }
+  }, [])
+
+  // Countdown timer effect
+  useEffect(() => {
+    if (!countdownActive) return
+    if (countdownSeconds <= 0) {
+      // Countdown done — navigate to interview room
+      if (sessionId) router.push(`/perform/${sessionId}`)
+      return
+    }
+    const timer = setTimeout(() => setCountdownSeconds(s => s - 1), 1000)
+    return () => clearTimeout(timer)
+  }, [countdownActive, countdownSeconds, sessionId, router])
+
+  // Start session — creates session then starts 2-min countdown
   async function handleStartSession() {
     if (!applicationId) return
     setCreating(true)
@@ -129,7 +164,9 @@ export default function PerformPage() {
       }
 
       const sessionData = await res.json()
-      router.push(`/perform/${sessionData.id}`)
+      setSessionId(sessionData.id)
+      setCountdownSeconds(120)
+      setCountdownActive(true)
     } catch {
       setError('Something went wrong. Please try again.')
       setCreating(false)
@@ -157,6 +194,42 @@ export default function PerformPage() {
               Back to Applications
             </Button>
           </Link>
+        </div>
+      </div>
+    )
+  }
+
+  // Countdown briefing screen (spec 6.2)
+  if (countdownActive) {
+    const mins = Math.floor(countdownSeconds / 60)
+    const secs = countdownSeconds % 60
+    return (
+      <div className="fixed inset-0 z-50 bg-[#1b1b1b] flex items-center justify-center p-4">
+        <div className="max-w-lg w-full text-center space-y-8">
+          <div>
+            <p className="text-sm text-gray-400">Your interview with</p>
+            <h2 className="text-2xl font-bold text-white mt-1">
+              {application?.companyName}
+            </h2>
+            <p className="text-gray-500 text-sm mt-0.5">{application?.jobTitle}</p>
+          </div>
+
+          <div className="text-6xl font-bold text-[#5b5fc7] tabular-nums">
+            {mins}:{secs.toString().padStart(2, '0')}
+          </div>
+
+          <div className="rounded-xl bg-[#292929] border border-[#333] p-5 text-left space-y-3">
+            <p className="text-sm text-white font-medium">
+              {selectedStage} &middot; {INTENSITIES.find(i => i.value === selectedIntensity)?.label} &middot; {selectedDuration} min
+            </p>
+            <p className="text-xs text-gray-400">
+              {STAGES.find(s => s.value === selectedStage)?.characters} will be in this session.
+            </p>
+          </div>
+
+          <p className="text-xs text-gray-500">
+            The interview room will open when the timer reaches zero.
+          </p>
         </div>
       </div>
     )
@@ -278,6 +351,34 @@ export default function PerformPage() {
         </div>
       </div>
 
+      {/* Microphone Check (spec 6.2) */}
+      <div>
+        <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">
+          Microphone Check
+        </h3>
+        <div className="rounded-xl border-2 border-[#333] bg-[#292929] p-4">
+          {!micChecked ? (
+            <button
+              onClick={checkMic}
+              className="w-full flex items-center justify-center gap-2 rounded-lg bg-[#1b1b1b] px-4 py-3 text-sm text-gray-400 hover:bg-[#333] transition-colors"
+            >
+              <Mic className="h-4 w-4" />
+              Test Microphone
+            </button>
+          ) : micWorking ? (
+            <div className="flex items-center gap-2 text-emerald-400 text-sm px-2">
+              <CheckCircle2 className="h-4 w-4" />
+              Microphone is working
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 text-red-400 text-sm px-2">
+              <MicOff className="h-4 w-4" />
+              Microphone not detected. Check your browser settings and try again.
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Error */}
       {error && (
         <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-3 text-sm text-red-400">
@@ -300,12 +401,19 @@ export default function PerformPage() {
             size="lg"
             onClick={handleStartSession}
             loading={creating}
+            disabled={!micChecked || !micWorking}
           >
             <Mic className="h-5 w-5 mr-2" />
             Start Interview
           </Button>
         </CardContent>
       </Card>
+
+      {!micChecked && (
+        <p className="text-xs text-gray-500 text-center">
+          Complete the microphone check above before starting your interview.
+        </p>
+      )}
     </div>
   )
 }

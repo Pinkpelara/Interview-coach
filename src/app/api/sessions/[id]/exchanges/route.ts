@@ -115,7 +115,7 @@ const FALLBACK_RESPONSES: Record<string, string[]> = {
   friendly_champion: [
     "That's really interesting, tell me more about how you approached that.",
     'I love that example! How did the team respond?',
-    "That's exactly the kind of initiative we value.",
+    "Oh interesting — and what was the hardest part of that?",
   ],
   technical_griller: [
     'Walk me through exactly how you implemented that.',

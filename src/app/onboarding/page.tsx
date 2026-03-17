@@ -382,8 +382,8 @@ export default function OnboardingPage() {
                     }}
                   />
                   <div className="flex justify-between text-xs text-gray-500">
-                    <span>Calm</span>
-                    <span>Very Anxious</span>
+                    <span>Completely calm</span>
+                    <span>Extremely anxious</span>
                   </div>
                 </div>
 

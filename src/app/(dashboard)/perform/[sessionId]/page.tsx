@@ -8,7 +8,6 @@ import {
   Video,
   VideoOff,
   PhoneOff,
-  MessageSquare,
   Clock,
 } from 'lucide-react'
 
@@ -285,7 +284,6 @@ export default function InterviewRoomPage() {
 
   // Chat state
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
-  const [chatOpen, setChatOpen] = useState(true)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const [autoScroll, setAutoScroll] = useState(true)
 
@@ -909,23 +907,18 @@ export default function InterviewRoomPage() {
 
   return (
     <div className="fixed inset-0 bg-[#1b1b1b] flex flex-col">
-      {/* Top bar — company + timer only, no indicators */}
+      {/* Top bar — company name + timer only (spec 6.3) */}
       <div className="flex items-center justify-between px-4 py-2 bg-[#1b1b1b] border-b border-[#333]">
-        <div className="flex items-center gap-3">
-          <span className="text-sm font-medium text-white">{sessionData.companyName}</span>
-          <span className="text-xs text-gray-500">{sessionData.jobTitle}</span>
-        </div>
-        <div className="flex items-center gap-4">
-          <span className="text-xs text-gray-400 flex items-center gap-1">
-            <Clock className="h-3.5 w-3.5" />
-            {formatTime(elapsedMs)}
-          </span>
-        </div>
+        <span className="text-sm font-medium text-[#5b5fc7]">{sessionData.companyName}</span>
+        <span className="text-xs text-gray-400 flex items-center gap-1">
+          <Clock className="h-3.5 w-3.5" />
+          {formatTime(elapsedMs)}
+        </span>
       </div>
 
       {/* Main content area */}
       <div className="flex-1 flex min-h-0">
-        {/* Video grid area */}
+        {/* Interviewer tiles — camera-off style (spec 6.3) */}
         <div className="flex-1 flex items-center justify-center p-4">
           <div className={`grid gap-3 w-full max-w-4xl ${
             characters.length === 1 ? 'grid-cols-1 max-w-xl' :
@@ -952,7 +945,7 @@ export default function InterviewRoomPage() {
                 <p className="text-sm font-medium text-white">{char.name}</p>
                 <p className="text-xs text-gray-400 mt-0.5">{char.title}</p>
 
-                {/* Audio-reactive speaking indicator (spec 2.10) */}
+                {/* Audio-reactive speaking indicator */}
                 {activeSpeakerId === char.id && (
                   <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-0.5">
                     {[0, 1, 2, 3, 4].map(i => (
@@ -970,62 +963,57 @@ export default function InterviewRoomPage() {
           </div>
         </div>
 
-        {/* Live Transcript Sidebar */}
-        {chatOpen && (
-          <div className="w-80 border-l border-[#333] flex flex-col bg-[#252525]">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-[#333]">
-              <h3 className="text-sm font-medium text-white">Meeting chat</h3>
-              <button onClick={() => setChatOpen(false)} className="text-gray-400 hover:text-white">
-                <MessageSquare className="h-4 w-4" />
-              </button>
-            </div>
-            <div
-              className="flex-1 overflow-y-auto p-4 space-y-3"
-              onScroll={handleChatScroll}
-            >
-              {chatMessages.map(msg => (
-                <div
-                  key={msg.id}
-                  className={`flex flex-col ${msg.isCandidate ? 'items-end' : 'items-start'}`}
-                >
-                  <div className="flex items-center gap-2 mb-0.5">
-                    {!msg.isCandidate && msg.avatarColor && (
-                      <div
-                        className="w-2 h-2 rounded-full shrink-0"
-                        style={{ backgroundColor: msg.avatarColor }}
-                      />
-                    )}
-                    <span className="text-xs font-medium text-gray-300">{msg.speakerName}</span>
-                    <span className="text-xs text-gray-600">
-                      {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </div>
-                  <div className={`rounded-lg px-3 py-2 text-sm max-w-[90%] ${
-                    msg.isCandidate
-                      ? 'bg-[#5b5fc7] text-white'
-                      : msg.speaker === 'system'
-                      ? 'bg-transparent text-gray-500 italic text-xs'
-                      : 'bg-[#333] text-gray-200'
-                  }`}>
-                    {msg.text}
-                  </div>
-                </div>
-              ))}
-              {interimTranscript && (
-                <div className="flex flex-col items-end">
-                  <div className="rounded-lg px-3 py-2 text-sm max-w-[90%] bg-[#5b5fc7]/30 text-white/70 italic">
-                    {interimTranscript}...
-                  </div>
-                </div>
-              )}
-              <div ref={chatEndRef} />
-            </div>
+        {/* Live Transcript Sidebar — always visible, read-only (spec 6.3) */}
+        <div className="w-80 border-l border-[#333] flex flex-col bg-[#252525]">
+          <div className="px-4 py-3 border-b border-[#333]">
+            <h3 className="text-sm font-medium text-white">Meeting transcript</h3>
           </div>
-        )}
+          <div
+            className="flex-1 overflow-y-auto p-4 space-y-3"
+            onScroll={handleChatScroll}
+          >
+            {chatMessages.map(msg => (
+              <div
+                key={msg.id}
+                className={`flex flex-col ${msg.isCandidate ? 'items-end' : 'items-start'}`}
+              >
+                <div className="flex items-center gap-2 mb-0.5">
+                  {!msg.isCandidate && msg.avatarColor && (
+                    <div
+                      className="w-2 h-2 rounded-full shrink-0"
+                      style={{ backgroundColor: msg.avatarColor }}
+                    />
+                  )}
+                  <span className="text-xs font-medium text-gray-300">{msg.speakerName}</span>
+                  <span className="text-xs text-gray-600">
+                    {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                </div>
+                <div className={`rounded-lg px-3 py-2 text-sm max-w-[90%] ${
+                  msg.isCandidate
+                    ? 'bg-[#5b5fc7] text-white'
+                    : msg.speaker === 'system'
+                    ? 'bg-transparent text-gray-500 italic text-xs'
+                    : 'bg-[#333] text-gray-200'
+                }`}>
+                  {msg.text}
+                </div>
+              </div>
+            ))}
+            {interimTranscript && (
+              <div className="flex flex-col items-end">
+                <div className="rounded-lg px-3 py-2 text-sm max-w-[90%] bg-[#5b5fc7]/30 text-white/70 italic">
+                  {interimTranscript}...
+                </div>
+              </div>
+            )}
+            <div ref={chatEndRef} />
+          </div>
+        </div>
       </div>
 
-      {/* Candidate PIP tile */}
-      <div className="absolute bottom-20 right-4 z-10" style={{ right: chatOpen ? '336px' : '16px' }}>
+      {/* Candidate PIP tile — local camera, not streamed or recorded (spec 6.3) */}
+      <div className="absolute bottom-20 z-10" style={{ right: '336px' }}>
         <div className="w-48 h-36 rounded-lg overflow-hidden bg-[#292929] border border-[#333] shadow-lg relative">
           <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
           {!cameraEnabled && (
@@ -1037,18 +1025,8 @@ export default function InterviewRoomPage() {
         <p className="text-xs text-gray-400 text-center mt-1">You</p>
       </div>
 
-      {/* Bottom control bar */}
+      {/* Bottom control bar — mic + end call only (spec 6.3) */}
       <div className="flex items-center justify-center gap-3 py-3 bg-[#1b1b1b] border-t border-[#333]">
-        <button
-          onClick={toggleCamera}
-          className={`rounded-full p-3 transition-colors ${
-            cameraEnabled ? 'bg-[#292929] text-white hover:bg-[#333]' : 'bg-red-500 text-white'
-          }`}
-          title={cameraEnabled ? 'Turn off camera' : 'Turn on camera'}
-        >
-          {cameraEnabled ? <Video className="h-5 w-5" /> : <VideoOff className="h-5 w-5" />}
-        </button>
-
         <button
           onClick={toggleMic}
           className={`rounded-full p-3 transition-colors ${
@@ -1058,16 +1036,6 @@ export default function InterviewRoomPage() {
         >
           {micEnabled ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}
         </button>
-
-        {!chatOpen && (
-          <button
-            onClick={() => setChatOpen(true)}
-            className="rounded-full p-3 bg-[#292929] text-white hover:bg-[#333] transition-colors"
-            title="Open chat"
-          >
-            <MessageSquare className="h-5 w-5" />
-          </button>
-        )}
 
         <button
           onClick={leaveInterview}

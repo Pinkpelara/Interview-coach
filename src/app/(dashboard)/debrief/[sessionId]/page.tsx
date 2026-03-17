@@ -3,7 +3,15 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowLeft, CheckCircle2, XCircle, Target } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, XCircle, Target, Volume2 } from 'lucide-react'
+
+interface CharacterInfo {
+  id: string
+  name: string
+  title: string
+  archetype: string
+  avatarColor: string
+}
 
 export default async function DebriefPage({
   params,
@@ -28,6 +36,25 @@ export default async function DebriefPage({
   const analysis = interviewSession.analysis
   const exchanges = interviewSession.exchanges
 
+  // Parse characters from session to resolve character IDs to names
+  let characters: CharacterInfo[] = []
+  try {
+    const rawChars = typeof interviewSession.characters === 'string'
+      ? JSON.parse(interviewSession.characters)
+      : interviewSession.characters
+    if (Array.isArray(rawChars)) characters = rawChars
+  } catch { /* empty */ }
+
+  const characterNameMap = new Map<string, string>()
+  for (const c of characters) {
+    characterNameMap.set(c.id, c.name)
+  }
+
+  function getCharacterName(charId: string | null): string {
+    if (!charId) return 'Interviewer'
+    return characterNameMap.get(charId) || charId
+  }
+
   const scores = analysis ? [
     { label: 'Answer Quality', score: analysis.scoreAnswerQuality, color: '#5b5fc7' },
     { label: 'Delivery Confidence', score: analysis.scoreDelivery, color: '#6B8E4E' },
@@ -40,10 +67,16 @@ export default async function DebriefPage({
   const noReasons = (analysis?.noReasons as string[] | null) || []
   const nextTargets = (analysis?.nextTargets as Array<{ title: string; description: string; action: string; metric: string }> | null) || []
   const momentMap = (analysis?.momentMap as Array<{ startMs: number; endMs: number; quality: string; note: string }> | null) || []
+  const coachScript = analysis?.coachScript as string | null
+  const coachAudioUrl = analysis?.coachAudioUrl as string | null
 
   const totalDurationMs = interviewSession.actualDurationMs
     ? Number(interviewSession.actualDurationMs)
     : (exchanges.length > 0 ? Number(exchanges[exchanges.length - 1].timestampMs) : 60000)
+
+  // Find the Friendly Champion character for the coach label
+  const coachChar = characters.find(c => c.archetype === 'friendly_champion') || characters[0]
+  const coachName = coachChar?.name || 'Your Coach'
 
   return (
     <div className="mx-auto max-w-4xl space-y-8">
@@ -67,6 +100,37 @@ export default async function DebriefPage({
         </div>
       ) : (
         <>
+          {/* Coach Audio (spec 7.8) — auto-plays when debrief loads */}
+          {(coachAudioUrl || coachScript) && (
+            <div className="rounded-2xl bg-[#292929] p-5">
+              <div className="flex items-center gap-3 mb-3">
+                {coachChar?.avatarColor && (
+                  <div
+                    className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-semibold"
+                    style={{ backgroundColor: coachChar.avatarColor }}
+                  >
+                    {coachChar.name.split(' ').map(n => n[0]).join('')}
+                  </div>
+                )}
+                <div>
+                  <h3 className="text-sm font-medium text-white flex items-center gap-2">
+                    <Volume2 className="h-4 w-4 text-[#5b5fc7]" />
+                    Coach Debrief — {coachName}
+                  </h3>
+                  <p className="text-xs text-gray-500">&ldquo;Let&apos;s talk about what just happened in there.&rdquo;</p>
+                </div>
+              </div>
+              {coachAudioUrl && (
+                <audio controls autoPlay className="w-full mb-3" src={coachAudioUrl}>
+                  Your browser does not support audio playback.
+                </audio>
+              )}
+              {coachScript && (
+                <p className="text-sm text-gray-300 leading-relaxed">{coachScript}</p>
+              )}
+            </div>
+          )}
+
           {/* Moment Map */}
           {momentMap.length > 0 && (
             <div className="rounded-2xl bg-[#292929] p-5">
@@ -158,15 +222,15 @@ export default async function DebriefPage({
             )}
           </div>
 
-          {/* Next Targets */}
+          {/* Next Targets — exactly 3 (spec 7.7) */}
           {nextTargets.length > 0 && (
             <div>
               <h3 className="text-sm font-medium text-white mb-3 flex items-center gap-2">
                 <Target className="h-4 w-4 text-[#5b5fc7]" />
-                Next Targets
+                Next Session Targets
               </h3>
               <div className="grid gap-3 sm:grid-cols-3">
-                {nextTargets.map((t, i) => (
+                {nextTargets.slice(0, 3).map((t, i) => (
                   <div key={i} className="rounded-2xl bg-[#292929] p-5">
                     <h4 className="text-sm font-semibold text-white">{t.title}</h4>
                     <p className="mt-2 text-xs text-gray-400">{t.description}</p>
@@ -178,7 +242,7 @@ export default async function DebriefPage({
             </div>
           )}
 
-          {/* Transcript */}
+          {/* Full Transcript — with character names resolved */}
           <div className="rounded-2xl bg-[#292929] p-5">
             <h3 className="text-sm font-medium text-white mb-4">Full Transcript</h3>
             <div className="space-y-3 max-h-96 overflow-y-auto">
@@ -190,7 +254,7 @@ export default async function DebriefPage({
                       : 'bg-[#333] text-gray-200'
                   }`}>
                     <p className="text-xs font-medium mb-0.5 opacity-70">
-                      {ex.speaker === 'candidate' ? 'You' : ex.characterId || 'Interviewer'}
+                      {ex.speaker === 'candidate' ? 'You' : getCharacterName(ex.characterId)}
                     </p>
                     {ex.messageText}
                   </div>

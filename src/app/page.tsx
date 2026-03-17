@@ -103,7 +103,7 @@ function Modules() {
 function HowItWorks() {
   const steps = [
     { step: '1', title: 'Add your application', desc: 'Paste the job description and upload your resume.' },
-    { step: '2', title: 'Get your question bank', desc: 'AI analyzes both documents and generates 25+ personalized questions.' },
+    { step: '2', title: 'Get your question bank', desc: 'AI analyzes both documents and generates 100\u2013200+ personalized questions across 10 categories.' },
     { step: '3', title: 'Run a live interview', desc: 'Join a Teams-style call with AI interviewers who speak, pause, and push back.' },
     { step: '4', title: 'Review your debrief', desc: 'Get scored on 5 dimensions, hiring probability, and targeted improvement plan.' },
   ]
